@@ -69,6 +69,25 @@ class Dsn:
         return 0 if self.pooled else 100
 
 
+def normalise_base_url(raw: str) -> str:
+    """Make sure the public URL carries a scheme.
+
+    Railway shows a generated domain without one, and pasting it verbatim is the
+    obvious thing to do. Without a scheme ``urlsplit`` puts the whole thing in
+    ``path`` and leaves ``netloc`` empty, so the CSRF same-origin check compares
+    the real origin against ``('', '')`` and rejects every POST -- including the
+    login form. Failing that way is silent and baffling, so it is repaired here.
+    """
+    value = raw.strip().rstrip("/")
+    if not value:
+        return "http://localhost:8000"
+    if "://" not in value:
+        # Anything on a real host is https; only localhost is plausibly plain.
+        scheme = "http" if value.startswith(("localhost", "127.0.0.1", "[::1]")) else "https"
+        return f"{scheme}://{value}"
+    return value
+
+
 def clean_dsn(dsn: str) -> Dsn:
     """Strip query parameters from a Postgres URL.
 
@@ -139,7 +158,7 @@ def _load() -> Settings:
         bot_shared_secret=_required("BOT_SHARED_SECRET"),
         timezone=tz,
         tzname=tzname,
-        base_url=os.getenv("APP_BASE_URL", "http://localhost:8000").rstrip("/"),
+        base_url=normalise_base_url(os.getenv("APP_BASE_URL", "http://localhost:8000")),
         currency=os.getenv("APP_CURRENCY", "֏").strip(),
         insecure_cookies=_flag("APP_INSECURE_COOKIES", default=False),
         log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),

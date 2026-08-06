@@ -144,10 +144,19 @@ async def _unhandled(request: Request, exc: Exception) -> Response:
 
 @app.get("/health")
 async def health() -> JSONResponse:
-    """Railway's healthcheck. Touches the database, so a deploy that cannot reach
-    Neon is reported unhealthy rather than quietly serving 500s."""
+    """Railway's healthcheck: a liveness probe that reports database state.
+
+    It answers 200 whenever the process is serving, and puts the database state
+    in the body rather than in the status code. That is deliberate. Neon
+    suspends an idle compute, so the first query after a quiet spell can take
+    tens of seconds; gating the status code on it means a perfectly good deploy
+    gets marked unhealthy and rolled back for a database that was merely asleep.
+
+    Database reachability is already gated somewhere better: ``migrate.py`` runs
+    as the pre-deploy command and cannot succeed without it, so a deploy with a
+    wrong DATABASE_URL never reaches this endpoint at all.
+    """
     ok = await db.healthy()
-    return JSONResponse(
-        {"ok": ok, "db": "up" if ok else "down"},
-        status_code=200 if ok else 503,
-    )
+    if not ok:
+        log.warning("health check: database is not answering")
+    return JSONResponse({"ok": True, "db": "up" if ok else "down"})
