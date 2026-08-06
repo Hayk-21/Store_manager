@@ -17,7 +17,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 from app import format, keyboards, texts
 from app.api import ApiError, ApiUnavailable, api, new_idempotency_key
 
-log = logging.getLogger("vapestore.bot.sell")
+log = logging.getLogger("storemanager.bot.sell")
 
 ASK_ITEM, ASK_QUANTITY, ASK_PAYMENT = range(3)
 

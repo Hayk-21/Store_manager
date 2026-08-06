@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}vapestore{% endblock %}</title>
+  <title>{% block title %}Store Manager{% endblock %}</title>
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
@@ -13,7 +13,7 @@
 
 {% if user %}
 <header class="topbar">
-  <a class="brand" href="/stores">vapestore</a>
+  <a class="brand" href="/stores">Store Manager</a>
   <nav>
     <a href="/stores" {% if active == 'stores' %}class="active"{% endif %}>Խանութներ</a>
     <a href="/workers" {% if active == 'workers' %}class="active"{% endif %}>Աշխատողներ</a>

@@ -26,7 +26,7 @@ from app.api import api
 from app.config import settings
 from app.handlers import common, sell, shift
 
-log = logging.getLogger("vapestore.bot")
+log = logging.getLogger("storemanager.bot")
 
 
 def _exact(label: str):

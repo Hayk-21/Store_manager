@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Աշխատողներ · vapestore{% endblock %}
+{% block title %}Աշխատողներ · Store Manager{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -18,8 +18,9 @@
     <table>
       <thead>
         <tr>
-          <th>Անուն</th>
           <th>Telegram ID</th>
+          <th>Telegram-ի անունը</th>
+          <th>Անուն (ըստ ձեզ)</th>
           <th class="num">Աշխատավարձ / հերթափոխ</th>
           <th>Հիմա</th>
           <th>Ակտիվ</th>
@@ -29,10 +30,18 @@
       <tbody>
         {% for w in workers %}
         <tr>
-          <td><input form="worker-{{ w.id }}" name="name" value="{{ w.name }}" required
-                     maxlength="120" aria-label="Անուն"></td>
           <td><input form="worker-{{ w.id }}" name="telegram_id" value="{{ w.telegram_id }}"
                      inputmode="numeric" required aria-label="Telegram ID"></td>
+          <td class="muted">
+            {% if w.telegram_name %}
+              {{ w.telegram_name }}
+            {% else %}
+              <span class="small">դեռ չի միացել բոտին</span>
+            {% endif %}
+          </td>
+          <td><input form="worker-{{ w.id }}" name="name" value="{{ w.own_name or '' }}"
+                     maxlength="120" placeholder="ըստ ցանկության"
+                     aria-label="Անուն"></td>
           <td class="num"><input form="worker-{{ w.id }}" name="salary_per_shift"
                                  value="{{ w.salary_per_shift | plain_money }}"
                                  inputmode="decimal" class="money-input"
@@ -68,10 +77,6 @@
     <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
     <div class="form-row">
       <div>
-        <label for="w-name">Անուն</label>
-        <input id="w-name" name="name" required maxlength="120">
-      </div>
-      <div>
         <label for="w-tg">Telegram ID</label>
         <input id="w-tg" name="telegram_id" inputmode="numeric" required placeholder="123456789">
       </div>
@@ -79,14 +84,21 @@
         <label for="w-salary">Աշխատավարձ / հերթափոխ</label>
         <input id="w-salary" name="salary_per_shift" inputmode="decimal" value="0.00">
       </div>
+      <div>
+        <label for="w-name">Անուն <span class="muted small">(ըստ ցանկության)</span></label>
+        <input id="w-name" name="name" maxlength="120" placeholder="լրացվում է ինքնաշխատ">
+      </div>
       <div class="actions">
         <button type="submit">Ավելացնել</button>
       </div>
     </div>
     <p class="muted small">
+      Բավական է նշել միայն <b>Telegram ID</b>-ն և աշխատավարձը։ Անունը ինքնաշխատ
+      կլրացվի Telegram-ի պրոֆիլից, երբ աշխատողն առաջին անգամ գրի բոտին։
+      Անունը կարող եք ցանկացած պահի փոխել՝ ձեր տարբերակը գերակայում է։<br>
       Telegram ID-ն թիվ է, ոչ թե օգտանուն։ Աշխատողը կարող է այն ստանալ
       <a href="https://t.me/userinfobot" target="_blank" rel="noopener">@userinfobot</a>-ից։
-      Մինչև գրանցումը բոտը նրան չի ճանաչի։
+      Չգրանցված ID-ով բոտը ոչ մի գործողություն թույլ չի տա։
       Աշխատավարձը հանվում է կանխիկից, երբ աշխատողն ավարտում է հերթափոխը։
     </p>
   </form>

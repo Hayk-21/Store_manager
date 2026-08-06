@@ -16,6 +16,11 @@ class BotRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     telegram_id: int = Field(gt=0)
+    # The worker's Telegram profile name, sent on every request. It is how the
+    # /workers page fills itself in: the owner registers an id, and the name
+    # arrives the first time that person uses the bot. Purely informational —
+    # it never affects who the caller is or what they may do.
+    telegram_name: str | None = Field(default=None, max_length=200)
 
 
 class IdempotentRequest(BotRequest):

@@ -19,7 +19,7 @@ import asyncpg
 from app.config import clean_dsn, settings
 from app.logging_conf import setup_logging
 
-log = logging.getLogger("vapestore.migrate")
+log = logging.getLogger("storemanager.migrate")
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
@@ -94,5 +94,5 @@ if __name__ == "__main__":
     try:
         sys.exit(asyncio.run(run()))
     except Exception:
-        logging.getLogger("vapestore.migrate").exception("migration failed")
+        logging.getLogger("storemanager.migrate").exception("migration failed")
         sys.exit(1)

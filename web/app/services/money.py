@@ -14,7 +14,7 @@ from app.errors import AppError
 from app.repo import money as money_repo
 from app.repo import sessions as sessions_repo
 
-log = logging.getLogger("vapestore.money")
+log = logging.getLogger("storemanager.money")
 
 KINDS = {"withdrawal", "deposit"}
 

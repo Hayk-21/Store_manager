@@ -20,7 +20,7 @@ import uvicorn
 
 from app.logging_conf import setup_logging
 
-log = logging.getLogger("vapestore.run")
+log = logging.getLogger("storemanager.run")
 
 
 def main() -> None:

@@ -11,7 +11,7 @@ from telegram.ext import ContextTypes
 from app import keyboards, texts
 from app.api import ApiError, ApiUnavailable
 
-log = logging.getLogger("vapestore.bot")
+log = logging.getLogger("storemanager.bot")
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

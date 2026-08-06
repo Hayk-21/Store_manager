@@ -20,7 +20,7 @@ _hasher = PasswordHasher()
 # Verifying a real hash costs ~50 ms. If an unknown email skipped that work, the
 # response time alone would tell an attacker which addresses exist, so the login
 # route verifies against this instead. It is the hash of a value nobody can send.
-_DUMMY_HASH = _hasher.hash("vapestore-dummy-password-for-constant-time-login")
+_DUMMY_HASH = _hasher.hash("storemanager-dummy-password-for-constant-time-login")
 
 MIN_PASSWORD_LENGTH = 10
 

@@ -11,9 +11,9 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: vapestore
-          POSTGRES_PASSWORD: vapestore
-          POSTGRES_DB: vapestore
+          POSTGRES_USER: storemanager
+          POSTGRES_PASSWORD: storemanager
+          POSTGRES_DB: storemanager
         ports: ["5432:5432"]
         options: >-
           --health-cmd pg_isready --health-interval 5s
@@ -22,9 +22,9 @@ jobs:
       run:
         working-directory: web
     env:
-      # The suite creates vapestore_test itself on first run.
-      DATABASE_URL: postgresql://vapestore:vapestore@localhost:5432/vapestore_test?sslmode=disable
-      DIRECT_DATABASE_URL: postgresql://vapestore:vapestore@localhost:5432/vapestore_test?sslmode=disable
+      # The suite creates storemanager_test itself on first run.
+      DATABASE_URL: postgresql://storemanager:storemanager@localhost:5432/storemanager_test?sslmode=disable
+      DIRECT_DATABASE_URL: postgresql://storemanager:storemanager@localhost:5432/storemanager_test?sslmode=disable
       SESSION_SECRET: ci-session-secret-0123456789abcdef
       BOT_SHARED_SECRET: ci-bot-secret-0123456789abcdef
       APP_TIMEZONE: Asia/Yerevan

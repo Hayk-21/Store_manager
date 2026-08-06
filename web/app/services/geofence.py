@@ -15,7 +15,7 @@ from app.errors import BotError
 from app.repo import stores as stores_repo
 from app.texts import no_store_in_range_message
 
-log = logging.getLogger("vapestore.geofence")
+log = logging.getLogger("storemanager.geofence")
 
 
 @dataclass(frozen=True)

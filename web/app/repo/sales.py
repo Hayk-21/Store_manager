@@ -7,6 +7,11 @@ from decimal import Decimal
 import asyncpg
 
 from app.db import db
+from app.repo.workers import DISPLAY_NAME
+
+# The same expression, for the worker who voided a receipt. Aliased separately
+# because both workers rows appear in one query.
+VOIDED_BY_NAME = DISPLAY_NAME.replace("w.", "vw.")
 
 
 async def by_external_id(worker_id: int, external_id: str) -> asyncpg.Record | None:
@@ -151,9 +156,10 @@ async def summary_for_work_session(work_session_id: int) -> asyncpg.Record:
 
 async def receipts_in_store_session(store_session_id: int) -> list[asyncpg.Record]:
     return await db.fetch(
-        """
+        f"""
         SELECT sa.id, sa.total, sa.payment_method, sa.sold_at, sa.voided_at,
-               w.name AS worker_name, vw.name AS voided_by_name,
+               {DISPLAY_NAME} AS worker_name,
+               {VOIDED_BY_NAME} AS voided_by_name,
                (SELECT string_agg(i.name || ' ×' || si.quantity, ', ' ORDER BY si.id)
                   FROM sale_items si JOIN items i ON i.id = si.item_id
                  WHERE si.sale_id = sa.id) AS lines

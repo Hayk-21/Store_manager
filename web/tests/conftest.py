@@ -4,8 +4,8 @@ The whole suite runs against a real Postgres, because the schema is doing real
 work — generated columns, partial unique indexes, composite foreign keys — and a
 fake would not exercise any of it. Bring one up with:
 
-    docker run -d --name vapestore-pg -e POSTGRES_PASSWORD=vapestore \
-      -e POSTGRES_USER=vapestore -e POSTGRES_DB=vapestore -p 55432:5432 postgres:16
+    docker run -d --name storemanager-pg -e POSTGRES_PASSWORD=storemanager \
+      -e POSTGRES_USER=storemanager -e POSTGRES_DB=storemanager -p 55432:5432 postgres:16
 
 Each test gets an empty schema in about a millisecond: the migrations run once
 per session, then every test opens one connection, begins a transaction, binds it
@@ -26,7 +26,7 @@ import pytest
 # anything under app/ is imported.
 os.environ.setdefault(
     "DATABASE_URL",
-    "postgresql://vapestore:vapestore@localhost:55432/vapestore_test?sslmode=disable",
+    "postgresql://storemanager:storemanager@localhost:55432/storemanager_test?sslmode=disable",
 )
 os.environ.setdefault("DIRECT_DATABASE_URL", os.environ["DATABASE_URL"])
 os.environ.setdefault("SESSION_SECRET", "test-session-secret-0123456789abcdef")

@@ -1,4 +1,4 @@
-# vapestore
+# Store Manager
 
 A small retail system for a chain of vape shops.
 
@@ -51,8 +51,8 @@ never decides which bucket money lands in.
 You need Python 3.12+ and a Postgres. Docker is the easiest:
 
 ```bash
-docker run -d --name vapestore-pg \
-  -e POSTGRES_PASSWORD=vapestore -e POSTGRES_USER=vapestore -e POSTGRES_DB=vapestore \
+docker run -d --name storemanager-pg \
+  -e POSTGRES_PASSWORD=storemanager -e POSTGRES_USER=storemanager -e POSTGRES_DB=storemanager \
   -p 55432:5432 postgres:16
 ```
 
@@ -79,9 +79,22 @@ cp .env.example .env          # BOT_TOKEN, API_BASE_URL, BOT_SHARED_SECRET
 python -m app
 ```
 
-The bot only recognises a worker whose **numeric Telegram id** is registered on
-the website's `/workers` page. They can find theirs via
-[@userinfobot](https://t.me/userinfobot).
+### Registering a worker
+
+Registration is closed. The bot only recognises a **numeric Telegram id** that
+already exists on the website's `/workers` page, so a stranger who finds the bot
+and stands outside a shop gets `unknown_worker` and nothing else.
+
+The owner types only the id and the salary. The **name arrives by itself** — the
+bot reports the worker's Telegram profile name on every request and the page
+fills in the first time that person uses it. Two columns keep that honest:
+
+* `workers.name` — what the owner typed, if anything. Wins when set, so a
+  correction is never undone by the next tap.
+* `workers.telegram_name` — what Telegram reports, refreshed on contact.
+
+A worker with neither shows as `ID 555000777`, never as a blank row. Workers find
+their id via [@userinfobot](https://t.me/userinfobot).
 
 ---
 

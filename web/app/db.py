@@ -24,7 +24,7 @@ import asyncpg
 
 from app.config import clean_dsn, settings
 
-log = logging.getLogger("vapestore.db")
+log = logging.getLogger("storemanager.db")
 
 # Neon scales a compute to zero when idle, so the first query after a quiet spell
 # can find a connection the server has already dropped. These are the errors that

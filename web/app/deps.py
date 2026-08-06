@@ -21,7 +21,7 @@ from app.errors import AppError
 from app.repo import users as users_repo
 from app.security import constant_time_equals, hash_token
 
-log = logging.getLogger("vapestore.deps")
+log = logging.getLogger("storemanager.deps")
 
 SESSION_COOKIE = "vs_session"
 # Used only on pages rendered before a session exists (the login form). Classic

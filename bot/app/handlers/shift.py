@@ -11,7 +11,7 @@ from telegram.ext import ContextTypes
 from app import format, keyboards, texts
 from app.api import ApiError, ApiUnavailable, api, new_idempotency_key
 
-log = logging.getLogger("vapestore.bot.shift")
+log = logging.getLogger("storemanager.bot.shift")
 
 
 async def _reply_error(update: Update, exc: Exception) -> None:
@@ -26,7 +26,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/start — greet, and say whether a shift is already running."""
     user = update.effective_user
     try:
-        me = await api.me(user.id)
+        # The profile name rides along so the owner never has to type one: they
+        # register a Telegram id, and the name fills itself in here.
+        me = await api.me(user.id, user.full_name)
     except Exception as exc:  # noqa: BLE001 - every failure is reportable to the worker
         await _reply_error(update, exc)
         return
@@ -73,6 +75,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             lng=location.longitude,
             accuracy_m=getattr(location, "horizontal_accuracy", None),
             key=key,
+            telegram_name=user.full_name,
         )
     except ApiError as exc:
         if exc.code == "session_already_open":
@@ -107,7 +110,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
-        me = await api.me(update.effective_user.id)
+        me = await api.me(update.effective_user.id, update.effective_user.full_name)
     except Exception as exc:  # noqa: BLE001
         await _reply_error(update, exc)
         return

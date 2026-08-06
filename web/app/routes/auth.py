@@ -34,7 +34,7 @@ from app.security import (
 )
 from app.templating import render
 
-log = logging.getLogger("vapestore.auth")
+log = logging.getLogger("storemanager.auth")
 
 router = APIRouter()
 

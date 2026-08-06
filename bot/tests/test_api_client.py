@@ -188,6 +188,42 @@ async def test_the_bot_never_names_a_store():
     assert set(captured) == {"telegram_id", "lat", "lng", "accuracy_m", "idempotency_key"}
 
 
+async def test_the_profile_name_rides_along_so_the_owner_never_types_one():
+    """The owner registers a Telegram id; the name arrives from Telegram."""
+    import json
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            seen["me"] = dict(request.url.params)
+        else:
+            seen["open"] = json.loads(request.content)
+        return httpx.Response(
+            201 if request.method == "POST" else 200,
+            json={"ok": True, "session": None, "worker": {}},
+        )
+
+    api = _api_with(handler)
+    await api.me(111, "Անի Հակոբյան")
+    await api.open_store(111, 40.1, 44.5, 20, "idem-key-0001", "Անի Հակոբյան")
+
+    assert seen["me"]["telegram_name"] == "Անի Հակոբյան"
+    assert seen["open"]["telegram_name"] == "Անի Հակոբյան"
+
+
+async def test_a_missing_profile_name_is_omitted_rather_than_sent_as_null():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(dict(request.url.params))
+        return httpx.Response(200, json={"ok": True, "session": None})
+
+    await _api_with(handler).me(111, None)
+
+    assert "telegram_name" not in seen
+
+
 def test_every_action_gets_its_own_key():
     assert new_idempotency_key() != new_idempotency_key()
     assert len(new_idempotency_key()) >= 8, "the server rejects keys shorter than 8"

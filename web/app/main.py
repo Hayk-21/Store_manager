@@ -23,7 +23,7 @@ from app.routes import auth, bot_api, pages, partials
 from app.services import shifts as shifts_service
 from app.templating import render
 
-log = logging.getLogger("vapestore.main")
+log = logging.getLogger("storemanager.main")
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -56,7 +56,7 @@ async def _housekeeping() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     setup_logging()
-    log.info("starting vapestore (tz=%s, base_url=%s)", settings.tzname, settings.base_url)
+    log.info("starting Store Manager (tz=%s, base_url=%s)", settings.tzname, settings.base_url)
     await db.connect()
     task = asyncio.create_task(_housekeeping())
     try:
@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="vapestore",
+    title="Store Manager",
     lifespan=lifespan,
     # The owner UI is server-rendered and the bot API is documented in the README;
     # an interactive schema page is one more unauthenticated surface for nothing.

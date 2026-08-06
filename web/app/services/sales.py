@@ -20,7 +20,7 @@ from app.repo import sessions as sessions_repo
 from app.services.shifts import Worker
 from app.texts import insufficient_stock_message
 
-log = logging.getLogger("vapestore.sales")
+log = logging.getLogger("storemanager.sales")
 
 MAX_LINES = 50
 CENT = Decimal("0.01")

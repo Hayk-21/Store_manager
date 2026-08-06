@@ -21,7 +21,7 @@ import httpx
 from app.config import settings
 from app.texts import NETWORK_TROUBLE, UNEXPECTED
 
-log = logging.getLogger("vapestore.bot.api")
+log = logging.getLogger("storemanager.bot.api")
 
 
 class ApiError(Exception):
@@ -107,17 +107,28 @@ class Api:
 
     # -- endpoints ----------------------------------------------------------
 
-    async def me(self, telegram_id: int) -> dict:
-        return await self._call("GET", "/me", params={"telegram_id": telegram_id})
+    async def me(self, telegram_id: int, telegram_name: str | None = None) -> dict:
+        params: dict[str, Any] = {"telegram_id": telegram_id}
+        if telegram_name:
+            params["telegram_name"] = telegram_name
+        return await self._call("GET", "/me", params=params)
 
     async def open_store(
-        self, telegram_id: int, lat: float, lng: float, accuracy_m: float | None, key: str
+        self,
+        telegram_id: int,
+        lat: float,
+        lng: float,
+        accuracy_m: float | None,
+        key: str,
+        telegram_name: str | None = None,
     ) -> dict:
         payload: dict[str, Any] = {
             "telegram_id": telegram_id, "lat": lat, "lng": lng, "idempotency_key": key
         }
         if accuracy_m is not None:
             payload["accuracy_m"] = accuracy_m
+        if telegram_name:
+            payload["telegram_name"] = telegram_name
         return await self._call("POST", "/store/open", json=payload)
 
     async def search_items(self, telegram_id: int, query: str, limit: int = 8) -> dict:

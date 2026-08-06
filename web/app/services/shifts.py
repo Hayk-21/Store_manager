@@ -29,7 +29,7 @@ from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
 from app.services.geofence import require_store
 
-log = logging.getLogger("vapestore.shifts")
+log = logging.getLogger("storemanager.shifts")
 
 ZERO = Decimal("0.00")
 

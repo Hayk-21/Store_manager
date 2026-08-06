@@ -22,7 +22,7 @@ from app.services import money as money_service
 from app.services import shifts as shifts_service
 from app.templating import render
 
-log = logging.getLogger("vapestore.pages")
+log = logging.getLogger("storemanager.pages")
 
 router = APIRouter()
 
@@ -312,10 +312,12 @@ async def create_worker(
     salary_per_shift: str = Form(""),
     user: CurrentUser = Depends(require_csrf),
 ):
+    """Register a Telegram id. The name is optional — it arrives from Telegram
+    the first time that person uses the bot."""
     try:
         await workers_repo.create(
             owner_id=user.id,
-            name=forms.text(name, "Անուն", max_length=120),
+            name=forms.text(name, "Անուն", max_length=120, required=False),
             telegram_id=forms.whole(telegram_id, "Telegram ID", minimum=1,
                                     maximum=9_999_999_999_999),
             salary_per_shift=forms.money(salary_per_shift, "Աշխատավարձ",
@@ -378,7 +380,7 @@ async def edit_worker(
         await workers_repo.update(
             owner_id=user.id,
             worker_id=worker_id,
-            name=forms.text(name, "Անուն", max_length=120),
+            name=forms.text(name, "Անուն", max_length=120, required=False),
             telegram_id=forms.whole(telegram_id, "Telegram ID", minimum=1,
                                     maximum=9_999_999_999_999),
             salary_per_shift=forms.money(salary_per_shift, "Աշխատավարձ"),

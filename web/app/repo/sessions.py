@@ -8,6 +8,7 @@ from decimal import Decimal
 import asyncpg
 
 from app.db import db
+from app.repo.workers import DISPLAY_NAME
 
 # -- store sessions ---------------------------------------------------------
 
@@ -150,9 +151,9 @@ async def get_store_session(owner_id: int, store_session_id: int) -> asyncpg.Rec
 async def workers_on_shift(store_id: int) -> list[asyncpg.Record]:
     """Requirement 3: who is working in this store right now."""
     return await db.fetch(
-        """
-        SELECT ws.id, ws.worker_id, w.name, ws.started_at, ws.start_distance_m,
-               w.salary_per_shift
+        f"""
+        SELECT ws.id, ws.worker_id, {DISPLAY_NAME} AS name, ws.started_at,
+               ws.start_distance_m, w.salary_per_shift
           FROM work_sessions ws
           JOIN workers w ON w.id = ws.worker_id
          WHERE ws.store_id = $1 AND ws.ended_at IS NULL
@@ -293,8 +294,8 @@ async def by_end_idem(owner_id: int, idem_key: str) -> asyncpg.Record | None:
 
 async def shifts_in_session(store_session_id: int) -> list[asyncpg.Record]:
     return await db.fetch(
-        """
-        SELECT ws.id, w.name AS worker_name, ws.started_at, ws.ended_at,
+        f"""
+        SELECT ws.id, {DISPLAY_NAME} AS worker_name, ws.started_at, ws.ended_at,
                ws.salary_paid, ws.start_distance_m, ws.closed_by
           FROM work_sessions ws
           JOIN workers w ON w.id = ws.worker_id

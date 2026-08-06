@@ -12,6 +12,7 @@ from decimal import Decimal
 import asyncpg
 
 from app.db import db
+from app.repo.workers import DISPLAY_NAME
 
 
 async def totals_by_store(owner_id: int) -> list[asyncpg.Record]:
@@ -121,9 +122,9 @@ async def insert_movement(
 async def ledger_for_session(store_session_id: int) -> list[asyncpg.Record]:
     """Every movement of one session, newest first — the audit trail."""
     return await db.fetch(
-        """
+        f"""
         SELECT m.id, m.method, m.kind, m.amount, m.note, m.created_at,
-               w.name AS worker_name
+               CASE WHEN w.id IS NULL THEN NULL ELSE {DISPLAY_NAME} END AS worker_name
           FROM cash_movements m
           LEFT JOIN workers w ON w.id = m.worker_id
          WHERE m.store_session_id = $1
