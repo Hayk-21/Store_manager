@@ -25,7 +25,13 @@ ASK_ITEM, ASK_QUANTITY, ASK_PAYMENT = range(3)
 async def _fail(update: Update, exc: Exception) -> int:
     message = update.effective_message
     if isinstance(exc, (ApiError, ApiUnavailable)):
-        await message.reply_text(exc.human(), reply_markup=keyboards.on_shift())
+        # Offering "sell" and "end shift" to somebody who has no shift open is
+        # just confusing; give them the button they actually need.
+        off_shift = isinstance(exc, ApiError) and exc.code in {
+            "no_open_session", "unknown_worker", "worker_inactive",
+        }
+        keyboard = keyboards.off_shift() if off_shift else keyboards.on_shift()
+        await message.reply_text(exc.human(), reply_markup=keyboard)
     else:
         log.exception("unhandled error in the sell flow")
         await message.reply_text(texts.UNEXPECTED, reply_markup=keyboards.on_shift())

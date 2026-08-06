@@ -39,6 +39,41 @@ def test_the_sell_flow_is_registered_after_the_shift_buttons():
     assert max(button_positions) < conversation_at
 
 
+def test_no_button_label_is_ever_treated_as_a_product_name():
+    """The bug from the field: tapping "📍 Ուղարկել տեղորոշումը" on Telegram
+    Desktop sends the *label* as text, because desktop cannot attach a location.
+    That fell through to the sell flow, which searched for a product called
+    "📍 Ուղարկել տեղորոշումը" and answered "you are not on shift" — true, and
+    completely baffling to the cashier.
+
+    Every label the bot puts on a button has to be excluded from that filter.
+    """
+    from app.__main__ import BUTTON_LABELS
+
+    on_screen = {
+        value
+        for name, value in vars(texts).items()
+        if name.startswith("BTN_") and isinstance(value, str)
+    }
+
+    assert on_screen <= set(BUTTON_LABELS), (
+        "a button label is missing from BUTTON_LABELS and would be searched for "
+        f"as a product: {on_screen - set(BUTTON_LABELS)}"
+    )
+
+
+def test_the_location_label_has_its_own_handler():
+    """Not just excluded from the sell flow — it needs an answer of its own,
+    otherwise the tap silently does nothing at all."""
+    from app.handlers import common
+
+    handlers = build().handlers[0]
+
+    assert any(
+        getattr(h, "callback", None) is common.location_from_desktop for h in handlers
+    ), "tapping the location button on desktop would go unanswered"
+
+
 def test_item_buttons_carry_the_id_not_the_name():
     """What gets sold is an id from a button; typing only ever searches."""
     markup = keyboards.item_choices(

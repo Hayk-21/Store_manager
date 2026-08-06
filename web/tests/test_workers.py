@@ -387,6 +387,112 @@ async def test_an_unknown_period_is_refused(client):
     assert await db.fetchval("SELECT count(*) FROM workers") == 0
 
 
+# -- removing -----------------------------------------------------------------
+
+async def test_a_worker_who_never_started_is_removed_outright(client):
+    _, token = await _signed_in(client)
+    await _register(client, token)
+    worker_id = await db.fetchval("SELECT id FROM workers")
+
+    response = await client.post(f"/workers/{worker_id}/delete", data={"csrf_token": token})
+
+    assert response.status_code == 303
+    assert await db.fetchval("SELECT count(*) FROM workers") == 0
+
+
+async def test_removing_someone_who_worked_keeps_their_history(client, bot_headers):
+    """The foreign keys cascade, so a real DELETE would rewrite past reports."""
+    owner_id, token = await _signed_in(client)
+    await make_store(owner_id, lat=YEREVAN_LAT, lng=YEREVAN_LNG, radius_m=120)
+    await _register(client, token, salary="0")
+    await client.post(
+        f"{BASE}/store/open",
+        json={"telegram_id": TG_ID, "telegram_username": "justhayk", "telegram_name": "Գոռ",
+              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "idempotency_key": "idem-key-open-01"},
+        headers=bot_headers,
+    )
+    await client.post(
+        f"{BASE}/shift/end",
+        json={"telegram_id": TG_ID, "idempotency_key": "idem-key-end-01"},
+        headers=bot_headers,
+    )
+    worker_id = await db.fetchval("SELECT id FROM workers")
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+
+    response = await client.post(f"/workers/{worker_id}/delete", data={"csrf_token": token})
+
+    assert response.status_code == 303
+    assert await db.fetchval("SELECT count(*) FROM work_sessions") == 1, "the shift survives"
+    # And the report still names them.
+    detail = await client.get(f"/reports?store_session_id={session_id}")
+    assert "Գոռ" in detail.text
+
+
+async def test_a_removed_worker_is_off_the_list(client, bot_headers):
+    owner_id, token = await _signed_in(client)
+    await make_store(owner_id, lat=YEREVAN_LAT, lng=YEREVAN_LNG, radius_m=120)
+    await _register(client, token, salary="0")
+    await client.post(
+        f"{BASE}/store/open",
+        json={"telegram_id": TG_ID, "telegram_username": "justhayk",
+              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "idempotency_key": "idem-key-open-01"},
+        headers=bot_headers,
+    )
+    await client.post(
+        f"{BASE}/shift/end",
+        json={"telegram_id": TG_ID, "idempotency_key": "idem-key-end-01"},
+        headers=bot_headers,
+    )
+    worker_id = await db.fetchval("SELECT id FROM workers")
+    await client.post(f"/workers/{worker_id}/delete", data={"csrf_token": token})
+
+    page = await client.get("/workers")
+
+    assert await workers_repo.list_for_owner(owner_id) == []
+    # The handle only survives as the placeholder in the empty "new worker" form.
+    assert 'value="@justhayk"' not in page.text
+    assert "Աշխատող դեռ չկա" in page.text
+
+
+async def test_removing_a_worker_frees_their_handle_for_the_next_person(client, bot_headers):
+    owner_id, token = await _signed_in(client)
+    await make_store(owner_id, lat=YEREVAN_LAT, lng=YEREVAN_LNG, radius_m=120)
+    await _register(client, token, salary="0")
+    await client.post(
+        f"{BASE}/store/open",
+        json={"telegram_id": TG_ID, "telegram_username": "justhayk",
+              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "idempotency_key": "idem-key-open-01"},
+        headers=bot_headers,
+    )
+    await client.post(
+        f"{BASE}/shift/end",
+        json={"telegram_id": TG_ID, "idempotency_key": "idem-key-end-01"},
+        headers=bot_headers,
+    )
+    worker_id = await db.fetchval("SELECT id FROM workers")
+    await client.post(f"/workers/{worker_id}/delete", data={"csrf_token": token})
+
+    assert (await _register(client, token)).status_code == 303
+
+
+async def test_somebody_on_shift_cannot_be_removed(client, bot_headers):
+    owner_id, token = await _signed_in(client)
+    await make_store(owner_id, lat=YEREVAN_LAT, lng=YEREVAN_LNG, radius_m=120)
+    await _register(client, token, salary="0")
+    await client.post(
+        f"{BASE}/store/open",
+        json={"telegram_id": TG_ID, "telegram_username": "justhayk",
+              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "idempotency_key": "idem-key-open-01"},
+        headers=bot_headers,
+    )
+    worker_id = await db.fetchval("SELECT id FROM workers")
+
+    response = await client.post(f"/workers/{worker_id}/delete", data={"csrf_token": token})
+
+    assert response.status_code == 422
+    assert await db.fetchval("SELECT archived_at FROM workers") is None
+
+
 async def test_the_workers_page_shows_the_handle_and_the_period(client):
     owner_id, token = await _signed_in(client)
     await _register(client, token, salary="200000", period="month")

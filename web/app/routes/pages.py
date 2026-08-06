@@ -351,6 +351,33 @@ async def create_worker(
     return RedirectResponse("/workers", status_code=303)
 
 
+@router.post("/workers/{worker_id}/delete")
+async def delete_worker(worker_id: int, user: CurrentUser = Depends(require_csrf)):
+    """Take a worker off the list.
+
+    Somebody who never started a shift is removed outright. Anybody else is
+    archived instead: their shifts and receipts are what past reports are made
+    of, and the foreign keys cascade, so deleting the row would silently rewrite
+    history. Either way their @username is released for reuse.
+    """
+    worker = await workers_repo.get(user.id, worker_id)
+    if worker is None:
+        raise AppError("not_found", "Աշխատողը չի գտնվել։")
+    if await sessions_repo.open_for_worker(worker_id) is not None:
+        raise AppError(
+            "validation_error",
+            "Աշխատողը հիմա հերթափոխի մեջ է։ Նախ ավարտեք հերթափոխը։",
+        )
+
+    if await workers_repo.has_history(user.id, worker_id):
+        await workers_repo.archive(user.id, worker_id)
+        log.info("worker %s archived by user %s", worker_id, user.id)
+    else:
+        await workers_repo.delete_outright(user.id, worker_id)
+        log.info("worker %s deleted by user %s (never worked)", worker_id, user.id)
+    return RedirectResponse("/workers", status_code=303)
+
+
 @router.post("/workers/{worker_id}/unbind")
 async def unbind_worker(worker_id: int, user: CurrentUser = Depends(require_csrf)):
     """Forget which Telegram account this registration belongs to.

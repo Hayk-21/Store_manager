@@ -103,7 +103,7 @@ async def list_for_owner(owner_id: int) -> list[asyncpg.Record]:
           FROM workers w
           LEFT JOIN work_sessions ws ON ws.worker_id = w.id AND ws.ended_at IS NULL
           LEFT JOIN stores s ON s.id = ws.store_id
-         WHERE w.owner_id = $1
+         WHERE w.owner_id = $1 AND w.archived_at IS NULL
          ORDER BY w.is_active DESC, lower({DISPLAY_NAME})
         """,
         owner_id,
@@ -175,6 +175,56 @@ async def update(
         salary_amount,
         salary_period,
         is_active,
+    )
+    return result.endswith(" 1")
+
+
+async def has_history(owner_id: int, worker_id: int) -> bool:
+    """Has this worker ever actually started a shift?"""
+    return await db.fetchval(
+        """
+        SELECT EXISTS (
+            SELECT 1 FROM work_sessions WHERE worker_id = $1 AND owner_id = $2
+        )
+        """,
+        worker_id,
+        owner_id,
+    )
+
+
+async def delete_outright(owner_id: int, worker_id: int) -> bool:
+    """Remove a registration that never got used. Safe only with no history."""
+    result = await db.execute(
+        "DELETE FROM workers WHERE id = $1 AND owner_id = $2", worker_id, owner_id
+    )
+    return result.endswith(" 1")
+
+
+async def archive(owner_id: int, worker_id: int) -> bool:
+    """Take a worker off the list without touching what they did.
+
+    Their shifts and receipts stay exactly as they were, so past reports still
+    add up. Two details make that work:
+
+    * the display name is *frozen into* ``name`` first, because the handle and
+      id it would otherwise fall back to are about to be cleared; and
+    * the handle and id are then released, so a departing worker's @username can
+      be registered again by whoever replaces them.
+    """
+    result = await db.execute(
+        f"""
+        UPDATE workers w
+           -- left(): telegram_name allows 200 characters and name only 120.
+           SET name = left({DISPLAY_NAME}, 120),
+               telegram_id = NULL,
+               telegram_username = NULL,
+               is_active = false,
+               archived_at = now(),
+               updated_at = now()
+         WHERE w.id = $1 AND w.owner_id = $2 AND w.archived_at IS NULL
+        """,
+        worker_id,
+        owner_id,
     )
     return result.endswith(" 1")
 

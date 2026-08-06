@@ -34,6 +34,24 @@ def _exact(label: str):
     return filters.Text([label])
 
 
+# Every label the bot ever puts on a button, collected from texts.py rather than
+# listed by hand so a new button cannot be forgotten here.
+#
+# A reply-keyboard tap arrives as ordinary text. Without this exclusion the sell
+# flow treated "📍 Ուղարկել տեղորոշումը" as the name of a product and answered
+# "you are not on shift" — true, and baffling. Telegram Desktop cannot attach a
+# location at all and sends the label as plain text, so it is not a rare case.
+#
+# Inline-keyboard labels arrive as callbacks and could not collide, but they are
+# swept up too: nobody stocks a product called "💳 Քարտ", and one rule is easier
+# to keep true than two.
+BUTTON_LABELS = sorted(
+    value
+    for name, value in vars(texts).items()
+    if name.startswith("BTN_") and isinstance(value, str)
+)
+
+
 def build() -> Application:
     application = ApplicationBuilder().token(settings.bot_token).post_shutdown(_shutdown).build()
 
@@ -45,13 +63,7 @@ def build() -> Application:
             # Typing a product name with no shift-control button pressed starts
             # the flow directly — the fast path for someone who knows the stock.
             MessageHandler(
-                filters.TEXT
-                & ~filters.COMMAND
-                & ~_exact(texts.BTN_OPEN)
-                & ~_exact(texts.BTN_UNDO)
-                & ~_exact(texts.BTN_STATUS)
-                & ~_exact(texts.BTN_END_SHIFT)
-                & ~_exact(texts.BTN_CLOSE_STORE),
+                filters.TEXT & ~filters.COMMAND & ~filters.Text(BUTTON_LABELS),
                 sell.search,
             ),
         ],
@@ -82,6 +94,11 @@ def build() -> Application:
 
     application.add_handler(MessageHandler(_exact(texts.BTN_OPEN), shift.ask_location))
     application.add_handler(MessageHandler(filters.LOCATION, shift.handle_location))
+    # The label arriving as text means the tap produced no location: Telegram
+    # Desktop cannot share one. Say so, instead of letting it fall through.
+    application.add_handler(
+        MessageHandler(_exact(texts.BTN_SEND_LOCATION), common.location_from_desktop)
+    )
     application.add_handler(MessageHandler(_exact(texts.BTN_STATUS), shift.status))
     application.add_handler(MessageHandler(_exact(texts.BTN_UNDO), sell.undo))
     application.add_handler(MessageHandler(_exact(texts.BTN_END_SHIFT), shift.end_shift))

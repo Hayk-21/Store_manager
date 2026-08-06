@@ -30,9 +30,16 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def location_from_desktop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Someone typed instead of sharing a location. Say why the button matters."""
+    """The button's label arrived as text, so the tap produced no location.
+
+    That is what Telegram Desktop does — it renders the button but cannot attach
+    a coordinate. Without this handler the label falls through to the sell flow
+    and the worker is told they are not on shift, which is true but baffling.
+    """
     await update.effective_message.reply_text(
-        texts.LOCATION_ONLY_FROM_PHONE, reply_markup=keyboards.request_location()
+        texts.LOCATION_ONLY_FROM_PHONE.format(button=texts.BTN_SEND_LOCATION),
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboards.request_location(),
     )
 
 

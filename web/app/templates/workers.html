@@ -58,6 +58,10 @@
             onsubmit="return confirm('Անջատե՞լ Telegram հաշիվը այս գրանցումից։ Հաջորդ անգամ, երբ այս օգտանունով որևէ մեկը գրի բոտին, նա կկցվի այս գրանցմանը։');">
         <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
       </form>
+      <form id="drop-{{ w.id }}" method="post" action="/workers/{{ w.id }}/delete"
+            onsubmit="return confirm('Հեռացնե՞լ {{ w.name }}-ին ցուցակից։ Անցած հերթափոխերն ու վաճառքները կմնան հաշվետվություններում։');">
+        <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+      </form>
     {% endfor %}
     <table>
       <thead>
@@ -118,6 +122,8 @@
               <button form="unbind-{{ w.id }}" type="submit" class="secondary tiny"
                       title="Անջատել Telegram հաշիվը">⛓️‍💥</button>
             {% endif %}
+            <button form="drop-{{ w.id }}" type="submit" class="danger tiny"
+                    title="Հեռացնել ցուցակից">✕</button>
           </td>
         </tr>
         {% endfor %}

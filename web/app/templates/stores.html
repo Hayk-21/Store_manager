@@ -50,12 +50,10 @@
         <label for="name">Անվանում</label>
         <input id="name" name="name" required maxlength="120">
       </div>
-      <div>
-        <label for="address">Հասցե</label>
-        <input id="address" name="address" maxlength="300">
-      </div>
     </div>
 
+    {# Address is not asked for here — the map is what actually matters, and the
+       field is available later under the store's settings. #}
     <label>Տեղադրությունը քարտեզի վրա</label>
     <div class="map-wrap">
       <div class="map" data-map data-lat="#lat" data-lng="#lng" data-radius="#radius_m"></div>
