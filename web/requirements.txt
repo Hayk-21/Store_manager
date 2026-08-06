@@ -1,0 +1,11 @@
+fastapi==0.115.*
+uvicorn[standard]==0.32.*
+asyncpg==0.30.*
+jinja2==3.1.*
+pydantic==2.9.*
+python-multipart==0.0.*
+python-dotenv==1.0.*
+argon2-cffi==23.1.*
+# Neither Windows nor the Nixpacks image ships a tz database reliably, and
+# ZoneInfo("Asia/Yerevan") must resolve on both.
+tzdata==2024.2

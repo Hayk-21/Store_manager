@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Մուտք · vapestore{% endblock %}
+
+{% block content %}
+<div class="login-wrap">
+  <h1>vapestore</h1>
+  <p class="muted">Մուտք գործեք ձեր էլ. փոստով և գաղտնաբառով։</p>
+
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+
+  <form method="post" action="/login" class="card login-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <label for="email">Էլ. փոստ</label>
+    <input id="email" name="email" type="email" value="{{ email or '' }}"
+           autocomplete="username" required autofocus>
+
+    <label for="password">Գաղտնաբառ</label>
+    <input id="password" name="password" type="password"
+           autocomplete="current-password" required>
+
+    <button type="submit">Մուտք</button>
+  </form>
+
+  <p class="muted small">
+    Գաղտնաբառը մոռացե՞լ եք — դիմեք համակարգի ղեկավարին։
+  </p>
+</div>
+{% endblock %}

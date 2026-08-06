@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Սխալ · vapestore{% endblock %}
+
+{% block content %}
+<div class="card error-card">
+  <h1>{{ status }}</h1>
+  <p>{{ message }}</p>
+  <p><a href="/stores">← Վերադառնալ խանութներ</a></p>
+</div>
+{% endblock %}

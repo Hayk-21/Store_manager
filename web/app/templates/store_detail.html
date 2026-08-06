@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}{{ store.name }} · vapestore{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ store.name }}</h1>
+    {% if store.address %}<p class="muted small">{{ store.address }}</p>{% endif %}
+  </div>
+  <a href="/stores" class="small">← Բոլոր խանութները</a>
+</div>
+
+<div class="card">
+  <h2>Պահեստ</h2>
+  {% include "_items_table.html" %}
+</div>
+
+<div class="card">
+  <h2>Նոր ապրանք</h2>
+  <form hx-post="/stores/{{ store.id }}/items" hx-target="#items-table" hx-swap="outerHTML">
+    <div class="form-row">
+      <div>
+        <label for="item-name">Անվանում</label>
+        <input id="item-name" name="name" required maxlength="200">
+      </div>
+      <div class="narrow">
+        <label for="item-count">Քանակ</label>
+        <input id="item-count" name="count" inputmode="numeric" value="0">
+      </div>
+      <div class="narrow">
+        <label for="item-self">Ինքնարժեք</label>
+        <input id="item-self" name="self_price" inputmode="decimal" value="0.00" required>
+      </div>
+      <div class="narrow">
+        <label for="item-sell">Վաճառքի գին</label>
+        <input id="item-sell" name="sell_price" inputmode="decimal" value="0.00" required>
+      </div>
+      <div class="actions">
+        <button type="submit">Ավելացնել</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+{# Requirement 3, kept live by its own poll. #}
+<div class="card"
+     hx-get="/partials/stores/{{ store.id }}/status"
+     hx-trigger="every 10s"
+     hx-target="#store-status"
+     hx-swap="outerHTML">
+  {% with store_id = status.store_id, store_session = status.store_session,
+          totals = status.totals, on_shift = status.on_shift %}
+    {% include "_store_status.html" %}
+  {% endwith %}
+</div>
+
+<div class="card">
+  <h2>Կարգավորումներ</h2>
+  <form method="post" action="/stores/{{ store.id }}">
+    <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    <div class="form-row">
+      <div>
+        <label for="s-name">Անվանում</label>
+        <input id="s-name" name="name" value="{{ store.name }}" required maxlength="120">
+      </div>
+      <div>
+        <label for="s-address">Հասցե</label>
+        <input id="s-address" name="address" value="{{ store.address or '' }}" maxlength="300">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="narrow">
+        <label for="s-lat">Լայնություն</label>
+        <input id="s-lat" name="lat" inputmode="decimal"
+               value="{{ '%.6f'|format(store.lat) if store.lat is not none else '' }}">
+      </div>
+      <div class="narrow">
+        <label for="s-lng">Երկայնություն</label>
+        <input id="s-lng" name="lng" inputmode="decimal"
+               value="{{ '%.6f'|format(store.lng) if store.lng is not none else '' }}">
+      </div>
+      <div class="narrow">
+        <label for="s-radius">Շառավիղ (մ)</label>
+        <input id="s-radius" name="radius_m" inputmode="numeric" value="{{ store.radius_m }}">
+      </div>
+      <div class="actions">
+        <button type="button" class="secondary" data-geo="#s-lat,#s-lng">Իմ տեղը</button>
+      </div>
+      <div class="actions">
+        <button type="submit">Պահել</button>
+      </div>
+    </div>
+    <p class="muted small">
+      Աշխատողը կցվում է այս խանութին, եթե բոտում «Բացել» սեղմելիս գտնվում է
+      կոորդինատներից {{ store.radius_m }} մ շառավղում։
+    </p>
+  </form>
+
+  <form method="post" action="/stores/{{ store.id }}/delete" class="danger-zone"
+        onsubmit="return confirm('Ջնջե՞լ այս խանութը։');">
+    <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    <button type="submit" class="danger">Ջնջել խանութը</button>
+  </form>
+</div>
+
+<script src="/static/geo.js" defer></script>
+{% endblock %}

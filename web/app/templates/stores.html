@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Խանութներ · vapestore{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Խանութներ</h1>
+  <span class="muted small">{{ stores | length }} խանութ</span>
+</div>
+
+{% if stores %}
+<div class="store-grid">
+  {% for s in stores %}
+  <a class="card store-card" href="/stores/{{ s.id }}">
+    <div class="store-card-head">
+      <strong>{{ s.name }}</strong>
+      {% if s.store_session_id %}
+        <span class="badge open">բաց</span>
+      {% else %}
+        <span class="badge">փակ</span>
+      {% endif %}
+    </div>
+    {% if s.store_session_id %}
+      <div class="chip-row"><span>Կանխիկ</span>
+        <span class="{% if s.cash < 0 %}negative{% endif %}">{{ s.cash | money }}</span></div>
+      <div class="chip-row"><span>Քարտ</span>
+        <span class="{% if s.card < 0 %}negative{% endif %}">{{ s.card | money }}</span></div>
+      <div class="chip-meta">{{ s.on_shift }} աշխատող · բացվել է {{ s.opened_at | clock }}</div>
+    {% else %}
+      <div class="chip-meta">Հերթափոխը բաց չէ</div>
+    {% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">Դեռ ոչ մի խանութ չկա։ Ավելացրեք առաջինը ներքևում։</p>
+{% endif %}
+
+<div class="card">
+  <h2>Նոր խանութ</h2>
+  <form method="post" action="/stores">
+    <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    <div class="form-row">
+      <div>
+        <label for="name">Անվանում</label>
+        <input id="name" name="name" required maxlength="120">
+      </div>
+      <div>
+        <label for="address">Հասցե</label>
+        <input id="address" name="address" maxlength="300">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="narrow">
+        <label for="lat">Լայնություն</label>
+        <input id="lat" name="lat" inputmode="decimal" placeholder="40.177200">
+      </div>
+      <div class="narrow">
+        <label for="lng">Երկայնություն</label>
+        <input id="lng" name="lng" inputmode="decimal" placeholder="44.503200">
+      </div>
+      <div class="narrow">
+        <label for="radius_m">Շառավիղ (մ)</label>
+        <input id="radius_m" name="radius_m" inputmode="numeric" value="120">
+      </div>
+      <div class="actions">
+        <button type="button" class="secondary" data-geo="#lat,#lng">Իմ տեղը</button>
+      </div>
+      <div class="actions">
+        <button type="submit">Ավելացնել</button>
+      </div>
+    </div>
+    <p class="muted small">
+      Կոորդինատները որոշում են, թե որ խանութին կկցվի աշխատողը, երբ բոտում սեղմի «Բացել»։
+      Կանգնեք խանութի մուտքի մոտ և սեղմեք «Իմ տեղը»։
+    </p>
+  </form>
+</div>
+
+<script src="/static/geo.js" defer></script>
+{% endblock %}

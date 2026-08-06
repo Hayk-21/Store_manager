@@ -1,0 +1,97 @@
+{# Requirement 3: who is working here right now, and what is in the till.
+   Polled every 10s, so a sale or a shift start made through the bot appears
+   without anyone reloading. #}
+<div id="store-status">
+  <div class="status-head">
+    <h2>Հիմա</h2>
+    {% if store_session %}
+      <span class="badge open">բաց {{ store_session.opened_at | clock }}-ից</span>
+    {% else %}
+      <span class="badge">փակ</span>
+    {% endif %}
+  </div>
+
+  {% if store_session %}
+    <div class="totals">
+      <div class="total">
+        <span class="total-label">Կանխիկ</span>
+        <span class="total-value {% if totals.cash < 0 %}negative{% endif %}">{{ totals.cash | money }}</span>
+      </div>
+      <div class="total">
+        <span class="total-label">Քարտ</span>
+        <span class="total-value {% if totals.card < 0 %}negative{% endif %}">{{ totals.card | money }}</span>
+      </div>
+    </div>
+    <p class="muted small">
+      Վաճառք {{ totals.sales | money }}
+      {%- if totals.voided %} · չեղարկված {{ totals.voided | money }}{% endif %}
+      · աշխատավարձ {{ totals.salaries | money }}
+      {%- if totals.withdrawn %} · հանված {{ totals.withdrawn | money }}{% endif %}
+      {%- if totals.deposited %} · ավելացված {{ totals.deposited | money }}{% endif %}
+    </p>
+
+    <h3>Հերթափոխի մեջ</h3>
+    {% if on_shift %}
+      <ul class="shift-list">
+        {% for w in on_shift %}
+          <li>
+            <strong>{{ w.name }}</strong>
+            <span class="muted">{{ w.started_at | clock }}-ից · {{ w.started_at | duration }}</span>
+            {% if w.start_distance_m is not none %}
+              <span class="muted small">· {{ w.start_distance_m }} մ</span>
+            {% endif %}
+            <span class="muted small">· աշխատավարձ {{ w.salary_per_shift | money }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">Խանութը բաց է, բայց ոչ ոք հերթափոխի մեջ չէ։</p>
+    {% endif %}
+
+    <div class="status-actions">
+      <form hx-post="/stores/{{ store_id }}/movement" hx-target="#store-status"
+            hx-swap="outerHTML" class="form-row">
+        <div class="narrow">
+          <label for="amount-{{ store_id }}">Գումար</label>
+          <input id="amount-{{ store_id }}" name="amount" inputmode="decimal" required>
+        </div>
+        <div class="narrow">
+          <label for="method-{{ store_id }}">Ձև</label>
+          <select id="method-{{ store_id }}" name="method">
+            <option value="cash">Կանխիկ</option>
+            <option value="card">Քարտ</option>
+          </select>
+        </div>
+        <div class="narrow">
+          <label for="kind-{{ store_id }}">Ուղղություն</label>
+          <select id="kind-{{ store_id }}" name="kind">
+            <option value="withdrawal">Հանել</option>
+            <option value="deposit">Ավելացնել</option>
+          </select>
+        </div>
+        <div>
+          <label for="note-{{ store_id }}">Նշում</label>
+          <input id="note-{{ store_id }}" name="note" maxlength="300">
+        </div>
+        <div class="actions">
+          <button type="submit" class="secondary">Կիրառել</button>
+        </div>
+      </form>
+
+      <form hx-post="/store-sessions/{{ store_session.id }}/close" hx-target="#store-status"
+            hx-swap="outerHTML"
+            hx-confirm="Փակե՞լ հերթափոխը։ Բոլոր բաց աշխատողների աշխատավարձը կհանվի կանխիկից։">
+        <button type="submit" class="danger">Փակել հերթափոխը</button>
+      </form>
+      <p class="muted small">
+        Սովորաբար խանութը փակում է աշխատողը՝ բոտից։ Այս կոճակն օգտագործեք, եթե
+        աշխատողը մոռացել է փակել։
+      </p>
+    </div>
+  {% else %}
+    <p class="muted">
+      Հերթափոխը բաց չէ։ Երբ աշխատողը բոտում սեղմի «Բացել խանութը», այստեղ կերևան
+      կանխիկը, քարտը և աշխատողները։
+    </p>
+  {% endif %}
+</div>

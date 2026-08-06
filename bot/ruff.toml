@@ -1,0 +1,17 @@
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = [
+    "E501",
+    # isinstance(x, (A, B)) is clearer than the X | Y form here, and marginally
+    # faster. Ruff itself later deprecated this rule.
+    "UP038",
+]
+
+[lint.per-file-ignores]
+# Fixtures must set the environment before app modules are imported.
+"tests/conftest.py" = ["E402"]
+# The client's internals are exactly what these tests need to replace.
+"tests/test_api_client.py" = ["SLF001"]

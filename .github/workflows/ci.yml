@@ -1,0 +1,59 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: vapestore
+          POSTGRES_PASSWORD: vapestore
+          POSTGRES_DB: vapestore
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: web
+    env:
+      # The suite creates vapestore_test itself on first run.
+      DATABASE_URL: postgresql://vapestore:vapestore@localhost:5432/vapestore_test?sslmode=disable
+      DIRECT_DATABASE_URL: postgresql://vapestore:vapestore@localhost:5432/vapestore_test?sslmode=disable
+      SESSION_SECRET: ci-session-secret-0123456789abcdef
+      BOT_SHARED_SECRET: ci-bot-secret-0123456789abcdef
+      APP_TIMEZONE: Asia/Yerevan
+      APP_BASE_URL: http://test
+      APP_INSECURE_COOKIES: "1"
+      PYTHONPATH: ${{ github.workspace }}/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: pytest -q
+
+  bot:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bot
+    env:
+      PYTHONPATH: ${{ github.workspace }}/bot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: pytest -q

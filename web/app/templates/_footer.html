@@ -1,0 +1,34 @@
+{# Requirement 4. One chip per store; a store with no open session shows "Փակ"
+   rather than a stale number, because its till was settled at close. #}
+<div class="footer-inner">
+  {% if not stores %}
+    <span class="muted">Խանութներ դեռ չկան։</span>
+  {% endif %}
+  {% for s in stores %}
+    <a class="chip {% if not s.store_session_id %}closed{% endif %}" href="/stores/{{ s.id }}">
+      <div class="chip-name">
+        {{ s.name }}
+        {% if s.store_session_id %}
+          <span class="badge open">բաց</span>
+        {% else %}
+          <span class="badge">փակ</span>
+        {% endif %}
+      </div>
+      {% if s.store_session_id %}
+        <div class="chip-row">
+          <span>Կանխիկ</span>
+          <span class="{% if s.cash < 0 %}negative{% endif %}">{{ s.cash | money }}</span>
+        </div>
+        <div class="chip-row">
+          <span>Քարտ</span>
+          <span class="{% if s.card < 0 %}negative{% endif %}">{{ s.card | money }}</span>
+        </div>
+        <div class="chip-meta">
+          {{ s.on_shift }} հերթափոխի մեջ · {{ s.opened_at | clock }}-ից
+        </div>
+      {% else %}
+        <div class="chip-meta">Հերթափոխը բաց չէ</div>
+      {% endif %}
+    </a>
+  {% endfor %}
+</div>

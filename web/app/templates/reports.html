@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}Հաշվետվություններ · vapestore{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Հաշվետվություններ</h1>
+  <span class="muted small">Ըստ հերթափոխի՝ բացումից մինչև փակում</span>
+</div>
+
+<div class="card">
+  {% if sessions %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Խանութ</th>
+          <th>Բացվել է</th>
+          <th>Փակվել է</th>
+          <th class="num">Տևողություն</th>
+          <th class="num">Աշխատողներ</th>
+          <th class="num">Չեկեր</th>
+          <th class="num">Կանխիկ</th>
+          <th class="num">Քարտ</th>
+          <th class="num">Աշխատավարձ</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in sessions %}
+        {% set cash = s.cash_at_close if s.closed_at else s.cash_now %}
+        {% set card = s.card_at_close if s.closed_at else s.card_now %}
+        <tr>
+          <td>{{ s.store_name }}</td>
+          <td class="nowrap">{{ s.opened_at | stamp }}</td>
+          <td class="nowrap">
+            {% if s.closed_at %}
+              {{ s.closed_at | stamp }}
+              {% if s.closed_by != 'worker' %}
+                <span class="badge">{{ 'ղեկավար' if s.closed_by == 'owner' else 'ավտոմատ' }}</span>
+              {% endif %}
+            {% else %}
+              <span class="badge open">դեռ բաց</span>
+            {% endif %}
+          </td>
+          <td class="num nowrap">{{ s.opened_at | duration(s.closed_at) }}</td>
+          <td class="num">{{ s.shift_count }}</td>
+          <td class="num">{{ s.receipt_count }}</td>
+          <td class="num {% if cash < 0 %}negative{% endif %}">{{ cash | money }}</td>
+          <td class="num">{{ card | money }}</td>
+          <td class="num">{{ (s.salaries_at_close or 0) | money }}</td>
+          <td class="num">
+            <a href="/reports?store_session_id={{ s.id }}" class="small">Մանրամասն</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">Դեռ ոչ մի հերթափոխ չի եղել։</p>
+  {% endif %}
+</div>
+
+{% if detail %}
+{% set d = detail %}
+<div class="card">
+  <h2>{{ d.session.store_name }} · {{ d.session.opened_at | stamp }}</h2>
+
+  <div class="totals">
+    <div class="total">
+      <span class="total-label">Կանխիկ</span>
+      <span class="total-value {% if d.totals.cash < 0 %}negative{% endif %}">
+        {{ d.totals.cash | money }}</span>
+    </div>
+    <div class="total">
+      <span class="total-label">Քարտ</span>
+      <span class="total-value">{{ d.totals.card | money }}</span>
+    </div>
+    <div class="total">
+      <span class="total-label">Վաճառք</span>
+      <span class="total-value">{{ d.totals.sales | money }}</span>
+    </div>
+    <div class="total">
+      <span class="total-label">Աշխատավարձ</span>
+      <span class="total-value">{{ d.totals.salaries | money }}</span>
+    </div>
+  </div>
+
+  <h3>Հերթափոխեր</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Աշխատող</th><th>Սկիզբ</th><th>Ավարտ</th><th class="num">Տևողություն</th>
+            <th class="num">Հեռավորություն</th><th class="num">Աշխատավարձ</th></tr>
+      </thead>
+      <tbody>
+        {% for w in d.shifts %}
+        <tr>
+          <td>{{ w.worker_name }}
+            {% if w.closed_by != 'worker' %}
+              <span class="badge">{{ 'ղեկավար' if w.closed_by == 'owner' else 'ավտոմատ' }}</span>
+            {% endif %}
+          </td>
+          <td class="nowrap">{{ w.started_at | clock }}</td>
+          <td class="nowrap">{{ w.ended_at | clock }}</td>
+          <td class="num nowrap">{{ w.started_at | duration(w.ended_at) }}</td>
+          <td class="num">{{ w.start_distance_m if w.start_distance_m is not none else '—' }} մ</td>
+          <td class="num">{{ (w.salary_paid or 0) | money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Չեկեր</h3>
+  {% if d.receipts %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Ժամ</th><th>Աշխատող</th><th>Ապրանքներ</th><th>Ձև</th><th class="num">Գումար</th></tr>
+      </thead>
+      <tbody>
+        {% for r in d.receipts %}
+        <tr class="{% if r.voided_at %}voided{% endif %}">
+          <td class="nowrap">{{ r.sold_at | clock }}</td>
+          <td>{{ r.worker_name }}</td>
+          <td>{{ r.lines }}</td>
+          <td>{{ 'Կանխիկ' if r.payment_method == 'cash' else 'Քարտ' }}</td>
+          <td class="num">{{ r.total | money }}</td>
+        </tr>
+        {% if r.voided_at %}
+        <tr><td colspan="5" class="muted small">
+          ↑ չեղարկվել է {{ r.voided_at | clock }}-ին
+          {%- if r.voided_by_name %} · {{ r.voided_by_name }}{% endif %}
+        </td></tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">Այս հերթափոխին վաճառք չի եղել։</p>
+  {% endif %}
+
+  <h3>Դրամարկղի շարժ</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Ժամ</th><th>Տեսակ</th><th>Ձև</th><th>Աշխատող</th><th>Նշում</th>
+            <th class="num">Գումար</th></tr>
+      </thead>
+      <tbody>
+        {% for m in d.ledger %}
+        {% set labels = {'sale': 'Վաճառք', 'void': 'Չեղարկում', 'salary': 'Աշխատավարձ',
+                         'withdrawal': 'Հանված', 'deposit': 'Ավելացված',
+                         'adjustment': 'Ճշգրտում'} %}
+        <tr>
+          <td class="nowrap">{{ m.created_at | clock }}</td>
+          <td>{{ labels.get(m.kind, m.kind) }}</td>
+          <td>{{ 'Կանխիկ' if m.method == 'cash' else 'Քարտ' }}</td>
+          <td>{{ m.worker_name or '—' }}</td>
+          <td>{{ m.note or '' }}</td>
+          <td class="num {% if m.amount < 0 %}negative{% endif %}">{{ m.amount | money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

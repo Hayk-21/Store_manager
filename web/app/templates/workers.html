@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Աշխատողներ · vapestore{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Աշխատողներ</h1>
+  <span class="muted small">{{ workers | length }} աշխատող</span>
+</div>
+
+<div class="card">
+  {% if workers %}
+  <div class="table-wrap">
+    {% for w in workers %}
+      <form id="worker-{{ w.id }}" method="post" action="/workers/{{ w.id }}">
+        <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+      </form>
+    {% endfor %}
+    <table>
+      <thead>
+        <tr>
+          <th>Անուն</th>
+          <th>Telegram ID</th>
+          <th class="num">Աշխատավարձ / հերթափոխ</th>
+          <th>Հիմա</th>
+          <th>Ակտիվ</th>
+          <th class="num"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in workers %}
+        <tr>
+          <td><input form="worker-{{ w.id }}" name="name" value="{{ w.name }}" required
+                     maxlength="120" aria-label="Անուն"></td>
+          <td><input form="worker-{{ w.id }}" name="telegram_id" value="{{ w.telegram_id }}"
+                     inputmode="numeric" required aria-label="Telegram ID"></td>
+          <td class="num"><input form="worker-{{ w.id }}" name="salary_per_shift"
+                                 value="{{ w.salary_per_shift | plain_money }}"
+                                 inputmode="decimal" class="money-input"
+                                 aria-label="Աշխատավարձ"></td>
+          <td>
+            {% if w.open_shift_id %}
+              <span class="badge open">{{ w.store_name }}</span>
+              <span class="muted small">{{ w.started_at | clock }}-ից</span>
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <input form="worker-{{ w.id }}" type="checkbox" name="is_active" value="1"
+                   class="check" {% if w.is_active %}checked{% endif %} aria-label="Ակտիվ">
+          </td>
+          <td class="num">
+            <button form="worker-{{ w.id }}" type="submit" class="secondary tiny">Պահել</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">Աշխատող դեռ չկա։ Առանց գրանցման բոտը նրան չի ճանաչի։</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Նոր աշխատող</h2>
+  <form method="post" action="/workers">
+    <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    <div class="form-row">
+      <div>
+        <label for="w-name">Անուն</label>
+        <input id="w-name" name="name" required maxlength="120">
+      </div>
+      <div>
+        <label for="w-tg">Telegram ID</label>
+        <input id="w-tg" name="telegram_id" inputmode="numeric" required placeholder="123456789">
+      </div>
+      <div class="narrow">
+        <label for="w-salary">Աշխատավարձ / հերթափոխ</label>
+        <input id="w-salary" name="salary_per_shift" inputmode="decimal" value="0.00">
+      </div>
+      <div class="actions">
+        <button type="submit">Ավելացնել</button>
+      </div>
+    </div>
+    <p class="muted small">
+      Telegram ID-ն թիվ է, ոչ թե օգտանուն։ Աշխատողը կարող է այն ստանալ
+      <a href="https://t.me/userinfobot" target="_blank" rel="noopener">@userinfobot</a>-ից։
+      Մինչև գրանցումը բոտը նրան չի ճանաչի։
+      Աշխատավարձը հանվում է կանխիկից, երբ աշխատողն ավարտում է հերթափոխը։
+    </p>
+  </form>
+</div>
+{% endblock %}

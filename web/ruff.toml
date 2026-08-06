@@ -1,0 +1,15 @@
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = [
+    # The route signatures are long by nature (one parameter per form field).
+    "E501",
+    # FastAPI's Depends() in a default argument is the framework's own idiom.
+    "B008",
+]
+
+[lint.per-file-ignores]
+# Fixtures must set the environment before app modules are imported.
+"tests/conftest.py" = ["E402"]

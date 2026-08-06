@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="hy">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}vapestore{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+{# Putting the CSRF token here means every hx-post on the page carries it and no
+   individual form has to remember to include a hidden field. #}
+<body {% if user %}hx-headers='{"X-CSRF-Token": "{{ user.csrf_token }}"}'{% endif %}>
+
+{% if user %}
+<header class="topbar">
+  <a class="brand" href="/stores">vapestore</a>
+  <nav>
+    <a href="/stores" {% if active == 'stores' %}class="active"{% endif %}>Խանութներ</a>
+    <a href="/workers" {% if active == 'workers' %}class="active"{% endif %}>Աշխատողներ</a>
+    <a href="/reports" {% if active == 'reports' %}class="active"{% endif %}>Հաշվետվություններ</a>
+  </nav>
+  <form method="post" action="/logout" class="logout">
+    <span class="who">{{ user.label }}</span>
+    <button type="submit" class="link">Ելք</button>
+  </form>
+</header>
+{% endif %}
+
+<main class="{% if user %}with-footer{% endif %}">
+  <div id="flash"></div>
+  {% block content %}{% endblock %}
+</main>
+
+{% if user %}
+{# Requirement 4: the fixed footer, one chip per store, refreshed on a timer so a
+   sale made through the bot shows up without anyone reloading. #}
+<footer id="vs-footer" hx-get="/partials/footer" hx-trigger="load, every 10s" hx-swap="innerHTML">
+  <div class="footer-inner"><span class="muted">բեռնվում է…</span></div>
+</footer>
+{% endif %}
+
+</body>
+</html>

@@ -1,0 +1,93 @@
+{# Requirement 2: name | count | self_price | sell_price | possible_profit.
+   possible_profit is a generated column, so it can never disagree with the
+   numbers beside it.
+
+   The forms sit outside the table and the cells point at them with the HTML5
+   `form` attribute. A <form> cannot legally span several <td>s, and a browser
+   silently rearranges one that tries. #}
+{% macro head(key, label, numeric=false) %}
+  {% set is_current = sort == key %}
+  <th {% if numeric %}class="num"{% endif %}>
+    <a hx-get="/partials/stores/{{ store_id }}/items?sort={{ key }}&desc={{ 'false' if (is_current and desc) else 'true' }}"
+       hx-target="#items-table" hx-swap="outerHTML" href="#">
+      {{ label }}{% if is_current %} {{ '▾' if desc else '▴' }}{% endif %}
+    </a>
+  </th>
+{% endmacro %}
+
+<div id="items-table">
+  {% for item in items %}
+    <form id="edit-{{ item.id }}" hx-post="/items/{{ item.id }}"
+          hx-target="#items-table" hx-swap="outerHTML"></form>
+    <form id="restock-{{ item.id }}" hx-post="/items/{{ item.id }}/restock"
+          hx-target="#items-table" hx-swap="outerHTML"></form>
+    <form id="drop-{{ item.id }}" hx-post="/items/{{ item.id }}/delete"
+          hx-target="#items-table" hx-swap="outerHTML"
+          hx-confirm="Ջնջե՞լ «{{ item.name }}»-ը ցուցակից։"></form>
+  {% endfor %}
+
+  {% if items %}
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        {{ head('name', 'Անուն') }}
+        {{ head('count', 'Քանակ', true) }}
+        {{ head('self_price', 'Ինքնարժեք', true) }}
+        {{ head('sell_price', 'Վաճառքի գին', true) }}
+        {{ head('possible_profit', 'Հնարավոր շահույթ', true) }}
+        <th class="num">Գործողություն</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>
+          <input form="edit-{{ item.id }}" name="name" value="{{ item.name }}"
+                 maxlength="200" required aria-label="Անուն">
+        </td>
+        <td class="num">
+          {{ item.count }}
+          <input form="restock-{{ item.id }}" name="delta" value="1" inputmode="numeric"
+                 class="tiny-input" aria-label="Ավելացնել քանակ">
+          <button form="restock-{{ item.id }}" type="submit" class="secondary tiny"
+                  title="Ավելացնել պահեստին">＋</button>
+        </td>
+        <td class="num">
+          <input form="edit-{{ item.id }}" name="self_price"
+                 value="{{ item.self_price | plain_money }}" inputmode="decimal"
+                 class="money-input" aria-label="Ինքնարժեք">
+        </td>
+        <td class="num">
+          <input form="edit-{{ item.id }}" name="sell_price"
+                 value="{{ item.sell_price | plain_money }}" inputmode="decimal"
+                 class="money-input" aria-label="Վաճառքի գին">
+        </td>
+        <td class="num {% if item.possible_profit < 0 %}negative{% endif %}">
+          {{ item.possible_profit | money }}
+        </td>
+        <td class="num nowrap">
+          <button form="edit-{{ item.id }}" type="submit" class="secondary tiny">Պահել</button>
+          <button form="drop-{{ item.id }}" type="submit" class="danger tiny">✕</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td>{{ summary.lines }} անվանում</td>
+        <td class="num">{{ summary.units }} հատ</td>
+        <td class="num">{{ summary.stock_cost | money }}</td>
+        <td class="num"></td>
+        <td class="num {% if summary.possible_profit < 0 %}negative{% endif %}">
+          {{ summary.possible_profit | money }}
+        </td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">Այս խանութում ապրանք դեռ չկա։</p>
+  {% endif %}
+</div>
