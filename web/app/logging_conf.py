@@ -21,4 +21,9 @@ def setup_logging() -> None:
     # These two are chatty at INFO and say nothing we do not already log.
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
+    # httpx logs the full request URL at INFO, and Telegram puts the bot token
+    # *in the path* — so leaving this on writes the token into the deploy log of
+    # every login code sent. Nothing here is worth that.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     _configured = True

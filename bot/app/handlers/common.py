@@ -6,6 +6,7 @@ import logging
 
 from telegram import Update
 from telegram.constants import ParseMode
+from telegram.error import Conflict
 from telegram.ext import ContextTypes
 
 from app import keyboards, texts
@@ -46,6 +47,16 @@ async def location_from_desktop(update: Update, context: ContextTypes.DEFAULT_TY
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Last line of defence: the worker always gets an answer, never silence."""
     error = context.error
+
+    if isinstance(error, Conflict):
+        # Two processes polling one token. During a Railway rollover the old
+        # container is briefly still alive while the new one starts, which is
+        # normal and resolves itself in seconds. A stack trace every time is
+        # just noise that hides real problems — but if it keeps up after a
+        # deploy settles, the bot service has more than one replica.
+        log.warning("another process is polling this bot token (normal during a deploy)")
+        return
+
     log.exception("update %s raised", update, exc_info=error)
 
     if not isinstance(update, Update) or update.effective_message is None:
