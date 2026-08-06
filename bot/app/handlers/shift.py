@@ -41,7 +41,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # Telegram account so login codes can be delivered — that already
         # happened server-side by the time this reply is sent.
         await update.effective_message.reply_text(
-            texts.WELCOME_ADMIN.format(name=(admin or {}).get("label", "")),
+            texts.WELCOME_ADMIN.format(name=format.esc((admin or {}).get("label", ""))),
             parse_mode=ParseMode.HTML,
             reply_markup=ReplyKeyboardRemove(),
         )
@@ -116,7 +116,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     session = result["session"]
     await update.effective_message.reply_text(
         texts.SHIFT_OPENED.format(
-            store=session["store_name"], distance=session["distance_m"]
+            store=format.esc(session["store_name"]), distance=session["distance_m"]
         ),
         parse_mode=ParseMode.HTML,
         reply_markup=keyboards.on_shift(),
@@ -141,7 +141,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     await update.effective_message.reply_text(
         texts.STATUS.format(
-            store=session["store_name"],
+            store=format.esc(session["store_name"]),
             since=format.clock(session["started_at"]),
             duration=format.duration_since(session["started_at"]),
             receipts=session["sales"]["receipts"],

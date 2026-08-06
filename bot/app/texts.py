@@ -65,8 +65,18 @@ NOTHING_FOUND = (
 )
 CHOOSE_ITEM = "Ընտրեք ապրանքը՝"
 OUT_OF_STOCK_HINT = "(պահեստում չկա)"
+# Shown as a Telegram alert on the button itself, so it must stay short and
+# carry no markup.
+OUT_OF_STOCK_ALERT = (
+    "«{item}» պահեստում չկա։\n\nԸնտրեք այլ ապրանք կամ համալրեք պահեստը։"
+)
 ASK_QUANTITY = "«{item}» — քանի՞ հատ։\nՊահեստում կա {available} հատ։"
 BAD_QUANTITY = "Գրեք քանակը թվով, օրինակ՝ 2։"
+NOT_ENOUGH_STOCK = (
+    "«{item}» — պահեստում կա ընդամենը {available} հատ, դուք գրեցիք {requested}։\n"
+    "Գրեք ավելի փոքր թիվ։"
+)
+QUANTITY_TOO_BIG = "Չափազանց մեծ թիվ։ Առավելագույնը {limit} հատ։"
 ASK_PAYMENT = "«{item}» ×{quantity} = <b>{total}</b>\n\nԻնչպե՞ս վճարեց հաճախորդը։"
 SALE_DONE = (
     "✅ Գրանցվեց՝ <b>{item}</b> ×{quantity} — {total} ({method})\n"

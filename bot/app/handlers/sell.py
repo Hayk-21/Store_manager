@@ -21,6 +21,10 @@ log = logging.getLogger("storemanager.bot.sell")
 
 ASK_ITEM, ASK_QUANTITY, ASK_PAYMENT = range(3)
 
+# The server refuses anything above this outright; catching it here turns a
+# validation_error into a sentence that says what to do.
+MAX_QUANTITY = 10_000
+
 
 async def _fail(update: Update, exc: Exception) -> int:
     message = update.effective_message
@@ -71,13 +75,21 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def choose_item(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer()
     item_id = query.data.split(":", 1)[1]
     item = (context.user_data.get("candidates") or {}).get(item_id)
     if item is None:  # the message is older than the conversation state
+        await query.answer()
         await query.edit_message_text(texts.CANCELLED)
         return ConversationHandler.END
 
+    if item["count"] <= 0:
+        # Refuse here rather than after the cashier has also chosen a quantity
+        # and a payment method. The keyboard stays up so they can pick something
+        # else without starting over.
+        await query.answer(texts.OUT_OF_STOCK_ALERT.format(item=item["name"]), show_alert=True)
+        return ASK_ITEM
+
+    await query.answer()
     context.user_data["item"] = item
     await query.edit_message_reply_markup(reply_markup=None)
     await query.message.reply_text(
@@ -101,6 +113,23 @@ async def choose_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if item is None:  # pragma: no cover - state lost between restarts
         return ConversationHandler.END
 
+    # Say so now, not after they have also picked cash or card. The server
+    # checks again when the sale lands -- stock can move in between, and it is
+    # the server that decides -- but there is no reason to make the cashier walk
+    # the whole way to find out.
+    if quantity > item["count"]:
+        await update.effective_message.reply_text(
+            texts.NOT_ENOUGH_STOCK.format(
+                item=item["name"], available=item["count"], requested=quantity
+            )
+        )
+        return ASK_QUANTITY
+    if quantity > MAX_QUANTITY:
+        await update.effective_message.reply_text(
+            texts.QUANTITY_TOO_BIG.format(limit=MAX_QUANTITY)
+        )
+        return ASK_QUANTITY
+
     context.user_data["quantity"] = quantity
     # The key is minted here, at the last step before money moves, and survives
     # every retry of the request that follows.
@@ -109,7 +138,7 @@ async def choose_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     total = Decimal(item["sell_price"]) * quantity
     await update.effective_message.reply_text(
         texts.ASK_PAYMENT.format(
-            item=item["name"], quantity=quantity, total=format.money(total)
+            item=format.esc(item["name"]), quantity=quantity, total=format.money(total)
         ),
         parse_mode=ParseMode.HTML,
         reply_markup=keyboards.payment_methods(),
@@ -140,7 +169,7 @@ async def choose_payment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await query.message.reply_text(
         prefix
         + texts.SALE_DONE.format(
-            item=line["name"],
+            item=format.esc(line["name"]),
             quantity=line["quantity"],
             total=format.money(result["sale"]["total"]),
             method=texts.BTN_CASH if method == "cash" else texts.BTN_CARD,

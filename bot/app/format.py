@@ -2,10 +2,22 @@
 
 from __future__ import annotations
 
+import html
 from datetime import datetime
 from decimal import Decimal
 
 CURRENCY = "֏"
+
+
+def esc(value) -> str:
+    """Make a name safe to drop into an HTML message.
+
+    Telegram parses these messages as HTML, and it *rejects the whole message*
+    on a stray entity rather than showing it literally. An item called
+    "Blue Razz & Ice" — an entirely ordinary name in this shop — would make the
+    send fail and the sale appear to hang.
+    """
+    return html.escape(str(value if value is not None else ""), quote=False)
 
 
 def money(value) -> str:
