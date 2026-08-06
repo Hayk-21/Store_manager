@@ -1,4 +1,4 @@
-"""Signing in with a Telegram handle and a code from the bot."""
+﻿"""Signing in with a Telegram handle and a code from the bot."""
 
 from __future__ import annotations
 

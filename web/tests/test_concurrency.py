@@ -25,7 +25,7 @@ from tests.factories import YEREVAN_LAT, YEREVAN_LNG
 
 TABLES = (
     "cash_movements, sale_items, sales, work_sessions, store_sessions, "
-    "items, workers, stores, auth_sessions, login_attempts, users"
+    "items, workers, stores, auth_sessions, login_codes, login_links, users"
 )
 
 
@@ -44,7 +44,7 @@ async def pooled(migrated):
 
 async def _world(salary: str = "0.00", stock: int = 100):
     owner_id = await db.fetchval(
-        "INSERT INTO users (email, password_hash) VALUES ('race@example.com', 'x') RETURNING id"
+        "INSERT INTO users (telegram_username) VALUES ('raceowner') RETURNING id"
     )
     store_id = await db.fetchval(
         """

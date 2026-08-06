@@ -36,14 +36,11 @@ class NotLoggedIn(Exception):
 @dataclass(frozen=True)
 class CurrentUser:
     id: int
-    email: str
+    telegram_username: str
     display_name: str | None
+    label: str
     csrf_token: str
     token_hash: str
-
-    @property
-    def label(self) -> str:
-        return self.display_name or self.email
 
 
 async def optional_user(request: Request) -> CurrentUser | None:
@@ -53,11 +50,14 @@ async def optional_user(request: Request) -> CurrentUser | None:
     row = await users_repo.session_with_user(hash_token(token))
     if row is None or not row["is_active"]:
         return None
-    await users_repo.touch_session(row["token_hash"])
+    # Pushes the expiry back out, so somebody who uses the site never has to
+    # sign in again. See users_repo.touch_session.
+    await users_repo.touch_session(row["token_hash"], settings.session_ttl_days)
     return CurrentUser(
         id=row["user_id"],
-        email=row["email"],
+        telegram_username=row["telegram_username"],
         display_name=row["display_name"],
+        label=row["label"],
         csrf_token=row["csrf_token"],
         token_hash=row["token_hash"],
     )

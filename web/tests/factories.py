@@ -9,14 +9,11 @@ from __future__ import annotations
 from decimal import Decimal
 
 from app.db import db
-from app.security import hash_password
 
 # Yerevan, Northern Avenue. Any two nearby points would do; real coordinates just
 # make distances in a failing assertion easier to reason about.
 YEREVAN_LAT = 40.177200
 YEREVAN_LNG = 44.503200
-
-DEFAULT_PASSWORD = "correct-horse-battery"
 
 _counter = {"n": 0}
 
@@ -26,16 +23,26 @@ def _next() -> int:
     return _counter["n"]
 
 
-async def make_owner(email: str | None = None, password: str = DEFAULT_PASSWORD) -> int:
-    address = email or f"owner{_next()}@example.com"
-    return await db.fetchval(
+async def make_owner(handle: str | None = None, *, bound_to: int | None = None) -> int:
+    """An owner account, identified by Telegram handle.
+
+    ``bound_to`` gives them a chat, which is what a login code needs; tests that
+    only want *a* session use ``login()`` below and skip that entirely.
+    """
+    username = (handle or f"owner{_next()}").lstrip("@")
+    user_id = await db.fetchval(
         """
-        INSERT INTO users (email, password_hash, activated_at, password_changed_at)
-        VALUES ($1, $2, now(), now()) RETURNING id
+        INSERT INTO users (telegram_username, activated_at)
+        VALUES ($1, now()) RETURNING id
         """,
-        address,
-        hash_password(password),
+        username,
     )
+    if bound_to is not None:
+        await db.execute(
+            "UPDATE users SET telegram_id = $2, telegram_bound_at = now() WHERE id = $1",
+            user_id, bound_to,
+        )
+    return user_id
 
 
 async def make_store(
@@ -115,17 +122,28 @@ async def make_worker(
     return worker_id, tg
 
 
-async def login(client, email: str, password: str = DEFAULT_PASSWORD):
+async def login(client, handle: str):
     """Sign in for tests that only need *a* session.
 
-    Uses the password fallback rather than the Telegram code flow, because most
-    tests care about what happens once you are in, not how you got there. The
-    Telegram flow has its own tests in test_login.py.
+    Mints a session directly rather than driving the Telegram code flow: most
+    tests care about what happens once you are in, not how you got there, and
+    the code flow has its own tests in test_login.py.
     """
-    page = await client.get("/login/password")
-    token = client.cookies.get("vs_csrf")
-    assert token, "the login page did not set a pre-session CSRF cookie"
-    assert page.status_code == 200
-    return await client.post(
-        "/login/password", data={"email": email, "password": password, "csrf_token": token}
+    from app.config import settings
+    from app.deps import SESSION_COOKIE
+    from app.repo import users as users_repo
+    from app.security import generate_token, hash_token
+
+    user = await users_repo.by_telegram_username(handle.lstrip("@"))
+    assert user is not None, f"no owner account for {handle}"
+
+    token = generate_token()
+    await users_repo.create_session(
+        token_hash=hash_token(token),
+        user_id=user["id"],
+        csrf_token=generate_token(),
+        user_agent="tests",
+        ttl_days=settings.session_ttl_days,
     )
+    client.cookies.set(SESSION_COOKIE, token)
+    return user["id"]

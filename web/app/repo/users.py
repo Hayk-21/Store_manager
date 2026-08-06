@@ -1,4 +1,10 @@
-"""Users, login throttling, and server-side sessions."""
+"""Owner accounts, their Telegram binding, login codes and sessions.
+
+Signing in means a Telegram handle and a code the bot delivers. There is no
+password: the column is gone, and the way back in without Telegram is
+``manage.py user login-link``, which needs database access rather than a public
+form.
+"""
 
 from __future__ import annotations
 
@@ -8,39 +14,82 @@ import asyncpg
 
 from app.db import db
 
-# -- users -----------------------------------------------------------------
-
 # The label to show for an account, in order of authority.
 USER_DISPLAY = (
     "coalesce(nullif(btrim(u.display_name), ''), nullif(btrim(u.telegram_name), ''), "
-    "'@' || u.telegram_username, u.email)"
+    "'@' || u.telegram_username)"
 )
 
+_COLUMNS = f"""
+    u.id, u.telegram_username, u.telegram_id, u.telegram_name, u.display_name,
+    u.is_active, {USER_DISPLAY} AS label
+"""
 
-# -- telegram identity ------------------------------------------------------
+
+# -- accounts ---------------------------------------------------------------
+
+async def by_id(user_id: int) -> asyncpg.Record | None:
+    return await db.fetchrow(f"SELECT {_COLUMNS} FROM users u WHERE u.id = $1", user_id)
+
 
 async def by_telegram_username(username: str) -> asyncpg.Record | None:
     """Who is trying to sign in. Matched case-insensitively."""
     return await db.fetchrow(
-        f"""
-        SELECT u.id, u.email, u.telegram_username, u.telegram_id, u.telegram_name,
-               u.is_active, {USER_DISPLAY} AS label
-          FROM users u WHERE lower(u.telegram_username) = lower($1)
-        """,
+        f"SELECT {_COLUMNS} FROM users u WHERE lower(u.telegram_username) = lower($1)",
         username,
     )
 
 
 async def by_telegram_id(telegram_id: int) -> asyncpg.Record | None:
     return await db.fetchrow(
-        f"""
-        SELECT u.id, u.email, u.telegram_username, u.telegram_id, u.telegram_name,
-               u.is_active, {USER_DISPLAY} AS label
-          FROM users u WHERE u.telegram_id = $1
-        """,
-        telegram_id,
+        f"SELECT {_COLUMNS} FROM users u WHERE u.telegram_id = $1", telegram_id
     )
 
+
+async def create_admin(telegram_username: str, display_name: str | None = None) -> int:
+    """Register an owner by Telegram handle. The chat binds on first /start."""
+    return await db.fetchval(
+        """
+        INSERT INTO users (telegram_username, display_name, activated_at)
+        VALUES ($1, $2, now()) RETURNING id
+        """,
+        telegram_username,
+        display_name,
+    )
+
+
+async def set_telegram_username(user_id: int, telegram_username: str) -> None:
+    """Point an account at a different handle, releasing any previous binding."""
+    await db.execute(
+        """
+        UPDATE users
+           SET telegram_username = $2, telegram_id = NULL, telegram_bound_at = NULL
+         WHERE id = $1
+        """,
+        user_id,
+        telegram_username,
+    )
+
+
+async def set_active(user_id: int, is_active: bool) -> None:
+    await db.execute("UPDATE users SET is_active = $2 WHERE id = $1", user_id, is_active)
+
+
+async def touch_login(user_id: int) -> None:
+    await db.execute("UPDATE users SET last_login_at = now() WHERE id = $1", user_id)
+
+
+async def list_all() -> list[asyncpg.Record]:
+    return await db.fetch(
+        """
+        SELECT id, display_name, telegram_username, telegram_id, telegram_name,
+               is_active, created_at, last_login_at
+          FROM users ORDER BY id
+        """
+    )
+
+
+# -- telegram binding -------------------------------------------------------
 
 async def claim_admin_by_username(
     username: str, telegram_id: int, telegram_name: str | None
@@ -56,8 +105,7 @@ async def claim_admin_by_username(
         UPDATE users u
            SET telegram_id = $2, telegram_name = $3, telegram_bound_at = now()
          WHERE lower(u.telegram_username) = lower($1) AND u.telegram_id IS NULL
-        RETURNING u.id, u.email, u.telegram_username, u.telegram_id, u.telegram_name,
-                  u.is_active, {USER_DISPLAY} AS label
+        RETURNING {_COLUMNS}
         """,
         username,
         telegram_id,
@@ -139,140 +187,33 @@ async def purge_expired_codes() -> int:
     return int(result.rsplit(" ", 1)[-1]) if result.startswith("DELETE") else 0
 
 
-# -- accounts ---------------------------------------------------------------
+# -- one-time sign-in links (the command-line escape hatch) ------------------
 
-async def by_email(email: str) -> asyncpg.Record | None:
-    return await db.fetchrow(
-        """
-        SELECT id, email, password_hash, display_name, is_active
-          FROM users WHERE email = $1
-        """,
-        email,
-    )
-
-
-async def by_id(user_id: int) -> asyncpg.Record | None:
-    return await db.fetchrow(
-        "SELECT id, email, display_name, is_active FROM users WHERE id = $1",
-        user_id,
-    )
-
-
-async def create_admin(
-    telegram_username: str, display_name: str | None = None, email: str | None = None
-) -> int:
-    """Register an owner by Telegram handle. The chat binds on first /start."""
-    return await db.fetchval(
-        """
-        INSERT INTO users (telegram_username, display_name, email, activated_at)
-        VALUES ($1, $2, $3, now())
-        RETURNING id
-        """,
-        telegram_username,
-        display_name,
-        email,
-    )
-
-
-async def set_telegram_username(user_id: int, telegram_username: str) -> None:
-    """Point an existing account at a handle, releasing any previous binding."""
+async def create_login_link(user_id: int, token_hash: str, ttl_minutes: int) -> None:
     await db.execute(
         """
-        UPDATE users
-           SET telegram_username = $2, telegram_id = NULL, telegram_bound_at = NULL
-         WHERE id = $1
+        INSERT INTO login_links (user_id, token_hash, expires_at)
+        VALUES ($1, $2, now() + make_interval(mins => $3))
         """,
         user_id,
-        telegram_username,
+        token_hash,
+        ttl_minutes,
     )
 
 
-async def create(email: str, password_hash: str | None, display_name: str | None) -> int:
+async def consume_login_link(token_hash: str) -> int | None:
+    """Spend a link and return whose it was. Works exactly once."""
     return await db.fetchval(
         """
-        INSERT INTO users (email, password_hash, display_name, activated_at, password_changed_at)
-        VALUES ($1, $2, $3,
-                CASE WHEN $2::text IS NULL THEN NULL ELSE now() END,
-                CASE WHEN $2::text IS NULL THEN NULL ELSE now() END)
-        RETURNING id
+        UPDATE login_links SET consumed_at = now()
+         WHERE token_hash = $1 AND consumed_at IS NULL AND expires_at > now()
+        RETURNING user_id
         """,
-        email,
-        password_hash,
-        display_name,
+        token_hash,
     )
 
 
-async def set_password(user_id: int, password_hash: str) -> None:
-    await db.execute(
-        """
-        UPDATE users
-           SET password_hash = $2,
-               password_changed_at = now(),
-               activated_at = coalesce(activated_at, now())
-         WHERE id = $1
-        """,
-        user_id,
-        password_hash,
-    )
-
-
-async def set_active(user_id: int, is_active: bool) -> None:
-    await db.execute("UPDATE users SET is_active = $2 WHERE id = $1", user_id, is_active)
-
-
-async def touch_login(user_id: int) -> None:
-    await db.execute("UPDATE users SET last_login_at = now() WHERE id = $1", user_id)
-
-
-async def list_all() -> list[asyncpg.Record]:
-    return await db.fetch(
-        """
-        SELECT id, email, display_name, telegram_username, telegram_id, telegram_name,
-               is_active, password_hash IS NOT NULL AS has_password,
-               created_at, last_login_at
-          FROM users ORDER BY id
-        """
-    )
-
-
-# -- login throttling ------------------------------------------------------
-
-async def record_attempt(email: str, ip: str | None, succeeded: bool) -> None:
-    await db.execute(
-        "INSERT INTO login_attempts (email, ip, succeeded) VALUES ($1, $2::inet, $3)",
-        email,
-        ip,
-        succeeded,
-    )
-
-
-async def recent_failures(email: str, ip: str | None, window_minutes: int) -> int:
-    """Failed attempts in the window, counted per-email OR per-IP.
-
-    Either axis alone is easy to slip: rotating IPs defeats an IP-only counter,
-    and spraying many addresses from one host defeats an email-only counter.
-    """
-    return await db.fetchval(
-        """
-        SELECT count(*) FROM login_attempts
-         WHERE NOT succeeded
-           AND attempted_at > now() - make_interval(mins => $3)
-           AND (email = $1 OR ($2::inet IS NOT NULL AND ip = $2::inet))
-        """,
-        email,
-        ip,
-        window_minutes,
-    )
-
-
-async def clear_failures(email: str) -> None:
-    """Called after a successful login so one good password resets the counter."""
-    await db.execute(
-        "DELETE FROM login_attempts WHERE email = $1 AND NOT succeeded", email
-    )
-
-
-# -- sessions --------------------------------------------------------------
+# -- sessions ---------------------------------------------------------------
 
 async def create_session(
     token_hash: str, user_id: int, csrf_token: str, user_agent: str | None, ttl_days: int
@@ -298,9 +239,10 @@ async def session_with_user(token_hash: str) -> asyncpg.Record | None:
     the app and the database cannot extend a session.
     """
     return await db.fetchrow(
-        """
-        SELECT s.token_hash, s.csrf_token, s.expires_at,
-               u.id AS user_id, u.email, u.display_name, u.is_active
+        f"""
+        SELECT s.token_hash, s.csrf_token, s.expires_at, u.id AS user_id,
+               u.telegram_username, u.telegram_name, u.display_name, u.is_active,
+               {USER_DISPLAY} AS label
           FROM auth_sessions s
           JOIN users u ON u.id = s.user_id
          WHERE s.token_hash = $1 AND s.expires_at > now()
@@ -309,9 +251,27 @@ async def session_with_user(token_hash: str) -> asyncpg.Record | None:
     )
 
 
-async def touch_session(token_hash: str) -> None:
+async def touch_session(token_hash: str, ttl_days: int) -> None:
+    """Mark the session used, and push its expiry back out.
+
+    This is what "remember me" actually means here: somebody who uses the site
+    is never signed out, while an abandoned session still dies on its own. The
+    expiry only moves once it is more than half spent, so an active tab is not
+    writing a new timestamp on every poll of the footer.
+    """
     await db.execute(
-        "UPDATE auth_sessions SET last_seen_at = now() WHERE token_hash = $1", token_hash
+        """
+        UPDATE auth_sessions
+           SET last_seen_at = now(),
+               expires_at = CASE
+                   WHEN expires_at < now() + make_interval(days => $2 / 2)
+                   THEN now() + make_interval(days => $2)
+                   ELSE expires_at
+               END
+         WHERE token_hash = $1
+        """,
+        token_hash,
+        ttl_days,
     )
 
 
@@ -320,7 +280,6 @@ async def delete_session(token_hash: str) -> None:
 
 
 async def delete_sessions_for_user(user_id: int) -> None:
-    """Used when a password changes: setting one signs the account out everywhere."""
     await db.execute("DELETE FROM auth_sessions WHERE user_id = $1", user_id)
 
 

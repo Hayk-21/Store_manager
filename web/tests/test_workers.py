@@ -1,4 +1,4 @@
-"""Registering a worker by @username, and paying them per shift or per month.
+﻿"""Registering a worker by @username, and paying them per shift or per month.
 
 The owner writes a handle and a salary. The numeric id and the name both arrive
 by themselves the first time that person messages the bot. Registration stays
@@ -28,8 +28,8 @@ TG_ID = 555000777
 
 
 async def _signed_in(client) -> tuple[int, str]:
-    owner_id = await make_owner("owner@example.com")
-    await login(client, "owner@example.com")
+    owner_id = await make_owner("@ownerhandle")
+    await login(client, "@ownerhandle")
     token = await db.fetchval(
         "SELECT csrf_token FROM auth_sessions WHERE user_id = $1", owner_id
     )
@@ -284,7 +284,7 @@ async def test_the_name_shows_up_in_reports(client, bot_headers):
 
 
 async def test_a_deactivated_worker_is_refused_and_not_renamed(client, bot_headers):
-    owner_id = await make_owner("owner@example.com")
+    owner_id = await make_owner("@ownerhandle")
     worker_id, telegram_id = await make_worker(owner_id, is_active=False)
     await db.execute("UPDATE workers SET telegram_name = 'old' WHERE id = $1", worker_id)
 

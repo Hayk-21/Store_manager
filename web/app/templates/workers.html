@@ -35,6 +35,13 @@
       </div>
     </div>
     <p class="muted small">
+      {# The owner is often behind the counter too. Prefill their own handle so
+         registering themselves is one click rather than typing it out. #}
+      <a href="#" onclick="document.getElementById('w-username').value='@{{ user.telegram_username }}';document.getElementById('w-username').focus();return false;">
+        Ավելացնել ինձ (@{{ user.telegram_username }})
+      </a> — եթե դուք ինքներդ էլ եք վաճառում։
+    </p>
+    <p class="muted small">
       Բավական է նշել միայն <b>Telegram օգտանունը</b> և աշխատավարձը։ Անունը ինքնաշխատ
       կլրացվի Telegram-ի պրոֆիլից, երբ աշխատողն առաջին անգամ գրի բոտին։<br>
       <b>Օրվա վերջում</b> — աշխատավարձը հանվում է կանխիկից, երբ աշխատողն ավարտում է

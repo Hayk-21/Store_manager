@@ -9,8 +9,8 @@ from tests.factories import login, make_item, make_owner, make_store
 
 
 async def _signed_in(client) -> int:
-    owner_id = await make_owner("owner@example.com")
-    await login(client, "owner@example.com")
+    owner_id = await make_owner("@ownerhandle")
+    await login(client, "@ownerhandle")
     return owner_id
 
 

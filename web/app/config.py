@@ -177,7 +177,9 @@ def _load() -> Settings:
         log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),
         db_pool_min=_int("DB_POOL_MIN", 1),
         db_pool_max=_int("DB_POOL_MAX", 5),
-        session_ttl_days=_int("SESSION_TTL_DAYS", 30),
+        # Long, and pushed further out on every visit: somebody who uses the
+        # site regularly should never be asked to sign in again.
+        session_ttl_days=_int("SESSION_TTL_DAYS", 90),
         login_max_attempts=_int("LOGIN_MAX_ATTEMPTS", 10),
         login_window_minutes=_int("LOGIN_WINDOW_MINUTES", 15),
         # A store left open longer than this is assumed forgotten and closed for

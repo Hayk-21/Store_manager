@@ -23,7 +23,7 @@ from tests.factories import (
 
 
 async def _open_store(salary: str = "0.00"):
-    owner_id = await make_owner("owner@example.com")
+    owner_id = await make_owner("@ownerhandle")
     store_id = await make_store(owner_id, lat=YEREVAN_LAT, lng=YEREVAN_LNG, radius_m=120)
     worker_id, _ = await make_worker(owner_id, "Անի", salary_amount=salary)
     worker = shifts_service.Worker(
@@ -171,7 +171,7 @@ async def test_a_salary_can_only_be_paid_in_cash(client):
 async def test_the_status_block_shows_who_is_working_and_the_till(client):
     """Requirement 3, through HTTP."""
     owner_id, store_id, worker, session_id = await _open_store(salary="8000.00")
-    await login(client, "owner@example.com")
+    await login(client, "@ownerhandle")
     await db.execute(
         """
         INSERT INTO cash_movements (owner_id, store_id, store_session_id, method, kind, amount)
@@ -190,7 +190,7 @@ async def test_the_status_block_shows_who_is_working_and_the_till(client):
 
 async def test_the_owner_can_force_close_from_the_page(client):
     owner_id, store_id, _, session_id = await _open_store(salary="8000.00")
-    await login(client, "owner@example.com")
+    await login(client, "@ownerhandle")
     token = await db.fetchval("SELECT csrf_token FROM auth_sessions WHERE user_id = $1", owner_id)
 
     response = await client.post(
@@ -205,7 +205,7 @@ async def test_the_owner_can_force_close_from_the_page(client):
 
 
 async def test_another_owners_session_cannot_be_closed(client):
-    await make_owner("owner@example.com")
+    await make_owner("@ownerhandle")
     other_owner = await make_owner()
     await make_store(other_owner, lat=YEREVAN_LAT, lng=YEREVAN_LNG)
     other_worker_id, _ = await make_worker(other_owner)
@@ -215,7 +215,7 @@ async def test_another_owners_session_cannot_be_closed(client):
     await shifts_service.open_store(other_worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-9")
     their_session = await db.fetchval("SELECT id FROM store_sessions")
 
-    await login(client, "owner@example.com")
+    await login(client, "@ownerhandle")
     token = await db.fetchval("SELECT csrf_token FROM auth_sessions LIMIT 1")
     response = await client.post(
         f"/store-sessions/{their_session}/close", data={"csrf_token": token}
@@ -228,8 +228,8 @@ async def test_another_owners_session_cannot_be_closed(client):
 # -- workers page ------------------------------------------------------------
 
 async def test_a_worker_can_be_registered_from_the_page(client):
-    owner_id = await make_owner("owner@example.com")
-    await login(client, "owner@example.com")
+    owner_id = await make_owner("@ownerhandle")
+    await login(client, "@ownerhandle")
     token = await db.fetchval("SELECT csrf_token FROM auth_sessions WHERE user_id = $1", owner_id)
 
     response = await client.post(
@@ -244,7 +244,7 @@ async def test_a_worker_can_be_registered_from_the_page(client):
 
 async def test_the_workers_page_shows_where_someone_is_working(client):
     owner_id, store_id, _, _ = await _open_store()
-    await login(client, "owner@example.com")
+    await login(client, "@ownerhandle")
 
     response = await client.get("/workers")
 

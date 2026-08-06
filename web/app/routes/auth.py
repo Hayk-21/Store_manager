@@ -1,9 +1,11 @@
 """Signing in.
 
-The way in is a Telegram handle plus a one-time code the bot sends. The old
-email-and-password form is still mounted at ``/login/password`` and is not linked
-from anywhere: if Telegram is down, or the bot token is revoked, that is the way
-back into your own admin panel. It is worth the twenty lines.
+A Telegram handle and a code the bot sends. That is the only way in through the
+browser — there is no password to guess, phish or leak.
+
+The way back in when Telegram is not available is ``manage.py user login-link``,
+which mints a single-use URL from the command line. It needs database access
+rather than a public form, which is the right shape for an escape hatch.
 """
 
 from __future__ import annotations
@@ -27,14 +29,7 @@ from app.deps import (
 from app.errors import AppError
 from app.repo import users as users_repo
 from app.repo import workers as workers_repo
-from app.security import (
-    generate_token,
-    hash_password,
-    hash_token,
-    needs_rehash,
-    normalise_email,
-    verify_password,
-)
+from app.security import generate_token, hash_token
 from app.services import login as login_service
 from app.templating import render
 
@@ -42,8 +37,6 @@ log = logging.getLogger("storemanager.auth")
 
 router = APIRouter()
 
-_BAD_CREDENTIALS = "Էլ. փոստը կամ գաղտնաբառը սխալ է։"
-_THROTTLED = "Չափազանց շատ փորձեր։ Սպասեք մի քանի րոպե և կրկին փորձեք։"
 _BAD_HANDLE = "Գրեք ձեր Telegram օգտանունը՝ @-ով, օրինակ՝ @justhayk։"
 
 
@@ -71,6 +64,8 @@ async def _start_session(request: Request, user_id: int) -> RedirectResponse:
         secure=settings.cookie_secure,
         samesite="lax",
         path="/",
+        # Long-lived on purpose, and pushed further out on every visit, so
+        # somebody who uses the site daily never has to sign in again.
         max_age=settings.session_ttl_days * 24 * 3600,
     )
     response.delete_cookie(PRE_SESSION_CSRF_COOKIE, path="/")
@@ -98,8 +93,6 @@ def _page(request: Request, template: str, **context) -> Response:
 async def index(user: CurrentUser | None = Depends(optional_user)) -> RedirectResponse:
     return RedirectResponse("/stores" if user else "/login", status_code=303)
 
-
-# -- telegram code flow ------------------------------------------------------
 
 @router.get("/login")
 async def login_page(request: Request, user: CurrentUser | None = Depends(optional_user)):
@@ -161,52 +154,24 @@ async def login_verify(
     return await _start_session(request, user_id)
 
 
-# -- password fallback -------------------------------------------------------
+@router.get("/login/link/{token}")
+async def login_link(request: Request, token: str):
+    """Spend a one-time link minted by ``manage.py user login-link``.
 
-@router.get("/login/password")
-async def password_page(request: Request, user: CurrentUser | None = Depends(optional_user)):
-    """Deliberately unlinked. The way in when Telegram is not an option."""
-    if user is not None:
-        return RedirectResponse("/stores", status_code=303)
-    return _page(request, "login_password.html", error=None, email="")
-
-
-@router.post("/login/password")
-async def password_submit(
-    request: Request,
-    email: str = Form(""),
-    password: str = Form(""),
-    _: None = Depends(require_pre_session_csrf),
-):
-    address = normalise_email(email)
-    ip = client_ip(request)
-
-    def failure(message: str) -> Response:
-        return _page(request, "login_password.html", error=message,
-                     email=address, status_code=400)
-
-    if await users_repo.recent_failures(address, ip, settings.login_window_minutes) >= (
-        settings.login_max_attempts
-    ):
-        log.warning("password login throttled for %s from %s", address, ip)
-        return failure(_THROTTLED)
-
-    row = await users_repo.by_email(address)
-    stored_hash = row["password_hash"] if row else None
-    # Runs the full argon2 verification even for an unknown address, so response
-    # time cannot be used to enumerate accounts.
-    password_ok = verify_password(stored_hash, password)
-
-    if row is None or not password_ok or not row["is_active"]:
-        await users_repo.record_attempt(address, ip, succeeded=False)
-        return failure(_BAD_CREDENTIALS)
-
-    if needs_rehash(stored_hash):
-        await users_repo.set_password(row["id"], hash_password(password))
-
-    await users_repo.record_attempt(address, ip, succeeded=True)
-    await users_repo.clear_failures(address)
-    return await _start_session(request, row["id"])
+    Not advertised anywhere and useless without the token, which exists only in
+    whatever terminal printed it and works once.
+    """
+    user_id = await users_repo.consume_login_link(hash_token(token))
+    if user_id is None:
+        return _page(
+            request,
+            "login.html",
+            error="Հղումն արդեն օգտագործվել է կամ ժամկետանց է։",
+            handle="",
+            status_code=400,
+        )
+    log.warning("user %s signed in with a one-time link", user_id)
+    return await _start_session(request, user_id)
 
 
 @router.post("/logout")

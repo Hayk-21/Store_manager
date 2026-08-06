@@ -19,10 +19,10 @@ from tests.factories import login, make_item, make_owner, make_store
 
 async def test_another_owners_store_reads_as_missing_not_forbidden(client):
     """404 rather than 403: a 403 would confirm the id exists."""
-    await make_owner("a@example.com")
-    other_id = await make_owner("b@example.com")
+    await make_owner("@ownera")
+    other_id = await make_owner("@ownerb")
     other_store = await make_store(other_id, "Ուրիշի խանութ")
-    await login(client, "a@example.com")
+    await login(client, "@ownera")
 
     response = await client.get(f"/stores/{other_store}")
 
@@ -31,10 +31,10 @@ async def test_another_owners_store_reads_as_missing_not_forbidden(client):
 
 
 async def test_cannot_add_an_item_to_another_owners_store(client):
-    owner_id = await make_owner("a@example.com")
-    other_id = await make_owner("b@example.com")
+    owner_id = await make_owner("@ownera")
+    other_id = await make_owner("@ownerb")
     other_store = await make_store(other_id)
-    await login(client, "a@example.com")
+    await login(client, "@ownera")
     token = await db.fetchval(
         "SELECT csrf_token FROM auth_sessions WHERE user_id = $1", owner_id
     )
@@ -50,11 +50,11 @@ async def test_cannot_add_an_item_to_another_owners_store(client):
 
 
 async def test_cannot_edit_another_owners_item(client):
-    await make_owner("a@example.com")
-    other_id = await make_owner("b@example.com")
+    await make_owner("@ownera")
+    other_id = await make_owner("@ownerb")
     other_store = await make_store(other_id)
     other_item = await make_item(other_id, other_store, "Ուրիշի ապրանք")
-    await login(client, "a@example.com")
+    await login(client, "@ownera")
     token = await db.fetchval("SELECT csrf_token FROM auth_sessions LIMIT 1")
 
     response = await client.post(
@@ -68,10 +68,10 @@ async def test_cannot_edit_another_owners_item(client):
 
 
 async def test_the_footer_only_ever_shows_your_own_stores(client):
-    await make_owner("a@example.com")
-    other_id = await make_owner("b@example.com")
+    await make_owner("@ownera")
+    other_id = await make_owner("@ownerb")
     await make_store(other_id, "Ուրիշի խանութ")
-    await login(client, "a@example.com")
+    await login(client, "@ownera")
 
     response = await client.get("/partials/footer")
 
