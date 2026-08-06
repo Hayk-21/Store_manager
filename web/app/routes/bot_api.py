@@ -23,6 +23,7 @@ from app.repo import items as items_repo
 from app.repo import money as money_repo
 from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
+from app.repo import users as users_repo
 from app.repo import workers as workers_repo
 from app.schemas import (
     CheckinRequest,
@@ -89,6 +90,28 @@ async def _worker(
     )
 
 
+async def _bind_admin(
+    telegram_id: int, telegram_name: str | None, telegram_username: str | None
+) -> dict | None:
+    """Attach an owner's Telegram account to their Store Manager login.
+
+    A bot cannot open a conversation, so an owner who has never pressed /start
+    has no chat a login code could be delivered to. This is where that gets
+    fixed, and it is why /start has to work for somebody who is not a worker.
+    """
+    row = await users_repo.by_telegram_id(telegram_id)
+    if row is None and telegram_username:
+        row = await users_repo.claim_admin_by_username(
+            telegram_username, telegram_id, telegram_name
+        )
+        if row is not None:
+            log.info("bound admin @%s to telegram_id %s", telegram_username, telegram_id)
+    if row is None or not row["is_active"]:
+        return None
+    await users_repo.refresh_telegram_name(row["id"], telegram_name)
+    return {"id": row["id"], "label": row["label"]}
+
+
 @router.get("/me")
 async def me(
     telegram_id: int = Query(gt=0),
@@ -97,11 +120,25 @@ async def me(
 ) -> dict:
     """Identity plus whatever shift is open. Safe to call on every /start.
 
-    This is usually the first call the bot makes, so it is normally where a
-    registered ``@username`` gets bound to its account and where the name
-    arrives.
+    This is the first call the bot makes, so it is where both a worker's and an
+    owner's ``@username`` get bound to their Telegram account.
+
+    An owner who is not also a cashier is a legitimate caller here — binding
+    their account is the whole point — so this endpoint answers for them too
+    rather than refusing with ``unknown_worker``.
     """
-    worker = await _worker(telegram_id, telegram_name or None, telegram_username or None)
+    admin = await _bind_admin(
+        telegram_id, telegram_name or None, telegram_username or None
+    )
+
+    try:
+        worker = await _worker(telegram_id, telegram_name or None, telegram_username or None)
+    except BotError:
+        if admin is None:
+            raise
+        # Owner-only: recognised, but has no shifts to report.
+        return {"ok": True, "worker": None, "admin": admin, "session": None}
+
     shift = await sessions_repo.open_for_worker(worker.id)
 
     session = None
@@ -132,6 +169,7 @@ async def me(
             "name": worker.name,
             "salary_amount": f"{worker.salary_amount:.2f}",
         },
+        "admin": admin,
         "session": session,
     }
 

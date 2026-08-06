@@ -23,6 +23,7 @@ import sys
 from app.db import db
 from app.logging_conf import setup_logging
 from app.repo import users as users_repo
+from app.repo.workers import normalise_username
 from app.security import hash_password, normalise_email, password_problem
 
 
@@ -44,12 +45,37 @@ def _validated(password: str) -> str:
 
 
 async def cmd_user_add(args: argparse.Namespace) -> int:
-    email = normalise_email(args.email)
-    if await users_repo.by_email(email):
-        raise SystemExit(f"{email} already exists; use set-password to change it")
-    password = _validated(_read_password(args.password))
-    user_id = await users_repo.create(email, hash_password(password), args.name)
-    print(f"created user {user_id}: {email}")
+    """Register an owner by Telegram handle.
+
+    No password is set: signing in means typing the handle and a code the bot
+    sends. Nothing can be delivered until they press /start on the bot once,
+    which is what binds their account to a chat.
+    """
+    handle = normalise_username(args.telegram)
+    if not handle:
+        raise SystemExit(
+            f"{args.telegram!r} is not a Telegram username "
+            f"(4-32 characters, letters, digits and _)"
+        )
+    if await users_repo.by_telegram_username(handle):
+        raise SystemExit(f"@{handle} is already registered")
+
+    user_id = await users_repo.create_admin(handle, args.name, normalise_email(args.email)
+                                            if args.email else None)
+    print(f"created user {user_id}: @{handle}")
+    print(f"  -> tell them to open the bot and press Start, then sign in as @{handle}")
+    return 0
+
+
+async def cmd_user_set_handle(args: argparse.Namespace) -> int:
+    handle = normalise_username(args.telegram)
+    if not handle:
+        raise SystemExit(f"{args.telegram!r} is not a Telegram username")
+    row = await users_repo.by_id(args.id)
+    if row is None:
+        raise SystemExit(f"no user with id {args.id}")
+    await users_repo.set_telegram_username(row["id"], handle)
+    print(f"user {row['id']} now signs in as @{handle} (they must press Start again)")
     return 0
 
 
@@ -71,14 +97,18 @@ async def cmd_user_list(_: argparse.Namespace) -> int:
     if not rows:
         print("no users yet")
         return 0
-    print(f"{'id':>4}  {'email':<32} {'active':<7} {'password':<9} last login")
+    print(f"{'id':>4}  {'telegram':<20} {'bound':<7} {'active':<7} {'email':<28} last login")
     for r in rows:
         last = r["last_login_at"].strftime("%Y-%m-%d %H:%M") if r["last_login_at"] else "—"
+        handle = f"@{r['telegram_username']}" if r["telegram_username"] else "—"
         print(
-            f"{r['id']:>4}  {r['email']:<32} "
+            f"{r['id']:>4}  {handle:<20} "
+            f"{'yes' if r['telegram_id'] else 'NO':<7} "
             f"{'yes' if r['is_active'] else 'no':<7} "
-            f"{'set' if r['has_password'] else 'unset':<9} {last}"
+            f"{(r['email'] or '—'):<28} {last}"
         )
+    print('\n"bound: NO" means they have not pressed Start on the bot yet, so no')
+    print("login code can reach them.")
     return 0
 
 
@@ -101,11 +131,16 @@ def build_parser() -> argparse.ArgumentParser:
         dest="action", required=True
     )
 
-    add = user.add_parser("add", help="create a login")
-    add.add_argument("--email", required=True)
-    add.add_argument("--password", help="omit to be prompted (recommended)")
+    add = user.add_parser("add", help="register an owner by Telegram handle")
+    add.add_argument("--telegram", required=True, help="e.g. @justhayk")
     add.add_argument("--name", help="display name")
+    add.add_argument("--email", help="optional label; not used to sign in")
     add.set_defaults(func=cmd_user_add)
+
+    handle = user.add_parser("set-handle", help="change which Telegram handle signs in")
+    handle.add_argument("--id", type=int, required=True)
+    handle.add_argument("--telegram", required=True)
+    handle.set_defaults(func=cmd_user_set_handle)
 
     setpw = user.add_parser("set-password", help="change a password")
     setpw.add_argument("--email", required=True)

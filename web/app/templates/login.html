@@ -4,26 +4,27 @@
 {% block content %}
 <div class="login-wrap">
   <h1>Store Manager</h1>
-  <p class="muted">Մուտք գործեք ձեր էլ. փոստով և գաղտնաբառով։</p>
+  <p class="muted">Մուտք գործեք ձեր Telegram օգտանունով։</p>
 
   {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  {% if not_bound %}<p class="error" role="alert">{{ not_bound | safe }}</p>{% endif %}
 
   <form method="post" action="/login" class="card login-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-    <label for="email">Էլ. փոստ</label>
-    <input id="email" name="email" type="email" value="{{ email or '' }}"
-           autocomplete="username" required autofocus>
+    <label for="handle">Telegram օգտանուն</label>
+    <input id="handle" name="telegram_username" value="{{ handle or '' }}"
+           placeholder="@justhayk" required autofocus
+           autocapitalize="off" autocorrect="off" spellcheck="false">
 
-    <label for="password">Գաղտնաբառ</label>
-    <input id="password" name="password" type="password"
-           autocomplete="current-password" required>
-
-    <button type="submit">Մուտք</button>
+    <button type="submit">Ուղարկել կոդը</button>
   </form>
 
   <p class="muted small">
-    Գաղտնաբառը մոռացե՞լ եք — դիմեք համակարգի ղեկավարին։
+    Բոտը ձեզ կուղարկի 6-նիշ կոդ Telegram-ով։<br>
+    Առաջին անգամ մուտք գործելուց առաջ բացեք
+    <a href="{{ bot_link }}" target="_blank" rel="noopener">{{ bot_name }}</a>-ը
+    Telegram-ում և սեղմեք «Start» — առանց դրա բոտը ձեզ գրել չի կարող։
   </p>
 </div>
 {% endblock %}

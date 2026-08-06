@@ -109,6 +109,14 @@ class Settings:
     direct_database_url: str | None
     session_secret: str
     bot_shared_secret: str
+    # The same token the bot service uses. The web service needs it to deliver
+    # login codes itself rather than relaying through the bot.
+    telegram_bot_token: str | None
+    # Used only to build "go and press Start" links on the login page.
+    bot_username: str | None
+    login_code_ttl_minutes: int
+    login_codes_per_hour: int
+    max_code_attempts: int
     timezone: ZoneInfo
     tzname: str
     base_url: str
@@ -156,6 +164,11 @@ def _load() -> Settings:
         direct_database_url=os.getenv("DIRECT_DATABASE_URL", "").strip() or None,
         session_secret=_required("SESSION_SECRET"),
         bot_shared_secret=_required("BOT_SHARED_SECRET"),
+        telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or None,
+        bot_username=os.getenv("BOT_USERNAME", "").strip().lstrip("@") or None,
+        login_code_ttl_minutes=_int("LOGIN_CODE_TTL_MINUTES", 10),
+        login_codes_per_hour=_int("LOGIN_CODES_PER_HOUR", 6),
+        max_code_attempts=_int("MAX_CODE_ATTEMPTS", 5),
         timezone=tz,
         tzname=tzname,
         base_url=normalise_base_url(os.getenv("APP_BASE_URL", "http://localhost:8000")),

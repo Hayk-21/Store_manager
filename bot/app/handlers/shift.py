@@ -33,11 +33,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _reply_error(update, exc)
         return
 
+    worker = me.get("worker")
+    admin = me.get("admin")
+
+    if worker is None:
+        # An owner who is not also a cashier. Pressing /start is what binds their
+        # Telegram account so login codes can be delivered — that already
+        # happened server-side by the time this reply is sent.
+        await update.effective_message.reply_text(
+            texts.WELCOME_ADMIN.format(name=(admin or {}).get("label", "")),
+            parse_mode=ParseMode.HTML,
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return
+
     session = me.get("session")
     if session:
         await update.effective_message.reply_text(
             texts.WELCOME_ON_SHIFT.format(
-                name=me["worker"]["name"],
+                name=worker["name"],
                 store=session["store_name"],
                 since=format.clock(session["started_at"]),
             ),
@@ -45,7 +59,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
     else:
         await update.effective_message.reply_text(
-            texts.WELCOME.format(name=me["worker"]["name"], open_button=texts.BTN_OPEN),
+            texts.WELCOME.format(name=worker["name"], open_button=texts.BTN_OPEN),
             reply_markup=keyboards.off_shift(),
         )
 

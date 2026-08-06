@@ -56,6 +56,21 @@ def password_problem(password: str) -> str | None:
     return None
 
 
+def generate_code() -> str:
+    """A six-digit login code. ``randbelow`` rather than ``randint`` because the
+    former is the CSPRNG; a guessable code is the whole attack."""
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def hash_code(code: str) -> str:
+    """Keyed hash of a login code, so a database dump holds no live codes."""
+    return hmac.new(
+        settings.session_secret.encode("utf-8"),
+        f"login:{code}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+
 def generate_token() -> str:
     """A session or CSRF token. 32 bytes of entropy, URL-safe."""
     return secrets.token_urlsafe(32)

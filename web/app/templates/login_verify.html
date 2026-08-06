@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Կոդի հաստատում · Store Manager{% endblock %}
+
+{% block content %}
+<div class="login-wrap">
+  <h1>Store Manager</h1>
+  {% if notice %}<p class="notice">{{ notice }}</p>{% endif %}
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+
+  <form method="post" action="/login/verify" class="card login-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="telegram_username" value="{{ handle }}">
+
+    <label for="code">Կոդը Telegram-ից</label>
+    {# inputmode + one-time-code so a phone offers the code straight from the
+       notification instead of making the cashier copy it by hand. #}
+    <input id="code" name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+           autocomplete="one-time-code" required autofocus class="code-input"
+           placeholder="123456">
+
+    <button type="submit">Մուտք</button>
+  </form>
+
+  <p class="muted small">
+    Կոդն ուղարկվեց <b>@{{ handle }}</b>-ին։
+    Չե՞ք ստացել — <a href="/login">փորձեք կրկին</a>։
+  </p>
+</div>
+{% endblock %}

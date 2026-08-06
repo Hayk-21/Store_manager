@@ -116,11 +116,16 @@ async def make_worker(
 
 
 async def login(client, email: str, password: str = DEFAULT_PASSWORD):
-    """Drive the real login flow so the test exercises CSRF and cookies too."""
-    page = await client.get("/login")
+    """Sign in for tests that only need *a* session.
+
+    Uses the password fallback rather than the Telegram code flow, because most
+    tests care about what happens once you are in, not how you got there. The
+    Telegram flow has its own tests in test_login.py.
+    """
+    page = await client.get("/login/password")
     token = client.cookies.get("vs_csrf")
     assert token, "the login page did not set a pre-session CSRF cookie"
     assert page.status_code == 200
     return await client.post(
-        "/login", data={"email": email, "password": password, "csrf_token": token}
+        "/login/password", data={"email": email, "password": password, "csrf_token": token}
     )

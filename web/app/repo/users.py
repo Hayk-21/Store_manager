@@ -10,6 +10,137 @@ from app.db import db
 
 # -- users -----------------------------------------------------------------
 
+# The label to show for an account, in order of authority.
+USER_DISPLAY = (
+    "coalesce(nullif(btrim(u.display_name), ''), nullif(btrim(u.telegram_name), ''), "
+    "'@' || u.telegram_username, u.email)"
+)
+
+
+# -- telegram identity ------------------------------------------------------
+
+async def by_telegram_username(username: str) -> asyncpg.Record | None:
+    """Who is trying to sign in. Matched case-insensitively."""
+    return await db.fetchrow(
+        f"""
+        SELECT u.id, u.email, u.telegram_username, u.telegram_id, u.telegram_name,
+               u.is_active, {USER_DISPLAY} AS label
+          FROM users u WHERE lower(u.telegram_username) = lower($1)
+        """,
+        username,
+    )
+
+
+async def by_telegram_id(telegram_id: int) -> asyncpg.Record | None:
+    return await db.fetchrow(
+        f"""
+        SELECT u.id, u.email, u.telegram_username, u.telegram_id, u.telegram_name,
+               u.is_active, {USER_DISPLAY} AS label
+          FROM users u WHERE u.telegram_id = $1
+        """,
+        telegram_id,
+    )
+
+
+async def claim_admin_by_username(
+    username: str, telegram_id: int, telegram_name: str | None
+) -> asyncpg.Record | None:
+    """Bind a registered handle to the account that just messaged the bot.
+
+    Until this happens there is no chat to deliver a login code to, because a
+    bot cannot open a conversation. A single UPDATE guarded by
+    ``telegram_id IS NULL`` so two simultaneous first messages cannot both claim.
+    """
+    return await db.fetchrow(
+        f"""
+        UPDATE users u
+           SET telegram_id = $2, telegram_name = $3, telegram_bound_at = now()
+         WHERE lower(u.telegram_username) = lower($1) AND u.telegram_id IS NULL
+        RETURNING u.id, u.email, u.telegram_username, u.telegram_id, u.telegram_name,
+                  u.is_active, {USER_DISPLAY} AS label
+        """,
+        username,
+        telegram_id,
+        telegram_name,
+    )
+
+
+async def refresh_telegram_name(user_id: int, telegram_name: str | None) -> None:
+    if not telegram_name:
+        return
+    await db.execute(
+        "UPDATE users SET telegram_name = $2 WHERE id = $1 AND telegram_name IS DISTINCT FROM $2",
+        user_id,
+        telegram_name[:200],
+    )
+
+
+# -- login codes ------------------------------------------------------------
+
+async def replace_login_code(user_id: int, code_hash: str, ttl_minutes: int) -> None:
+    """Issue a code, retiring any earlier one for this account."""
+    async with db.transaction() as conn:
+        await conn.execute(
+            "UPDATE login_codes SET consumed_at = now() "
+            "WHERE user_id = $1 AND consumed_at IS NULL",
+            user_id,
+        )
+        await conn.execute(
+            """
+            INSERT INTO login_codes (user_id, code_hash, expires_at)
+            VALUES ($1, $2, now() + make_interval(mins => $3))
+            """,
+            user_id,
+            code_hash,
+            ttl_minutes,
+        )
+
+
+async def live_login_code(user_id: int) -> asyncpg.Record | None:
+    return await db.fetchrow(
+        """
+        SELECT id, code_hash, attempts, expires_at
+          FROM login_codes
+         WHERE user_id = $1 AND consumed_at IS NULL AND expires_at > now()
+        """,
+        user_id,
+    )
+
+
+async def bump_code_attempts(code_id: int) -> int:
+    return await db.fetchval(
+        "UPDATE login_codes SET attempts = attempts + 1 WHERE id = $1 RETURNING attempts",
+        code_id,
+    )
+
+
+async def consume_login_code(code_id: int) -> None:
+    await db.execute(
+        "UPDATE login_codes SET consumed_at = now() WHERE id = $1 AND consumed_at IS NULL",
+        code_id,
+    )
+
+
+async def codes_issued_since(user_id: int, minutes: int) -> int:
+    return await db.fetchval(
+        """
+        SELECT count(*) FROM login_codes
+         WHERE user_id = $1 AND created_at > now() - make_interval(mins => $2)
+        """,
+        user_id,
+        minutes,
+    )
+
+
+async def purge_expired_codes() -> int:
+    result = await db.execute(
+        "DELETE FROM login_codes WHERE expires_at <= now() - interval '1 day'"
+    )
+    return int(result.rsplit(" ", 1)[-1]) if result.startswith("DELETE") else 0
+
+
+# -- accounts ---------------------------------------------------------------
+
 async def by_email(email: str) -> asyncpg.Record | None:
     return await db.fetchrow(
         """
@@ -24,6 +155,35 @@ async def by_id(user_id: int) -> asyncpg.Record | None:
     return await db.fetchrow(
         "SELECT id, email, display_name, is_active FROM users WHERE id = $1",
         user_id,
+    )
+
+
+async def create_admin(
+    telegram_username: str, display_name: str | None = None, email: str | None = None
+) -> int:
+    """Register an owner by Telegram handle. The chat binds on first /start."""
+    return await db.fetchval(
+        """
+        INSERT INTO users (telegram_username, display_name, email, activated_at)
+        VALUES ($1, $2, $3, now())
+        RETURNING id
+        """,
+        telegram_username,
+        display_name,
+        email,
+    )
+
+
+async def set_telegram_username(user_id: int, telegram_username: str) -> None:
+    """Point an existing account at a handle, releasing any previous binding."""
+    await db.execute(
+        """
+        UPDATE users
+           SET telegram_username = $2, telegram_id = NULL, telegram_bound_at = NULL
+         WHERE id = $1
+        """,
+        user_id,
+        telegram_username,
     )
 
 
@@ -67,8 +227,8 @@ async def touch_login(user_id: int) -> None:
 async def list_all() -> list[asyncpg.Record]:
     return await db.fetch(
         """
-        SELECT id, email, display_name, is_active,
-               password_hash IS NOT NULL AS has_password,
+        SELECT id, email, display_name, telegram_username, telegram_id, telegram_name,
+               is_active, password_hash IS NOT NULL AS has_password,
                created_at, last_login_at
           FROM users ORDER BY id
         """
