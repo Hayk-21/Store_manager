@@ -1,4 +1,4 @@
-"""The lifecycle of being open: store sessions and the shifts inside them.
+﻿"""The lifecycle of being open: store sessions and the shifts inside them.
 
 Requirements 5, 6 and 8 live here.
 
@@ -41,7 +41,15 @@ class Worker:
     id: int
     owner_id: int
     name: str
-    salary_per_shift: Decimal
+    salary_amount: Decimal
+    # 'shift' -- paid out of the till when the shift ends, which the system
+    # settles itself. 'month' -- a monthly wage the owner pays separately, so
+    # ending a shift costs the till nothing.
+    salary_period: str = "shift"
+
+    @property
+    def salary_due_at_shift_end(self) -> Decimal:
+        return self.salary_amount if self.salary_period == "shift" else ZERO
 
 
 # -- opening -----------------------------------------------------------------
@@ -151,7 +159,7 @@ def _open_payload(worker: Worker, row, *, duplicate: bool) -> dict:
         "worker": {
             "id": worker.id,
             "name": worker.name,
-            "salary_per_shift": f"{worker.salary_per_shift:.2f}",
+            "salary_amount": f"{worker.salary_amount:.2f}",
         },
     }
 
@@ -206,10 +214,15 @@ async def _close_store_session(conn, store_session_id: int, closed_by: str) -> d
     """
     open_shifts = await sessions_repo.open_shifts_in_session(conn, store_session_id)
     for shift in open_shifts:
+        # A monthly wage is not settled out of the till, so closing costs nothing
+        # for those workers.
+        due = (
+            Decimal(shift["salary_amount"]) if shift["salary_period"] == "shift" else ZERO
+        )
         await _pay_and_close_shift(
             conn,
             shift,
-            Decimal(shift["salary_per_shift"]),
+            due,
             lat=None,
             lng=None,
             idem_key=None,
@@ -254,7 +267,7 @@ async def end_shift(
         salary = await _pay_and_close_shift(
             conn,
             shift,
-            worker.salary_per_shift,
+            worker.salary_due_at_shift_end,
             lat=lat,
             lng=lng,
             idem_key=idempotency_key,
@@ -292,7 +305,7 @@ async def close_store(worker: Worker, idempotency_key: str) -> dict:
         await _pay_and_close_shift(
             conn,
             shift,
-            worker.salary_per_shift,
+            worker.salary_due_at_shift_end,
             lat=None,
             lng=None,
             idem_key=idempotency_key,

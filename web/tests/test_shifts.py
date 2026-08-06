@@ -1,4 +1,4 @@
-"""Opening a store, working a shift, paying the salary, closing the till.
+﻿"""Opening a store, working a shift, paying the salary, closing the till.
 
 Requirements 5 and 8, plus the store-session accounting model: the period runs
 from "a worker pressed open" to "a worker pressed close", not from midnight to
@@ -28,14 +28,14 @@ KEY = "idem-key-open-0001"
 
 async def _worker_of(owner_id: int, worker_id: int, salary: str = "8000.00"):
     return shifts_service.Worker(
-        id=worker_id, owner_id=owner_id, name="Անի", salary_per_shift=Decimal(salary)
+        id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal(salary)
     )
 
 
 async def _setup(salary: str = "8000.00", radius_m: int = 120):
     owner_id = await make_owner()
     store_id = await make_store(owner_id, lat=YEREVAN_LAT, lng=YEREVAN_LNG, radius_m=radius_m)
-    worker_id, telegram_id = await make_worker(owner_id, salary_per_shift=salary)
+    worker_id, telegram_id = await make_worker(owner_id, salary_amount=salary)
     return owner_id, store_id, await _worker_of(owner_id, worker_id, salary), telegram_id
 
 
@@ -91,7 +91,7 @@ async def test_two_workers_share_one_store_session(client):
     """The user asked for several people on shift together: the first to arrive
     opens the till, the second joins it."""
     owner_id, store_id, first, _ = await _setup()
-    second_id, _ = await make_worker(owner_id, salary_per_shift="6000.00")
+    second_id, _ = await make_worker(owner_id, salary_amount="6000.00")
     second = await _worker_of(owner_id, second_id, "6000.00")
 
     a = await shifts_service.open_store(first, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa")
@@ -125,7 +125,7 @@ async def test_the_salary_is_snapshotted_and_survives_a_later_rate_change(client
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
     await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
 
-    await db.execute("UPDATE workers SET salary_per_shift = 99999.00 WHERE id = $1", worker.id)
+    await db.execute("UPDATE workers SET salary_amount = 99999.00 WHERE id = $1", worker.id)
 
     paid = await db.fetchval("SELECT salary_paid FROM work_sessions")
     assert paid == Decimal("8000.00")
@@ -199,7 +199,7 @@ async def test_the_store_stays_open_while_somebody_is_still_working(client):
 
 async def test_closing_the_store_ends_everyone_and_pays_every_salary(client):
     owner_id, store_id, first, _ = await _setup(salary="8000.00")
-    second_id, _ = await make_worker(owner_id, salary_per_shift="6000.00")
+    second_id, _ = await make_worker(owner_id, salary_amount="6000.00")
     second = await _worker_of(owner_id, second_id, "6000.00")
     await shifts_service.open_store(first, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa")
     await shifts_service.open_store(second, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-bbbb")

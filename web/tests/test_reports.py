@@ -1,4 +1,4 @@
-"""/reports — organised by store session, because that is the accounting period."""
+﻿"""/reports — organised by store session, because that is the accounting period."""
 
 from __future__ import annotations
 
@@ -21,9 +21,9 @@ from tests.factories import (
 async def _a_completed_shift():
     owner_id = await make_owner("owner@example.com")
     store_id = await make_store(owner_id, "Խանութ 1", lat=YEREVAN_LAT, lng=YEREVAN_LNG)
-    worker_id, _ = await make_worker(owner_id, "Անի", salary_per_shift="8000.00")
+    worker_id, _ = await make_worker(owner_id, "Անի", salary_amount="8000.00")
     worker = shifts_service.Worker(
-        id=worker_id, owner_id=owner_id, name="Անի", salary_per_shift=Decimal("8000.00")
+        id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("8000.00")
     )
     item_id = await make_item(owner_id, store_id, "HQD Cuvie", count=10, sell_price="3500.00")
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1")

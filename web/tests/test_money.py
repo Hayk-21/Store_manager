@@ -1,4 +1,4 @@
-"""The ledger: the owner's own movements, and the invariants the schema enforces."""
+﻿"""The ledger: the owner's own movements, and the invariants the schema enforces."""
 
 from __future__ import annotations
 
@@ -25,9 +25,9 @@ from tests.factories import (
 async def _open_store(salary: str = "0.00"):
     owner_id = await make_owner("owner@example.com")
     store_id = await make_store(owner_id, lat=YEREVAN_LAT, lng=YEREVAN_LNG, radius_m=120)
-    worker_id, _ = await make_worker(owner_id, "Անի", salary_per_shift=salary)
+    worker_id, _ = await make_worker(owner_id, "Անի", salary_amount=salary)
     worker = shifts_service.Worker(
-        id=worker_id, owner_id=owner_id, name="Անի", salary_per_shift=Decimal(salary)
+        id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal(salary)
     )
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1")
     session_id = await db.fetchval("SELECT id FROM store_sessions WHERE closed_at IS NULL")
@@ -210,7 +210,7 @@ async def test_another_owners_session_cannot_be_closed(client):
     await make_store(other_owner, lat=YEREVAN_LAT, lng=YEREVAN_LNG)
     other_worker_id, _ = await make_worker(other_owner)
     other_worker = shifts_service.Worker(
-        id=other_worker_id, owner_id=other_owner, name="Բ", salary_per_shift=Decimal("0")
+        id=other_worker_id, owner_id=other_owner, name="Բ", salary_amount=Decimal("0")
     )
     await shifts_service.open_store(other_worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-9")
     their_session = await db.fetchval("SELECT id FROM store_sessions")
@@ -227,23 +227,19 @@ async def test_another_owners_session_cannot_be_closed(client):
 
 # -- workers page ------------------------------------------------------------
 
-async def test_a_telegram_id_cannot_be_registered_twice(client):
-    """It is the only thing identifying an owner in a bot request, so it cannot
-    be shared between two businesses."""
+async def test_a_worker_can_be_registered_from_the_page(client):
     owner_id = await make_owner("owner@example.com")
-    await make_worker(owner_id, "Առաջին", telegram_id=123456789)
     await login(client, "owner@example.com")
     token = await db.fetchval("SELECT csrf_token FROM auth_sessions WHERE user_id = $1", owner_id)
 
     response = await client.post(
         "/workers",
-        data={"name": "Երկրորդ", "telegram_id": "123456789", "salary_per_shift": "5000",
-              "csrf_token": token},
+        data={"telegram_username": "@justhayk", "salary_amount": "5000",
+              "salary_period": "shift", "csrf_token": token},
     )
 
-    assert response.status_code == 422
-    assert "արդեն գրանցված" in response.text
-    assert await db.fetchval("SELECT count(*) FROM workers") == 1
+    assert response.status_code == 303
+    assert await db.fetchval("SELECT telegram_username FROM workers") == "justhayk"
 
 
 async def test_the_workers_page_shows_where_someone_is_working(client):

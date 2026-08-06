@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- A shop front: awning over a doorway. Legible at 16px, which is the only
+       size that actually matters for a browser tab. -->
+  <rect width="64" height="64" rx="14" fill="#5b9cff"/>
+  <path d="M12 22h40l-4-8H16l-4 8z" fill="#0f1115" opacity=".85"/>
+  <rect x="14" y="24" width="36" height="26" rx="3" fill="#0f1115" opacity=".85"/>
+  <rect x="27" y="32" width="10" height="18" rx="1.5" fill="#5b9cff"/>
+  <circle cx="34.5" cy="41" r="1.2" fill="#0f1115"/>
+</svg>

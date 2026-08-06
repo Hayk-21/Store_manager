@@ -1,10 +1,50 @@
 {% extends "base.html" %}
 {% block title %}Աշխատողներ · Store Manager{% endblock %}
 
+{% macro period_options(current) %}
+  <option value="shift" {% if current == 'shift' %}selected{% endif %}>Օրվա վերջում</option>
+  <option value="month" {% if current == 'month' %}selected{% endif %}>Ամսվա վերջում</option>
+{% endmacro %}
+
 {% block content %}
 <div class="page-head">
   <h1>Աշխատողներ</h1>
   <span class="muted small">{{ workers | length }} աշխատող</span>
+</div>
+
+<div class="card">
+  <h2>Նոր աշխատող</h2>
+  <form method="post" action="/workers">
+    <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    <div class="form-row">
+      <div>
+        <label for="w-username">Telegram օգտանուն</label>
+        <input id="w-username" name="telegram_username" required placeholder="@justhayk"
+               autocapitalize="off" autocorrect="off" spellcheck="false">
+      </div>
+      <div class="narrow">
+        <label for="w-salary">Աշխատավարձ</label>
+        <input id="w-salary" name="salary_amount" inputmode="decimal" value="0.00">
+      </div>
+      <div class="narrow">
+        <label for="w-period">Վճարվում է</label>
+        <select id="w-period" name="salary_period">{{ period_options('shift') }}</select>
+      </div>
+      <div class="actions">
+        <button type="submit">Ավելացնել</button>
+      </div>
+    </div>
+    <p class="muted small">
+      Բավական է նշել միայն <b>Telegram օգտանունը</b> և աշխատավարձը։ Անունը ինքնաշխատ
+      կլրացվի Telegram-ի պրոֆիլից, երբ աշխատողն առաջին անգամ գրի բոտին։<br>
+      <b>Օրվա վերջում</b> — աշխատավարձը հանվում է կանխիկից, երբ աշխատողն ավարտում է
+      հերթափոխը։ <b>Ամսվա վերջում</b> — ամսական վարձ է. հերթափոխն ավարտելիս
+      դրամարկղից ոչինչ չի հանվում, վճարումը կատարում եք ինքներդ։
+      Երկուսն էլ ցանկացած պահի կարող եք փոխել։<br>
+      Չգրանցված օգտանունով բոտը ոչ մի գործողություն թույլ չի տա։
+      Եթե աշխատողը Telegram-ում օգտանուն չունի, նա պետք է նախ ստեղծի այն։
+    </p>
+  </form>
 </div>
 
 <div class="card">
@@ -14,14 +54,18 @@
       <form id="worker-{{ w.id }}" method="post" action="/workers/{{ w.id }}">
         <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
       </form>
+      <form id="unbind-{{ w.id }}" method="post" action="/workers/{{ w.id }}/unbind"
+            onsubmit="return confirm('Անջատե՞լ Telegram հաշիվը այս գրանցումից։ Հաջորդ անգամ, երբ այս օգտանունով որևէ մեկը գրի բոտին, նա կկցվի այս գրանցմանը։');">
+        <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+      </form>
     {% endfor %}
     <table>
       <thead>
         <tr>
-          <th>Telegram ID</th>
-          <th>Telegram-ի անունը</th>
-          <th>Անուն (ըստ ձեզ)</th>
-          <th class="num">Աշխատավարձ / հերթափոխ</th>
+          <th>Telegram օգտանուն</th>
+          <th>Անուն</th>
+          <th class="num">Աշխատավարձ</th>
+          <th>Վճարվում է</th>
           <th>Հիմա</th>
           <th>Ակտիվ</th>
           <th class="num"></th>
@@ -30,22 +74,32 @@
       <tbody>
         {% for w in workers %}
         <tr>
-          <td><input form="worker-{{ w.id }}" name="telegram_id" value="{{ w.telegram_id }}"
-                     inputmode="numeric" required aria-label="Telegram ID"></td>
-          <td class="muted">
-            {% if w.telegram_name %}
-              {{ w.telegram_name }}
+          <td class="nowrap">
+            <input form="worker-{{ w.id }}" name="telegram_username"
+                   value="@{{ w.telegram_username }}" required class="handle-input"
+                   autocapitalize="off" autocorrect="off" spellcheck="false"
+                   aria-label="Telegram օգտանուն">
+            {% if w.telegram_id %}
+              <span class="badge open" title="ID {{ w.telegram_id }}">կապված</span>
             {% else %}
-              <span class="small">դեռ չի միացել բոտին</span>
+              <span class="badge" title="Դեռ չի գրել բոտին">չկապված</span>
             {% endif %}
           </td>
-          <td><input form="worker-{{ w.id }}" name="name" value="{{ w.own_name or '' }}"
-                     maxlength="120" placeholder="ըստ ցանկության"
-                     aria-label="Անուն"></td>
-          <td class="num"><input form="worker-{{ w.id }}" name="salary_per_shift"
-                                 value="{{ w.salary_per_shift | plain_money }}"
-                                 inputmode="decimal" class="money-input"
-                                 aria-label="Աշխատավարձ"></td>
+          <td>
+            <input form="worker-{{ w.id }}" name="name" value="{{ w.own_name or '' }}"
+                   maxlength="120" placeholder="{{ w.telegram_name or 'ինքնաշխատ' }}"
+                   aria-label="Անուն">
+          </td>
+          <td class="num">
+            <input form="worker-{{ w.id }}" name="salary_amount"
+                   value="{{ w.salary_amount | plain_money }}" inputmode="decimal"
+                   class="money-input" aria-label="Աշխատավարձ">
+          </td>
+          <td>
+            <select form="worker-{{ w.id }}" name="salary_period" aria-label="Վճարվում է">
+              {{ period_options(w.salary_period) }}
+            </select>
+          </td>
           <td>
             {% if w.open_shift_id %}
               <span class="badge open">{{ w.store_name }}</span>
@@ -58,8 +112,12 @@
             <input form="worker-{{ w.id }}" type="checkbox" name="is_active" value="1"
                    class="check" {% if w.is_active %}checked{% endif %} aria-label="Ակտիվ">
           </td>
-          <td class="num">
+          <td class="num nowrap">
             <button form="worker-{{ w.id }}" type="submit" class="secondary tiny">Պահել</button>
+            {% if w.telegram_id %}
+              <button form="unbind-{{ w.id }}" type="submit" class="secondary tiny"
+                      title="Անջատել Telegram հաշիվը">⛓️‍💥</button>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -67,40 +125,7 @@
     </table>
   </div>
   {% else %}
-  <p class="muted">Աշխատող դեռ չկա։ Առանց գրանցման բոտը նրան չի ճանաչի։</p>
+  <p class="muted">Աշխատող դեռ չկա։ Առանց գրանցման բոտը ոչ մեկին չի ճանաչի։</p>
   {% endif %}
-</div>
-
-<div class="card">
-  <h2>Նոր աշխատող</h2>
-  <form method="post" action="/workers">
-    <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
-    <div class="form-row">
-      <div>
-        <label for="w-tg">Telegram ID</label>
-        <input id="w-tg" name="telegram_id" inputmode="numeric" required placeholder="123456789">
-      </div>
-      <div class="narrow">
-        <label for="w-salary">Աշխատավարձ / հերթափոխ</label>
-        <input id="w-salary" name="salary_per_shift" inputmode="decimal" value="0.00">
-      </div>
-      <div>
-        <label for="w-name">Անուն <span class="muted small">(ըստ ցանկության)</span></label>
-        <input id="w-name" name="name" maxlength="120" placeholder="լրացվում է ինքնաշխատ">
-      </div>
-      <div class="actions">
-        <button type="submit">Ավելացնել</button>
-      </div>
-    </div>
-    <p class="muted small">
-      Բավական է նշել միայն <b>Telegram ID</b>-ն և աշխատավարձը։ Անունը ինքնաշխատ
-      կլրացվի Telegram-ի պրոֆիլից, երբ աշխատողն առաջին անգամ գրի բոտին։
-      Անունը կարող եք ցանկացած պահի փոխել՝ ձեր տարբերակը գերակայում է։<br>
-      Telegram ID-ն թիվ է, ոչ թե օգտանուն։ Աշխատողը կարող է այն ստանալ
-      <a href="https://t.me/userinfobot" target="_blank" rel="noopener">@userinfobot</a>-ից։
-      Չգրանցված ID-ով բոտը ոչ մի գործողություն թույլ չի տա։
-      Աշխատավարձը հանվում է կանխիկից, երբ աշխատողն ավարտում է հերթափոխը։
-    </p>
-  </form>
 </div>
 {% endblock %}

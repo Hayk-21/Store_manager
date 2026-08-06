@@ -1,4 +1,4 @@
-"""Stores, stock and the fixed footer — requirements 2 and 4."""
+﻿"""Stores, stock and the fixed footer — requirements 2 and 4."""
 
 from __future__ import annotations
 

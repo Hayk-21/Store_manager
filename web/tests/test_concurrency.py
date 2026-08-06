@@ -1,4 +1,4 @@
-"""Races, run against a real connection pool.
+﻿"""Races, run against a real connection pool.
 
 Every other test file binds one connection and rolls it back, which is fast but
 serialises everything by construction. These tests deliberately do not: they
@@ -55,7 +55,7 @@ async def _world(salary: str = "0.00", stock: int = 100):
     )
     worker_id = await db.fetchval(
         """
-        INSERT INTO workers (owner_id, name, telegram_id, salary_per_shift)
+        INSERT INTO workers (owner_id, name, telegram_id, salary_amount)
         VALUES ($1, 'Անի', 555000111, $2) RETURNING id
         """,
         owner_id, Decimal(salary),
@@ -68,7 +68,7 @@ async def _world(salary: str = "0.00", stock: int = 100):
         owner_id, store_id, stock,
     )
     worker = shifts_service.Worker(
-        id=worker_id, owner_id=owner_id, name="Անի", salary_per_shift=Decimal(salary)
+        id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal(salary)
     )
     return owner_id, store_id, worker, item_id
 
@@ -169,13 +169,13 @@ async def test_two_workers_opening_at_once_share_one_store_session(pooled):
     owner_id, store_id, first, _ = await _world()
     second_id = await db.fetchval(
         """
-        INSERT INTO workers (owner_id, name, telegram_id, salary_per_shift)
+        INSERT INTO workers (owner_id, name, telegram_id, salary_amount)
         VALUES ($1, 'Բ', 555000222, 0) RETURNING id
         """,
         owner_id,
     )
     second = shifts_service.Worker(
-        id=second_id, owner_id=owner_id, name="Բ", salary_per_shift=Decimal("0.00")
+        id=second_id, owner_id=owner_id, name="Բ", salary_amount=Decimal("0.00")
     )
 
     a, b = await asyncio.gather(

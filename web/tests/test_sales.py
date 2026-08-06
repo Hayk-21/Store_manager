@@ -1,4 +1,4 @@
-"""Recording and voiding a sale — requirement 6.
+﻿"""Recording and voiding a sale — requirement 6.
 
 Stock and money move together here, so these are the tests that decide whether
 the numbers on the owner's screen can be trusted.
@@ -23,9 +23,9 @@ async def _open_shift(salary: str = "0.00"):
     """An owner with a store, a worker already on shift, and one item in stock."""
     owner_id = await make_owner()
     store_id = await make_store(owner_id, lat=YEREVAN_LAT, lng=YEREVAN_LNG, radius_m=120)
-    worker_id, telegram_id = await make_worker(owner_id, salary_per_shift=salary)
+    worker_id, telegram_id = await make_worker(owner_id, salary_amount=salary)
     worker = shifts_service.Worker(
-        id=worker_id, owner_id=owner_id, name="Անի", salary_per_shift=Decimal(salary)
+        id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal(salary)
     )
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1")
     item_id = await make_item(owner_id, store_id, "HQD Cuvie", count=10,

@@ -1,4 +1,4 @@
-"""Which store is the worker standing in.
+﻿"""Which store is the worker standing in.
 
 The scenarios below are the reason this moved server-side. You cannot construct
 "one store 30 m away with a tight radius, another 800 m away with a generous

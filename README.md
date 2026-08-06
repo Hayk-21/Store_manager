@@ -81,20 +81,37 @@ python -m app
 
 ### Registering a worker
 
-Registration is closed. The bot only recognises a **numeric Telegram id** that
-already exists on the website's `/workers` page, so a stranger who finds the bot
-and stands outside a shop gets `unknown_worker` and nothing else.
+The owner writes a **`@username`** and a salary on `/workers`. That is the whole
+form — no numeric id, no name.
 
-The owner types only the id and the salary. The **name arrives by itself** — the
-bot reports the worker's Telegram profile name on every request and the page
-fills in the first time that person uses it. Two columns keep that honest:
+Telegram's Bot API cannot turn a username into a numeric id, so the binding
+happens on first contact: the first time that person messages the bot, their
+`telegram_id` is written to the row and from then on **the id is what identifies
+them**. Usernames can be renamed or handed to somebody else; a numeric id cannot.
+If the wrong person claims a handle, the owner can unbind it and the next
+matching account claims it instead.
+
+Registration stays closed throughout — an account matching nothing on `/workers`
+is refused. A worker with no `@username` in Telegram has to create one first.
+
+The **name arrives by itself** too, from the Telegram profile. Two columns keep
+that honest:
 
 * `workers.name` — what the owner typed, if anything. Wins when set, so a
   correction is never undone by the next tap.
 * `workers.telegram_name` — what Telegram reports, refreshed on contact.
 
-A worker with neither shows as `ID 555000777`, never as a blank row. Workers find
-their id via [@userinfobot](https://t.me/userinfobot).
+A worker with neither shows as `@justhayk`, never as a blank row.
+
+### Salary
+
+`workers.salary_amount` with `workers.salary_period`, both editable at any time:
+
+* **`shift`** (Օրվա վերջում) — deducted from that store session's cash when the
+  worker ends their shift. The system settles it.
+* **`month`** (Ամսվա վերջում) — a monthly wage. Ending a shift costs the till
+  **nothing**; the owner pays it separately. `salary_paid` on the shift is 0 and
+  no `cash_movements` row is written.
 
 ---
 

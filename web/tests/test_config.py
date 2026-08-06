@@ -1,4 +1,4 @@
-"""Pure functions that are easy to get wrong and expensive to get wrong.
+﻿"""Pure functions that are easy to get wrong and expensive to get wrong.
 
 Both of these caused a real failed deployment, so they are pinned here.
 """

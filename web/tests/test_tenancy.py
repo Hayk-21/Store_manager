@@ -1,4 +1,4 @@
-"""One owner must never reach another owner's data.
+﻿"""One owner must never reach another owner's data.
 
 Two layers are tested separately on purpose:
 

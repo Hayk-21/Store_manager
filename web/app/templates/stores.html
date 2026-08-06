@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Խանութներ · Store Manager{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="/static/leaflet.css">
+<script src="/static/leaflet.js" defer></script>
+<script src="/static/map.js" defer></script>
+{% endblock %}
+
 {% block content %}
 <div class="page-head">
   <h1>Խանութներ</h1>
@@ -35,8 +41,8 @@
 <p class="muted">Դեռ ոչ մի խանութ չկա։ Ավելացրեք առաջինը ներքևում։</p>
 {% endif %}
 
-<div class="card">
-  <h2>Նոր խանութ</h2>
+<details class="card" {% if not stores %}open{% endif %}>
+  <summary><h2>Նոր խանութ</h2></summary>
   <form method="post" action="/stores">
     <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
     <div class="form-row">
@@ -49,6 +55,16 @@
         <input id="address" name="address" maxlength="300">
       </div>
     </div>
+
+    <label>Տեղադրությունը քարտեզի վրա</label>
+    <div class="map-wrap">
+      <div class="map" data-map data-lat="#lat" data-lng="#lng" data-radius="#radius_m"></div>
+      <div class="map-bar">
+        <button type="button" class="secondary" data-locate>📍 Իմ տեղը</button>
+        <span class="muted small" data-readout></span>
+      </div>
+    </div>
+
     <div class="form-row">
       <div class="narrow">
         <label for="lat">Լայնություն</label>
@@ -63,18 +79,14 @@
         <input id="radius_m" name="radius_m" inputmode="numeric" value="120">
       </div>
       <div class="actions">
-        <button type="button" class="secondary" data-geo="#lat,#lng">Իմ տեղը</button>
-      </div>
-      <div class="actions">
         <button type="submit">Ավելացնել</button>
       </div>
     </div>
     <p class="muted small">
-      Կոորդինատները որոշում են, թե որ խանութին կկցվի աշխատողը, երբ բոտում սեղմի «Բացել»։
-      Կանգնեք խանութի մուտքի մոտ և սեղմեք «Իմ տեղը»։
+      Սեղմեք քարտեզին կամ քաշեք նշիչը՝ կետը նշելու համար։ Եթե հենց հիմա խանութում եք,
+      ամենաճիշտը «Իմ տեղը» կոճակն է։ Կապույտ շրջանը ցույց է տալիս այն տարածքը, որտեղից
+      աշխատողը կարող է բացել այս խանութը։
     </p>
   </form>
-</div>
-
-<script src="/static/geo.js" defer></script>
+</details>
 {% endblock %}

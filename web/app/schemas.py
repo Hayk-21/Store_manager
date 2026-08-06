@@ -21,6 +21,10 @@ class BotRequest(BaseModel):
     # arrives the first time that person uses the bot. Purely informational —
     # it never affects who the caller is or what they may do.
     telegram_name: str | None = Field(default=None, max_length=200)
+    # The @username, without the @. The owner registers this; the first request
+    # carrying it binds the registration to the numeric id above, and from then
+    # on the id is what identifies the worker.
+    telegram_username: str | None = Field(default=None, max_length=32)
 
 
 class IdempotentRequest(BotRequest):

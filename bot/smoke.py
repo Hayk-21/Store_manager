@@ -1,4 +1,4 @@
-"""End-to-end smoke test: the bot's own client against a running web service.
+﻿"""End-to-end smoke test: the bot's own client against a running web service.
 
 This is the one test that proves the two services agree, because it uses the
 real ``Api`` class rather than a hand-written request. Run it after a deploy:
@@ -49,7 +49,7 @@ async def main() -> int:
         me = await api.me(TELEGRAM_ID)
         check("the worker is registered", me["ok"] and "worker" in me)
         print(f"       worker: {me['worker']['name']}, "
-              f"salary {me['worker']['salary_per_shift']}")
+              f"salary {me['worker']['salary_amount']}")
 
         if me.get("session"):
             print("       a shift is already open; closing it first")

@@ -1,4 +1,4 @@
-"""Login, sessions and CSRF."""
+﻿"""Login, sessions and CSRF."""
 
 from __future__ import annotations
 

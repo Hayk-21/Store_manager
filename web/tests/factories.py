@@ -1,4 +1,4 @@
-"""Helpers that put rows in the database for a test to work against.
+﻿"""Helpers that put rows in the database for a test to work against.
 
 Deliberately thin and explicit: a test should be able to see the whole world it
 runs in from the few lines at the top of it.
@@ -87,20 +87,29 @@ async def make_worker(
     name: str | None = None,
     *,
     telegram_id: int | None = None,
-    salary_per_shift: str = "8000.00",
+    telegram_username: str | None = None,
+    salary_amount: str = "8000.00",
+    salary_period: str = "shift",
     is_active: bool = True,
 ) -> tuple[int, int]:
-    """Returns ``(worker_id, telegram_id)`` — the bot only ever knows the latter."""
+    """An already-bound worker. Returns ``(worker_id, telegram_id)``.
+
+    Registration in real life starts unbound (a @username and no id); that path
+    has its own tests. Most tests want somebody who has already made contact.
+    """
     tg = telegram_id if telegram_id is not None else 700_000_000 + _next()
     worker_id = await db.fetchval(
         """
-        INSERT INTO workers (owner_id, name, telegram_id, salary_per_shift, is_active)
-        VALUES ($1, $2, $3, $4, $5) RETURNING id
+        INSERT INTO workers (owner_id, name, telegram_id, telegram_username,
+                             salary_amount, salary_period, is_active)
+        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
         """,
         owner_id,
         name or f"Աշխատող {_next()}",
         tg,
-        Decimal(salary_per_shift),
+        telegram_username or f"worker{_next()}",
+        Decimal(salary_amount),
+        salary_period,
         is_active,
     )
     return worker_id, tg

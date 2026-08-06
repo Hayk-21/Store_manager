@@ -305,32 +305,62 @@ async def workers_page(request: Request, user: CurrentUser = Depends(current_use
     )
 
 
+_USERNAME_TAKEN = (
+    "Այս Telegram օգտանունն արդեն գրանցված է։ Մեկ Telegram հաշիվը կարող է "
+    "պատկանել միայն մեկ գործատուի։"
+)
+_BAD_USERNAME = (
+    "Telegram օգտանունը սխալ է։ Գրեք @-ով, օրինակ՝ @justhayk "
+    "(4–32 նիշ՝ լատինատառ, թվեր և _)։"
+)
+
+
+def _username(raw: str) -> str:
+    cleaned = workers_repo.normalise_username(raw)
+    if not cleaned:
+        raise AppError("validation_error", _BAD_USERNAME)
+    return cleaned
+
+
+def _salary_period(raw: str) -> str:
+    if raw not in workers_repo.SALARY_PERIODS:
+        raise AppError("validation_error", "Ընտրեք աշխատավարձի պարբերականությունը։")
+    return raw
+
+
 @router.post("/workers")
 async def create_worker(
     name: str = Form(""),
-    telegram_id: str = Form(""),
-    salary_per_shift: str = Form(""),
+    telegram_username: str = Form(""),
+    salary_amount: str = Form(""),
+    salary_period: str = Form("shift"),
     user: CurrentUser = Depends(require_csrf),
 ):
-    """Register a Telegram id. The name is optional — it arrives from Telegram
-    the first time that person uses the bot."""
+    """Register a @username. The name arrives from Telegram on first contact."""
     try:
         await workers_repo.create(
             owner_id=user.id,
+            telegram_username=_username(telegram_username),
+            salary_amount=forms.money(salary_amount, "Աշխատավարձ", default=Decimal("0.00")),
+            salary_period=_salary_period(salary_period),
             name=forms.text(name, "Անուն", max_length=120, required=False),
-            telegram_id=forms.whole(telegram_id, "Telegram ID", minimum=1,
-                                    maximum=9_999_999_999_999),
-            salary_per_shift=forms.money(salary_per_shift, "Աշխատավարձ",
-                                         default=Decimal("0.00")),
         )
     except asyncpg.exceptions.UniqueViolationError:
-        # telegram_id is globally unique: it is the only thing in a bot request
-        # that identifies an owner, so it cannot be shared.
-        raise AppError(
-            "validation_error",
-            "Այս Telegram ID-ն արդեն գրանցված է։ Մեկ Telegram հաշիվը կարող է "
-            "պատկանել միայն մեկ գործատուի։",
-        ) from None
+        # Globally unique: it is what resolves an unbound worker to one owner.
+        raise AppError("validation_error", _USERNAME_TAKEN) from None
+    return RedirectResponse("/workers", status_code=303)
+
+
+@router.post("/workers/{worker_id}/unbind")
+async def unbind_worker(worker_id: int, user: CurrentUser = Depends(require_csrf)):
+    """Forget which Telegram account this registration belongs to.
+
+    For when the wrong person claimed the handle, or somebody left and their
+    username was reused. The next matching account to make contact claims it.
+    """
+    if await workers_repo.get(user.id, worker_id) is None:
+        raise AppError("not_found", "Աշխատողը չի գտնվել։")
+    await workers_repo.unbind(user.id, worker_id)
     return RedirectResponse("/workers", status_code=303)
 
 
@@ -369,11 +399,13 @@ async def reports_page(
 async def edit_worker(
     worker_id: int,
     name: str = Form(""),
-    telegram_id: str = Form(""),
-    salary_per_shift: str = Form(""),
+    telegram_username: str = Form(""),
+    salary_amount: str = Form(""),
+    salary_period: str = Form("shift"),
     is_active: str = Form(""),
     user: CurrentUser = Depends(require_csrf),
 ):
+    """Salary and its period are editable at any time, as are the name and handle."""
     if await workers_repo.get(user.id, worker_id) is None:
         raise AppError("not_found", "Աշխատողը չի գտնվել։")
     try:
@@ -381,13 +413,11 @@ async def edit_worker(
             owner_id=user.id,
             worker_id=worker_id,
             name=forms.text(name, "Անուն", max_length=120, required=False),
-            telegram_id=forms.whole(telegram_id, "Telegram ID", minimum=1,
-                                    maximum=9_999_999_999_999),
-            salary_per_shift=forms.money(salary_per_shift, "Աշխատավարձ"),
+            telegram_username=_username(telegram_username),
+            salary_amount=forms.money(salary_amount, "Աշխատավարձ"),
+            salary_period=_salary_period(salary_period),
             is_active=is_active in {"1", "on", "true"},
         )
     except asyncpg.exceptions.UniqueViolationError:
-        raise AppError(
-            "validation_error", "Այս Telegram ID-ն արդեն գրանցված է։"
-        ) from None
+        raise AppError("validation_error", _USERNAME_TAKEN) from None
     return RedirectResponse("/workers", status_code=303)

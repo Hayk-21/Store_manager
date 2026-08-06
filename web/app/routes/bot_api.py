@@ -41,33 +41,51 @@ log = logging.getLogger("storemanager.bot_api")
 router = APIRouter(prefix="/api/bot/v1", dependencies=[Depends(require_bot_secret)])
 
 
-async def _worker(telegram_id: int, telegram_name: str | None = None) -> shifts_service.Worker:
-    """Resolve the caller. This is also what resolves the tenant: a telegram_id
-    belongs to exactly one owner, and everything downstream is scoped by it.
+async def _worker(
+    telegram_id: int,
+    telegram_name: str | None = None,
+    telegram_username: str | None = None,
+) -> shifts_service.Worker:
+    """Resolve the caller, and resolve the tenant with it: a worker belongs to
+    exactly one owner, and everything downstream is scoped by that.
 
-    Registration stays closed. An id the owner has not entered on /workers is
-    refused here, which is the whole access-control story for the bot — there is
-    no self-registration and no way for a stranger standing outside a shop to
-    become a worker.
+    Registration stays closed. The owner writes a ``@username`` on /workers; an
+    account matching nothing there is refused, so a stranger who finds the bot
+    and stands outside a shop gets nowhere.
+
+    The first message from a registered username *binds* it to that account's
+    numeric id, and from then on the id is what identifies them. Usernames can be
+    changed or handed to somebody else; a numeric id cannot.
     """
     row = await workers_repo.by_telegram_id(telegram_id)
+
+    if row is None and telegram_username:
+        # Never been seen before, but the owner may have written this handle down.
+        row = await workers_repo.claim_by_username(telegram_username, telegram_id)
+        if row is not None:
+            log.info(
+                "bound @%s to telegram_id %s (worker %s)",
+                telegram_username, telegram_id, row["id"],
+            )
+
     if row is None:
         raise BotError("unknown_worker")
     if not row["is_active"]:
         raise BotError("worker_inactive")
 
     # Learn the profile name so the owner never has to type one. Deliberately
-    # after the checks above: an unknown id must not leave a trace.
+    # after the checks above: an unrecognised account must not leave a trace.
     await workers_repo.remember_telegram_name(row["id"], telegram_name)
 
+    stored = row["name"]
+    generated = stored.startswith(("ID ", "@"))
     return shifts_service.Worker(
         id=row["id"],
         owner_id=row["owner_id"],
-        # Freshly reported name beats the stored one, which may be a request old.
-        name=(row["name"] if row["name"] != f"ID {telegram_id}" else None)
-        or telegram_name
-        or f"ID {telegram_id}",
-        salary_per_shift=Decimal(row["salary_per_shift"]),
+        # A freshly reported name beats a placeholder, but never a real one.
+        name=(telegram_name or stored) if generated else stored,
+        salary_amount=Decimal(row["salary_amount"]),
+        salary_period=row["salary_period"],
     )
 
 
@@ -75,13 +93,15 @@ async def _worker(telegram_id: int, telegram_name: str | None = None) -> shifts_
 async def me(
     telegram_id: int = Query(gt=0),
     telegram_name: str = Query(default="", max_length=200),
+    telegram_username: str = Query(default="", max_length=32),
 ) -> dict:
     """Identity plus whatever shift is open. Safe to call on every /start.
 
-    This is usually the first call the bot makes, so it is where a newly
-    registered worker's name normally arrives.
+    This is usually the first call the bot makes, so it is normally where a
+    registered ``@username`` gets bound to its account and where the name
+    arrives.
     """
-    worker = await _worker(telegram_id, telegram_name or None)
+    worker = await _worker(telegram_id, telegram_name or None, telegram_username or None)
     shift = await sessions_repo.open_for_worker(worker.id)
 
     session = None
@@ -110,7 +130,7 @@ async def me(
         "worker": {
             "id": worker.id,
             "name": worker.name,
-            "salary_per_shift": f"{worker.salary_per_shift:.2f}",
+            "salary_amount": f"{worker.salary_amount:.2f}",
         },
         "session": session,
     }
@@ -124,7 +144,7 @@ async def checkin(body: CheckinRequest) -> dict:
     the distances, so the bot can say "you are 1240 m from Store 2" instead of
     just refusing.
     """
-    worker = await _worker(body.telegram_id, body.telegram_name)
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
     match = await match_store(worker.owner_id, body.lat, body.lng)
     return {
         "ok": True,
@@ -136,7 +156,7 @@ async def checkin(body: CheckinRequest) -> dict:
 @router.post("/store/open", status_code=201)
 async def open_store(body: OpenStoreRequest) -> dict:
     """Requirement 8: location in, attached to a store."""
-    worker = await _worker(body.telegram_id, body.telegram_name)
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
     return await shifts_service.open_store(
         worker, body.lat, body.lng, body.accuracy_m, body.idempotency_key
     )
@@ -185,7 +205,7 @@ async def items(
 @router.post("/sale", status_code=201)
 async def sale(body: SaleRequest) -> JSONResponse:
     """Requirement 6: stock down, money up, in one transaction."""
-    worker = await _worker(body.telegram_id, body.telegram_name)
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
     result = await sales_service.record_sale(
         worker,
         [
@@ -201,19 +221,19 @@ async def sale(body: SaleRequest) -> JSONResponse:
 @router.post("/sale/void")
 async def void_sale(body: VoidRequest) -> dict:
     """Undo the worker's own most recent receipt in this shift."""
-    worker = await _worker(body.telegram_id, body.telegram_name)
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
     return await sales_service.void_last_sale(worker, body.reason)
 
 
 @router.post("/shift/end")
 async def end_shift(body: EndShiftRequest) -> dict:
     """Requirement 5: pay the salary out of the till and close the shift."""
-    worker = await _worker(body.telegram_id, body.telegram_name)
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
     return await shifts_service.end_shift(worker, body.lat, body.lng, body.idempotency_key)
 
 
 @router.post("/store/close")
 async def close_store(body: CloseStoreRequest) -> dict:
     """Close the store for everyone and settle the till."""
-    worker = await _worker(body.telegram_id, body.telegram_name)
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
     return await shifts_service.close_store(worker, body.idempotency_key)

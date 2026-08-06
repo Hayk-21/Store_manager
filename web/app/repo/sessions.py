@@ -1,4 +1,4 @@
-"""Store sessions (the accounting period) and work sessions (a worker's shift)."""
+﻿"""Store sessions (the accounting period) and work sessions (a worker's shift)."""
 
 from __future__ import annotations
 
@@ -153,7 +153,7 @@ async def workers_on_shift(store_id: int) -> list[asyncpg.Record]:
     return await db.fetch(
         f"""
         SELECT ws.id, ws.worker_id, {DISPLAY_NAME} AS name, ws.started_at,
-               ws.start_distance_m, w.salary_per_shift
+               ws.start_distance_m, w.salary_amount
           FROM work_sessions ws
           JOIN workers w ON w.id = ws.worker_id
          WHERE ws.store_id = $1 AND ws.ended_at IS NULL
@@ -253,7 +253,7 @@ async def open_shifts_in_session(conn, store_session_id: int) -> list[asyncpg.Re
     return await conn.fetch(
         """
         SELECT ws.id, ws.worker_id, ws.store_id, ws.owner_id, ws.store_session_id,
-               w.salary_per_shift
+               w.salary_amount, w.salary_period
           FROM work_sessions ws
           JOIN workers w ON w.id = ws.worker_id
          WHERE ws.store_session_id = $1 AND ws.ended_at IS NULL

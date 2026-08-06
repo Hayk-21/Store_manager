@@ -1,4 +1,4 @@
-"""Test fixtures.
+﻿"""Test fixtures.
 
 The whole suite runs against a real Postgres, because the schema is doing real
 work — generated columns, partial unique indexes, composite foreign keys — and a

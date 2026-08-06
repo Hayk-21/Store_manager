@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ store.name }} · Store Manager{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="/static/leaflet.css">
+<script src="/static/leaflet.js" defer></script>
+<script src="/static/map.js" defer></script>
+{% endblock %}
+
 {% block content %}
 <div class="page-head">
   <div>
@@ -54,8 +60,11 @@
   {% endwith %}
 </div>
 
-<div class="card">
-  <h2>Կարգավորումներ</h2>
+{# Collapsed by default: settings are something you come here to change on
+   purpose, not something to scroll past every time you check the till. #}
+<details class="card">
+  <summary><h2>Կարգավորումներ</h2></summary>
+
   <form method="post" action="/stores/{{ store.id }}">
     <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
     <div class="form-row">
@@ -68,6 +77,16 @@
         <input id="s-address" name="address" value="{{ store.address or '' }}" maxlength="300">
       </div>
     </div>
+
+    <label>Տեղադրությունը քարտեզի վրա</label>
+    <div class="map-wrap">
+      <div class="map" data-map data-lat="#s-lat" data-lng="#s-lng" data-radius="#s-radius"></div>
+      <div class="map-bar">
+        <button type="button" class="secondary" data-locate>📍 Իմ տեղը</button>
+        <span class="muted small" data-readout></span>
+      </div>
+    </div>
+
     <div class="form-row">
       <div class="narrow">
         <label for="s-lat">Լայնություն</label>
@@ -84,15 +103,12 @@
         <input id="s-radius" name="radius_m" inputmode="numeric" value="{{ store.radius_m }}">
       </div>
       <div class="actions">
-        <button type="button" class="secondary" data-geo="#s-lat,#s-lng">Իմ տեղը</button>
-      </div>
-      <div class="actions">
         <button type="submit">Պահել</button>
       </div>
     </div>
     <p class="muted small">
       Աշխատողը կցվում է այս խանութին, եթե բոտում «Բացել» սեղմելիս գտնվում է
-      կոորդինատներից {{ store.radius_m }} մ շառավղում։
+      կապույտ շրջանի ներսում։ Կանգնեք խանութի մուտքի մոտ և սեղմեք «Իմ տեղը»։
     </p>
   </form>
 
@@ -101,7 +117,5 @@
     <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
     <button type="submit" class="danger">Ջնջել խանութը</button>
   </form>
-</div>
-
-<script src="/static/geo.js" defer></script>
+</details>
 {% endblock %}

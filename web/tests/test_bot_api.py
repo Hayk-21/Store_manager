@@ -1,4 +1,4 @@
-"""The HTTP contract the bot speaks.
+﻿"""The HTTP contract the bot speaks.
 
 The services are tested directly elsewhere; what is checked here is the envelope,
 the status codes, and the fact that a worker's telegram_id is the only thing
@@ -20,7 +20,7 @@ async def _world(salary: str = "8000.00", stock: int = 10):
     owner_id = await make_owner()
     store_id = await make_store(owner_id, "Խանութ 1", lat=YEREVAN_LAT, lng=YEREVAN_LNG,
                                 radius_m=120)
-    worker_id, telegram_id = await make_worker(owner_id, "Անի", salary_per_shift=salary)
+    worker_id, telegram_id = await make_worker(owner_id, "Անի", salary_amount=salary)
     item_id = await make_item(owner_id, store_id, "HQD Cuvie", count=stock,
                               self_price="1500.00", sell_price="3500.00")
     return owner_id, store_id, worker_id, telegram_id, item_id
@@ -99,7 +99,7 @@ async def test_me_reports_no_session_before_the_shift_starts(client, bot_headers
                              headers=bot_headers)).json()
 
     assert body["worker"]["name"] == "Անի"
-    assert body["worker"]["salary_per_shift"] == "8000.00"
+    assert body["worker"]["salary_amount"] == "8000.00"
     assert body["session"] is None
 
 
@@ -354,7 +354,7 @@ async def test_a_replayed_end_returns_the_same_summary(client, bot_headers):
 
 async def test_closing_the_store_ends_it_for_everyone(client, bot_headers):
     owner_id, _, _, first_tg, _ = await _world(salary="8000.00")
-    _, second_tg = await make_worker(owner_id, "Բ", salary_per_shift="6000.00")
+    _, second_tg = await make_worker(owner_id, "Բ", salary_amount="6000.00")
     await _open(client, bot_headers, first_tg, "idem-key-open-aa")
     await _open(client, bot_headers, second_tg, "idem-key-open-bb")
 

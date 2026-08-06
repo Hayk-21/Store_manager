@@ -1,4 +1,4 @@
-{# Requirement 3: who is working here right now, and what is in the till.
+﻿{# Requirement 3: who is working here right now, and what is in the till.
    Polled every 10s, so a sale or a shift start made through the bot appears
    without anyone reloading. #}
 <div id="store-status">
@@ -40,7 +40,7 @@
             {% if w.start_distance_m is not none %}
               <span class="muted small">· {{ w.start_distance_m }} մ</span>
             {% endif %}
-            <span class="muted small">· աշխատավարձ {{ w.salary_per_shift | money }}</span>
+            <span class="muted small">· աշխատավարձ {{ w.salary_amount | money }}</span>
           </li>
         {% endfor %}
       </ul>

@@ -235,7 +235,59 @@ h3 { font-size: 14px; color: var(--muted); margin: 18px 0 8px; font-weight: 600;
 
 /* -- compact table controls ------------------------------------------------ */
 
+/* -- collapsible sections -------------------------------------------------- */
+
+details.card > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+details.card > summary::-webkit-details-marker { display: none; }
+details.card > summary h2 { margin: 0; }
+details.card > summary::before {
+  content: "▸";
+  color: var(--muted);
+  transition: transform .15s ease;
+}
+details.card[open] > summary::before { transform: rotate(90deg); }
+details.card[open] > summary { margin-bottom: 14px; }
+details.card > summary:hover::before { color: var(--text); }
+
+/* -- map picker ------------------------------------------------------------ */
+
+.map-wrap {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.map { height: 320px; width: 100%; background: var(--panel-2); }
+.map-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.map-bar button { flex: 0 0 auto; }
+/* Leaflet's own controls assume a light page. */
+.leaflet-container { font: inherit; }
+.leaflet-control-attribution {
+  background: rgba(15, 17, 21, .75) !important;
+  color: var(--muted) !important;
+}
+.leaflet-control-attribution a { color: var(--accent) !important; }
+
+/* -- compact table controls ------------------------------------------------ */
+
 button.tiny { padding: 4px 9px; font-size: 12px; }
+.handle-input { width: 150px; }
+td select { width: auto; padding: 5px 8px; }
 .money-input { width: 110px; text-align: right; padding: 5px 8px; }
 .tiny-input { width: 52px; text-align: right; padding: 5px 6px; }
 td input { display: inline-block; }

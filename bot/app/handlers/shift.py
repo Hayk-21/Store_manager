@@ -1,4 +1,4 @@
-"""Opening the store, checking status, ending a shift, closing the store."""
+﻿"""Opening the store, checking status, ending a shift, closing the store."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         # The profile name rides along so the owner never has to type one: they
         # register a Telegram id, and the name fills itself in here.
-        me = await api.me(user.id, user.full_name)
+        me = await api.me(user.id, user.full_name, user.username)
     except Exception as exc:  # noqa: BLE001 - every failure is reportable to the worker
         await _reply_error(update, exc)
         return
@@ -76,6 +76,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             accuracy_m=getattr(location, "horizontal_accuracy", None),
             key=key,
             telegram_name=user.full_name,
+            telegram_username=user.username,
         )
     except ApiError as exc:
         if exc.code == "session_already_open":
@@ -110,7 +111,8 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
-        me = await api.me(update.effective_user.id, update.effective_user.full_name)
+        user = update.effective_user
+        me = await api.me(user.id, user.full_name, user.username)
     except Exception as exc:  # noqa: BLE001
         await _reply_error(update, exc)
         return
