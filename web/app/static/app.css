@@ -288,6 +288,122 @@ details.card > summary:hover::before { color: var(--text); }
 button.tiny { padding: 4px 9px; font-size: 12px; }
 .handle-input { width: 150px; }
 td select { width: auto; padding: 5px 8px; }
+
+/* -- stock table ----------------------------------------------------------- */
+
+table.items td { vertical-align: middle; }
+table.items .cell-name input { min-width: 150px; }
+/* The count, the +N box and the button are one unit; letting the button wrap
+   below the input made the row look broken. */
+.stock-cell { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.stock-now { font-variant-numeric: tabular-nums; min-width: 2ch; text-align: right; }
+.cell-actions { white-space: nowrap; }
+.cell-actions button + button { margin-left: 6px; }
+
+/* ==========================================================================
+   Narrow screens
+   ==========================================================================
+   The owner runs this from a phone behind the counter as often as from a desk,
+   so this is not a courtesy: below 900px every wide table becomes a list of
+   cards, with the column heading moved beside each value. That is what the
+   data-label attribute on every cell is for.
+   ========================================================================== */
+
+@media (max-width: 900px) {
+  table.cards, table.cards tbody, table.cards tfoot, table.cards tr, table.cards td {
+    display: block;
+    width: 100%;
+  }
+  table.cards thead { display: none; }
+  table.cards tr {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+  table.cards td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: 0;
+    padding: 5px 0;
+    text-align: right;
+  }
+  table.cards td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+  }
+  table.cards td.empty-cell { display: none; }
+  table.cards td input { flex: 1 1 auto; min-width: 0; width: auto; text-align: right; }
+  table.cards td select { flex: 0 0 auto; }
+  table.cards .cell-name input { min-width: 0; font-weight: 600; }
+  table.cards .cell-actions { justify-content: flex-end; padding-top: 10px; }
+  table.cards tfoot tr { background: transparent; border-style: dashed; }
+  /* The "this receipt was voided" line belongs to the card above it, not to a
+     card of its own. */
+  table.cards tr.void-note {
+    margin-top: -12px;
+    border-top: 0;
+    border-radius: 0 0 var(--radius) var(--radius);
+    padding-top: 0;
+  }
+  table.cards tr.void-note td { justify-content: flex-start; text-align: left; }
+  /* A table that is no longer a table must not keep a scrollbar. */
+  .table-wrap { overflow-x: visible; }
+
+  /* -- chrome -------------------------------------------------------------- */
+
+  .topbar {
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    padding: 10px 14px;
+    position: static;          /* a sticky bar eats a phone screen */
+  }
+  .topbar .brand { flex: 1 1 auto; }
+  .topbar nav { order: 3; width: 100%; gap: 14px; overflow-x: auto; }
+  .topbar .logout { order: 2; }
+
+  main { padding: 16px 14px 24px; }
+  main.with-footer { padding-bottom: calc(var(--footer-h) + 16px); }
+  h1 { font-size: 19px; }
+  .card { padding: 14px; }
+
+  .page-head { flex-direction: column; align-items: flex-start; gap: 6px; }
+
+  /* Every field on its own line: two half-width boxes side by side are worse
+     than one full-width box you can actually hit. */
+  .form-row { flex-direction: column; align-items: stretch; gap: 10px; }
+  .form-row > *, .form-row > .narrow, .form-row > .actions { flex: 1 1 auto; width: 100%; }
+  .form-row > .actions button { width: 100%; }
+  .money-input, .tiny-input, .handle-input { width: auto; }
+
+  /* 16px is the threshold below which iOS Safari zooms the page on focus, which
+     then leaves the layout scrolled sideways. */
+  input, select, textarea, button { font-size: 16px; }
+  button.tiny { font-size: 14px; padding: 6px 12px; }
+
+  .store-grid { grid-template-columns: 1fr; }
+  .totals { gap: 18px; }
+  .total-value { font-size: 22px; }
+  .map { height: 260px; }
+  .map-bar button { width: 100%; }
+
+  .login-wrap { margin-top: 4vh; }
+}
+
+/* Phones held in one hand. */
+@media (max-width: 420px) {
+  :root { --footer-h: 84px; }
+  .chip { min-width: 148px; }
+  .topbar nav { font-size: 14px; }
+  .total-value { font-size: 20px; }
+}
 .money-input { width: 110px; text-align: right; padding: 5px 8px; }
 .tiny-input { width: 52px; text-align: right; padding: 5px 6px; }
 td input { display: inline-block; }

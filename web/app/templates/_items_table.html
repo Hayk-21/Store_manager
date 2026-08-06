@@ -1,9 +1,13 @@
-{# Stock. possible_profit is a generated column, so it can never disagree with
+﻿{# Stock. possible_profit is a generated column, so it can never disagree with
    the numbers beside it.
 
    The forms sit outside the table and the cells point at them with the HTML5
    `form` attribute. A <form> cannot legally span several <td>s, and a browser
-   silently rearranges one that tries. #}
+   silently rearranges one that tries.
+
+   Every cell carries data-label. On a narrow screen the CSS turns each row into
+   a card and shows that label beside the value — seven columns do not fit on a
+   phone, and the owner is usually holding one. #}
 {% macro head(key, label, numeric=false) %}
   {% set is_current = sort == key %}
   <th {% if numeric %}class="num"{% endif %}>
@@ -27,58 +31,61 @@
 
   {% if items %}
   <div class="table-wrap">
-  <table>
+  <table class="items cards">
     <thead>
       <tr>
         {{ head('name', 'Անուն') }}
         {{ head('count', 'Քանակ', true) }}
         {{ head('self_price', 'Ինքնարժեք', true) }}
-        {{ head('wholesale_price', 'Մեծածախ գին', true) }}
-        {{ head('sell_price', 'Մանրածախ գին', true) }}
-        <th class="num">Շահույթ / հատ</th>
+        {{ head('wholesale_price', 'Մեծածախ', true) }}
+        {{ head('sell_price', 'Մանրածախ', true) }}
+        <th class="num">Շահույթ/հատ</th>
         {{ head('possible_profit', 'Հնարավոր շահույթ', true) }}
-        <th class="num">Գործողություն</th>
+        <th class="num"></th>
       </tr>
     </thead>
     <tbody>
       {% for item in items %}
       {% set unit_profit = item.sell_price - item.self_price %}
       <tr>
-        <td>
+        <td class="cell-name" data-label="Անուն">
           <input form="edit-{{ item.id }}" name="name" value="{{ item.name }}"
                  maxlength="200" required aria-label="Անուն">
         </td>
-        <td class="num">
-          {{ item.count }}
-          <input form="restock-{{ item.id }}" name="delta" value="1" inputmode="numeric"
-                 class="tiny-input" aria-label="Ավելացնել քանակ">
-          <button form="restock-{{ item.id }}" type="submit" class="secondary tiny"
-                  title="Ավելացնել պահեստին">＋</button>
+        <td class="num" data-label="Քանակ">
+          <span class="stock-cell">
+            <b class="stock-now {% if item.count <= 0 %}negative{% endif %}">{{ item.count }}</b>
+            <input form="restock-{{ item.id }}" name="delta" value="1" inputmode="numeric"
+                   class="tiny-input" aria-label="Ավելացնել քանակ">
+            <button form="restock-{{ item.id }}" type="submit" class="secondary tiny"
+                    title="Ավելացնել պահեստին">＋</button>
+          </span>
         </td>
-        <td class="num">
+        <td class="num" data-label="Ինքնարժեք">
           <input form="edit-{{ item.id }}" name="self_price"
                  value="{{ item.self_price | plain_money }}" inputmode="decimal"
                  class="money-input" aria-label="Ինքնարժեք">
         </td>
-        <td class="num">
+        <td class="num" data-label="Մեծածախ">
           {# Blank is meaningful: this model is not sold wholesale. #}
           <input form="edit-{{ item.id }}" name="wholesale_price"
                  value="{{ item.wholesale_price | plain_money if item.wholesale_price is not none else '' }}"
                  inputmode="decimal" class="money-input" placeholder="—"
                  aria-label="Մեծածախ գին">
         </td>
-        <td class="num">
+        <td class="num" data-label="Մանրածախ">
           <input form="edit-{{ item.id }}" name="sell_price"
                  value="{{ item.sell_price | plain_money }}" inputmode="decimal"
                  class="money-input" aria-label="Մանրածախ գին">
         </td>
-        <td class="num {% if unit_profit < 0 %}negative{% endif %}">
+        <td class="num {% if unit_profit < 0 %}negative{% endif %}" data-label="Շահույթ/հատ">
           {{ unit_profit | money }}
         </td>
-        <td class="num {% if item.possible_profit < 0 %}negative{% endif %}">
+        <td class="num {% if item.possible_profit < 0 %}negative{% endif %}"
+            data-label="Հնարավոր շահույթ">
           {{ item.possible_profit | money }}
         </td>
-        <td class="num nowrap">
+        <td class="num nowrap cell-actions" data-label="">
           <button form="edit-{{ item.id }}" type="submit" class="secondary tiny">Պահել</button>
           <button form="drop-{{ item.id }}" type="submit" class="danger tiny">✕</button>
         </td>
@@ -87,22 +94,21 @@
     </tbody>
     <tfoot>
       <tr>
-        <td>{{ summary.lines }} անվանում</td>
-        <td class="num">{{ summary.units }} հատ</td>
-        <td class="num">{{ summary.stock_cost | money }}</td>
-        <td class="num"></td>
-        <td class="num"></td>
-        <td class="num"></td>
-        <td class="num {% if summary.possible_profit < 0 %}negative{% endif %}">
-          {{ summary.possible_profit | money }}
-        </td>
-        <td></td>
+        <td data-label="Ընդամենը">{{ summary.lines }} անվանում</td>
+        <td class="num" data-label="Քանակ">{{ summary.units }} հատ</td>
+        <td class="num" data-label="Պահեստն ըստ ինքնարժեքի">{{ summary.stock_cost | money }}</td>
+        <td class="num empty-cell"></td>
+        <td class="num empty-cell"></td>
+        <td class="num empty-cell"></td>
+        <td class="num {% if summary.possible_profit < 0 %}negative{% endif %}"
+            data-label="Հնարավոր շահույթ">{{ summary.possible_profit | money }}</td>
+        <td class="empty-cell"></td>
       </tr>
     </tfoot>
   </table>
   </div>
   <p class="muted small">
-    «Շահույթ / հատ» — մանրածախ գին մինուս ինքնարժեք։
+    «Շահույթ/հատ» — մանրածախ գին մինուս ինքնարժեք։
     «Հնարավոր շահույթ» — նույնը՝ բազմապատկած պահեստի քանակով։
     Մեծածախ գինը թողեք դատարկ, եթե այդ ապրանքը մեծածախ չեք վաճառում։
   </p>

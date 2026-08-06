@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}Աշխատողներ · Store Manager{% endblock %}
 
 {% macro period_options(current) %}
@@ -70,7 +70,7 @@
         <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
       </form>
     {% endfor %}
-    <table>
+    <table class="cards">
       <thead>
         <tr>
           <th>Telegram օգտանուն</th>
@@ -85,7 +85,7 @@
       <tbody>
         {% for w in workers %}
         <tr>
-          <td class="nowrap">
+          <td class="nowrap cell-name" data-label="Telegram">
             <input form="worker-{{ w.id }}" name="telegram_username"
                    value="@{{ w.telegram_username }}" required class="handle-input"
                    autocapitalize="off" autocorrect="off" spellcheck="false"
@@ -96,22 +96,22 @@
               <span class="badge" title="Դեռ չի գրել բոտին">չկապված</span>
             {% endif %}
           </td>
-          <td>
+          <td data-label="Անուն">
             <input form="worker-{{ w.id }}" name="name" value="{{ w.own_name or '' }}"
                    maxlength="120" placeholder="{{ w.telegram_name or 'ինքնաշխատ' }}"
                    aria-label="Անուն">
           </td>
-          <td class="num">
+          <td class="num" data-label="Աշխատավարձ">
             <input form="worker-{{ w.id }}" name="salary_amount"
                    value="{{ w.salary_amount | plain_money }}" inputmode="decimal"
                    class="money-input" aria-label="Աշխատավարձ">
           </td>
-          <td>
+          <td data-label="Վճարվում է">
             <select form="worker-{{ w.id }}" name="salary_period" aria-label="Վճարվում է">
               {{ period_options(w.salary_period) }}
             </select>
           </td>
-          <td>
+          <td data-label="Հիմա">
             {% if w.open_shift_id %}
               <span class="badge open">{{ w.store_name }}</span>
               <span class="muted small">{{ w.started_at | clock }}-ից</span>
@@ -119,11 +119,11 @@
               <span class="muted">—</span>
             {% endif %}
           </td>
-          <td>
+          <td data-label="Ակտիվ">
             <input form="worker-{{ w.id }}" type="checkbox" name="is_active" value="1"
                    class="check" {% if w.is_active %}checked{% endif %} aria-label="Ակտիվ">
           </td>
-          <td class="num nowrap">
+          <td class="num nowrap cell-actions" data-label="">
             <button form="worker-{{ w.id }}" type="submit" class="secondary tiny">Պահել</button>
             {% if w.telegram_id %}
               <button form="unbind-{{ w.id }}" type="submit" class="secondary tiny"
