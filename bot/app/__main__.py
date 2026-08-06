@@ -51,6 +51,11 @@ BUTTON_LABELS = sorted(
     if name.startswith("BTN_") and isinstance(value, str)
 )
 
+# Text a cashier actually typed, as opposed to a button they tapped. The sell
+# flow only ever consumes this, so a button press is never mistaken for a
+# product name or a quantity.
+_free_text = filters.TEXT & ~filters.COMMAND & ~filters.Text(BUTTON_LABELS)
+
 
 def build() -> Application:
     application = ApplicationBuilder().token(settings.bot_token).post_shutdown(_shutdown).build()
@@ -70,19 +75,37 @@ def build() -> Application:
         states={
             sell.ASK_ITEM: [
                 CallbackQueryHandler(sell.choose_item, pattern=f"^{keyboards.CB_ITEM}:"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, sell.search),
+                MessageHandler(_free_text, sell.search),
             ],
             sell.ASK_QUANTITY: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, sell.choose_quantity),
+                MessageHandler(_free_text, sell.choose_quantity),
             ],
             sell.ASK_PAYMENT: [
                 CallbackQueryHandler(sell.choose_payment, pattern=f"^{keyboards.CB_PAY}:"),
             ],
         },
+        # Every reply-keyboard button is a way out. The states above only take
+        # *free* text, so a button pressed mid-sale lands here instead of being
+        # read as a product name or a quantity — which is what left a cashier
+        # unable to escape the flow at all.
         fallbacks=[
             CallbackQueryHandler(sell.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
             CommandHandler("cancel", sell.cancel),
+            CommandHandler("start", sell.escape(shift.start)),
             MessageHandler(_exact(texts.BTN_CANCEL), sell.cancel),
+            # Pressing "sell" again means start over, not "quantity = 🧾 Վաճառք".
+            MessageHandler(_exact(texts.BTN_SELL), sell.restart),
+            MessageHandler(_exact(texts.BTN_UNDO), sell.escape(sell.undo)),
+            MessageHandler(_exact(texts.BTN_STATUS), sell.escape(shift.status)),
+            MessageHandler(_exact(texts.BTN_END_SHIFT), sell.escape(shift.end_shift)),
+            MessageHandler(
+                _exact(texts.BTN_CLOSE_STORE), sell.escape(shift.confirm_close_store)
+            ),
+            MessageHandler(_exact(texts.BTN_OPEN), sell.escape(shift.ask_location)),
+            MessageHandler(
+                _exact(texts.BTN_SEND_LOCATION), sell.escape(common.location_from_desktop)
+            ),
+            MessageHandler(filters.LOCATION, sell.escape(shift.handle_location)),
         ],
         # A cashier who wanders off mid-sale should not be stuck in the flow.
         conversation_timeout=300,
@@ -108,8 +131,12 @@ def build() -> Application:
     application.add_handler(
         CallbackQueryHandler(shift.close_store, pattern=f"^{keyboards.CB_CLOSE_STORE}$")
     )
+    # Dismissing the close-store confirmation has its own callback data. It used
+    # to share CB_CANCEL with the sell flow, and being registered ahead of the
+    # conversation it swallowed the sell flow's own cancel button: the cashier
+    # saw "cancelled" while the conversation quietly stayed open.
     application.add_handler(
-        CallbackQueryHandler(sell.cancel, pattern=f"^{keyboards.CB_CANCEL}$")
+        CallbackQueryHandler(common.dismiss, pattern=f"^{keyboards.CB_DISMISS}$")
     )
 
     application.add_handler(sell_flow)

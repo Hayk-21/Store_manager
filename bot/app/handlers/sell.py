@@ -155,6 +155,31 @@ async def choose_payment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return ConversationHandler.END
 
 
+def escape(handler):
+    """Wrap a normal handler so it also ends the sell conversation.
+
+    Used for every reply-keyboard button. Without this a cashier who taps
+    "Վաճառք" or "Վիճակ" halfway through entering a quantity has the label read
+    as the quantity, gets told to write a number, and cannot get out of the
+    flow by any means — which is exactly what happened in the shop.
+    """
+
+    async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        _clear(context)
+        await handler(update, context)
+        return ConversationHandler.END
+
+    wrapped.__name__ = f"escape_{getattr(handler, '__name__', 'handler')}"
+    wrapped.__wrapped__ = handler
+    return wrapped
+
+
+async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """"Վաճառք" pressed mid-sale: start a fresh one rather than getting stuck."""
+    _clear(context)
+    return await prompt(update, context)
+
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     if query is not None:

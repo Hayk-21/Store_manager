@@ -7,7 +7,7 @@ from decimal import Decimal
 from telegram.ext import ConversationHandler
 
 from app import format, keyboards, texts
-from app.__main__ import build
+from app.__main__ import BUTTON_LABELS, build
 from app.handlers import sell, shift
 
 
@@ -72,6 +72,72 @@ def test_the_location_label_has_its_own_handler():
     assert any(
         getattr(h, "callback", None) is common.location_from_desktop for h in handlers
     ), "tapping the location button on desktop would go unanswered"
+
+
+def test_every_button_can_escape_the_sell_flow():
+    """The bug from the shop: a cashier halfway through entering a quantity
+    pressed a keyboard button, the label was read as the quantity, and there was
+    no way out of the flow at all.
+
+    Two halves to the fix, both checked here: the states must only consume text
+    the cashier actually typed, and every button must appear as a fallback.
+    """
+    from telegram.ext import ConversationHandler
+
+    flow = next(h for h in build().handlers[0] if isinstance(h, ConversationHandler))
+
+    # 1. No state may swallow a button label.
+    for state, handlers in flow.states.items():
+        for handler in handlers:
+            filt = getattr(handler, "filters", None)
+            if filt is None:
+                continue
+            for label in BUTTON_LABELS:
+                assert not filt.check_update(_message(label)), (
+                    f"state {state} would treat {label!r} as free text"
+                )
+
+    # 2. Every button label has a fallback that matches it.
+    for label in BUTTON_LABELS:
+        assert any(
+            getattr(h, "filters", None) is not None and h.filters.check_update(_message(label))
+            for h in flow.fallbacks
+        ), f"no way out of the sell flow when {label!r} is pressed"
+
+
+def _message(text: str):
+    """The smallest thing a telegram.ext filter will accept."""
+    from telegram import Chat, Message, Update, User
+
+    user = User(id=1, first_name="T", is_bot=False)
+    message = Message(
+        message_id=1,
+        date=None,
+        chat=Chat(id=1, type="private"),
+        from_user=user,
+        text=text,
+    )
+    return Update(update_id=1, message=message)
+
+
+def test_the_sell_flows_cancel_button_is_not_shadowed():
+    """It used to share callback data with the close-store confirmation, whose
+    handler is registered first — so tapping cancel printed "cancelled" while
+    the conversation quietly stayed open."""
+    assert keyboards.CB_CANCEL != keyboards.CB_DISMISS
+
+    handlers = build().handlers[0]
+    from telegram.ext import ConversationHandler
+
+    conversation_at = next(
+        i for i, h in enumerate(handlers) if isinstance(h, ConversationHandler)
+    )
+    for index, handler in enumerate(handlers[:conversation_at]):
+        pattern = getattr(handler, "pattern", None)
+        if pattern is not None:
+            assert keyboards.CB_CANCEL not in pattern.pattern, (
+                f"handler {index} claims the sell flow's cancel before it can"
+            )
 
 
 def test_item_buttons_carry_the_id_not_the_name():

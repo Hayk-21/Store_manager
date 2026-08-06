@@ -30,6 +30,13 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(texts.UNKNOWN_COMMAND)
 
 
+async def dismiss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Close a confirmation the worker decided against. Nothing else to do."""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(texts.CANCELLED)
+
+
 async def location_from_desktop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """The button's label arrived as text, so the tap produced no location.
 

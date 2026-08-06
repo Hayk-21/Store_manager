@@ -21,8 +21,12 @@ from app import texts
 # Callback data is capped at 64 bytes by Telegram, so these stay terse.
 CB_ITEM = "i"
 CB_PAY = "p"
+# Belongs to the sell conversation alone, so its fallback is the only thing that
+# handles it and the conversation actually ends when it fires.
 CB_CANCEL = "x"
 CB_CLOSE_STORE = "c"
+# Dismissing the close-store confirmation, which happens outside any conversation.
+CB_DISMISS = "d"
 
 
 def off_shift() -> ReplyKeyboardMarkup:
@@ -82,6 +86,6 @@ def confirm_close_store() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(texts.BTN_CONFIRM_CLOSE, callback_data=CB_CLOSE_STORE)],
-            [InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)],
+            [InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_DISMISS)],
         ]
     )
