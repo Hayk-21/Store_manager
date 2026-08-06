@@ -1,4 +1,4 @@
-"""Stock. The five columns requirement 2 asks for live here."""
+﻿"""Stock. The five columns requirement 2 asks for live here."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ SORTS: dict[str, str] = {
     "count": "count",
     "self_price": "self_price",
     "sell_price": "sell_price",
+    "wholesale_price": "wholesale_price",
     "possible_profit": "possible_profit",
 }
 DEFAULT_SORT = "name"
@@ -27,7 +28,7 @@ async def list_for_store(
     direction = "DESC" if descending else "ASC"
     return await db.fetch(
         f"""
-        SELECT id, name, count, self_price, sell_price, possible_profit
+        SELECT id, name, count, self_price, sell_price, wholesale_price, possible_profit
           FROM items
          WHERE owner_id = $1 AND store_id = $2 AND is_active
          ORDER BY {column} {direction}, id
@@ -55,7 +56,8 @@ async def summary_for_store(owner_id: int, store_id: int) -> asyncpg.Record:
 async def get(owner_id: int, item_id: int) -> asyncpg.Record | None:
     return await db.fetchrow(
         """
-        SELECT id, store_id, name, count, self_price, sell_price, possible_profit, is_active
+        SELECT id, store_id, name, count, self_price, sell_price, wholesale_price,
+               possible_profit, is_active
           FROM items WHERE id = $1 AND owner_id = $2
         """,
         item_id,
@@ -70,11 +72,13 @@ async def create(
     count: int,
     self_price: Decimal,
     sell_price: Decimal,
+    wholesale_price: Decimal | None = None,
 ) -> int:
     return await db.fetchval(
         """
-        INSERT INTO items (owner_id, store_id, name, count, self_price, sell_price)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO items (owner_id, store_id, name, count, self_price, sell_price,
+                           wholesale_price)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id
         """,
         owner_id,
@@ -83,11 +87,17 @@ async def create(
         count,
         self_price,
         sell_price,
+        wholesale_price,
     )
 
 
 async def update_details(
-    owner_id: int, item_id: int, name: str, self_price: Decimal, sell_price: Decimal
+    owner_id: int,
+    item_id: int,
+    name: str,
+    self_price: Decimal,
+    sell_price: Decimal,
+    wholesale_price: Decimal | None = None,
 ) -> bool:
     """Rename and reprice. Deliberately does NOT touch ``count``.
 
@@ -97,7 +107,8 @@ async def update_details(
     result = await db.execute(
         """
         UPDATE items
-           SET name = $3, self_price = $4, sell_price = $5, updated_at = now()
+           SET name = $3, self_price = $4, sell_price = $5, wholesale_price = $6,
+               updated_at = now()
          WHERE id = $1 AND owner_id = $2 AND is_active
         """,
         item_id,
@@ -105,6 +116,7 @@ async def update_details(
         name,
         self_price,
         sell_price,
+        wholesale_price,
     )
     return result.endswith(" 1")
 
@@ -149,7 +161,7 @@ async def search_in_store(
     needle = query.strip().lower()
     return await db.fetch(
         """
-        SELECT id, name, count, sell_price
+        SELECT id, name, count, sell_price, wholesale_price
           FROM items
          WHERE store_id = $1 AND is_active AND position($2 in lower(name)) > 0
          ORDER BY CASE
@@ -171,7 +183,7 @@ async def list_in_store_for_bot(
 ) -> list[asyncpg.Record]:
     return await db.fetch(
         """
-        SELECT id, name, count, sell_price
+        SELECT id, name, count, sell_price, wholesale_price
           FROM items
          WHERE store_id = $1 AND is_active
          ORDER BY lower(name)

@@ -1,4 +1,4 @@
-"""The owner-facing pages: stores and stock."""
+﻿"""The owner-facing pages: stores and stock."""
 
 from __future__ import annotations
 
@@ -169,6 +169,7 @@ async def add_item(
     count: str = Form(""),
     self_price: str = Form(""),
     sell_price: str = Form(""),
+    wholesale_price: str = Form(""),
     user: CurrentUser = Depends(require_csrf),
 ):
     await _store_or_404(user.id, store_id)
@@ -178,7 +179,8 @@ async def add_item(
         name=forms.text(name, "Անվանում", max_length=200),
         count=forms.whole(count, "Քանակ", default=0),
         self_price=forms.money(self_price, "Ինքնարժեք", default=None),
-        sell_price=forms.money(sell_price, "Վաճառքի գին", default=None),
+        sell_price=forms.money(sell_price, "Մանրածախ գին", default=None),
+        wholesale_price=forms.optional_money(wholesale_price, "Մեծածախ գին"),
     )
     return render(
         request, "_items_table.html", await _items_context(user.id, store_id, "name", False)
@@ -192,6 +194,7 @@ async def edit_item(
     name: str = Form(""),
     self_price: str = Form(""),
     sell_price: str = Form(""),
+    wholesale_price: str = Form(""),
     user: CurrentUser = Depends(require_csrf),
 ):
     item = await items_repo.get(user.id, item_id)
@@ -203,7 +206,8 @@ async def edit_item(
         item_id=item_id,
         name=forms.text(name, "Անվանում", max_length=200),
         self_price=forms.money(self_price, "Ինքնարժեք"),
-        sell_price=forms.money(sell_price, "Վաճառքի գին"),
+        sell_price=forms.money(sell_price, "Մանրածախ գին"),
+        wholesale_price=forms.optional_money(wholesale_price, "Մեծածախ գին"),
     )
     return render(
         request,

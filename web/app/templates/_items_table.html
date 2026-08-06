@@ -1,6 +1,5 @@
-{# Requirement 2: name | count | self_price | sell_price | possible_profit.
-   possible_profit is a generated column, so it can never disagree with the
-   numbers beside it.
+{# Stock. possible_profit is a generated column, so it can never disagree with
+   the numbers beside it.
 
    The forms sit outside the table and the cells point at them with the HTML5
    `form` attribute. A <form> cannot legally span several <td>s, and a browser
@@ -34,13 +33,16 @@
         {{ head('name', 'Անուն') }}
         {{ head('count', 'Քանակ', true) }}
         {{ head('self_price', 'Ինքնարժեք', true) }}
-        {{ head('sell_price', 'Վաճառքի գին', true) }}
+        {{ head('wholesale_price', 'Մեծածախ գին', true) }}
+        {{ head('sell_price', 'Մանրածախ գին', true) }}
+        <th class="num">Շահույթ / հատ</th>
         {{ head('possible_profit', 'Հնարավոր շահույթ', true) }}
         <th class="num">Գործողություն</th>
       </tr>
     </thead>
     <tbody>
       {% for item in items %}
+      {% set unit_profit = item.sell_price - item.self_price %}
       <tr>
         <td>
           <input form="edit-{{ item.id }}" name="name" value="{{ item.name }}"
@@ -59,9 +61,19 @@
                  class="money-input" aria-label="Ինքնարժեք">
         </td>
         <td class="num">
+          {# Blank is meaningful: this model is not sold wholesale. #}
+          <input form="edit-{{ item.id }}" name="wholesale_price"
+                 value="{{ item.wholesale_price | plain_money if item.wholesale_price is not none else '' }}"
+                 inputmode="decimal" class="money-input" placeholder="—"
+                 aria-label="Մեծածախ գին">
+        </td>
+        <td class="num">
           <input form="edit-{{ item.id }}" name="sell_price"
                  value="{{ item.sell_price | plain_money }}" inputmode="decimal"
-                 class="money-input" aria-label="Վաճառքի գին">
+                 class="money-input" aria-label="Մանրածախ գին">
+        </td>
+        <td class="num {% if unit_profit < 0 %}negative{% endif %}">
+          {{ unit_profit | money }}
         </td>
         <td class="num {% if item.possible_profit < 0 %}negative{% endif %}">
           {{ item.possible_profit | money }}
@@ -79,6 +91,8 @@
         <td class="num">{{ summary.units }} հատ</td>
         <td class="num">{{ summary.stock_cost | money }}</td>
         <td class="num"></td>
+        <td class="num"></td>
+        <td class="num"></td>
         <td class="num {% if summary.possible_profit < 0 %}negative{% endif %}">
           {{ summary.possible_profit | money }}
         </td>
@@ -87,6 +101,11 @@
     </tfoot>
   </table>
   </div>
+  <p class="muted small">
+    «Շահույթ / հատ» — մանրածախ գին մինուս ինքնարժեք։
+    «Հնարավոր շահույթ» — նույնը՝ բազմապատկած պահեստի քանակով։
+    Մեծածախ գինը թողեք դատարկ, եթե այդ ապրանքը մեծածախ չեք վաճառում։
+  </p>
   {% else %}
   <p class="muted">Այս խանութում ապրանք դեռ չկա։</p>
   {% endif %}

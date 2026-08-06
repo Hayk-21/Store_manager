@@ -148,14 +148,25 @@ class Api:
         )
 
     async def sell(
-        self, telegram_id: int, item_id: int, quantity: int, payment_method: str, key: str
+        self,
+        telegram_id: int,
+        item_id: int,
+        quantity: int,
+        payment_method: str,
+        key: str,
+        unit_price: str | None = None,
     ) -> dict:
+        line: dict[str, Any] = {"item_id": item_id, "quantity": quantity}
+        # A decimal string, never a float: the server refuses floats outright
+        # because they have already lost digits by the time it sees them.
+        if unit_price is not None:
+            line["unit_price"] = unit_price
         return await self._call(
             "POST",
             "/sale",
             json={
                 "telegram_id": telegram_id,
-                "items": [{"item_id": item_id, "quantity": quantity}],
+                "items": [line],
                 "payment_method": payment_method,
                 "idempotency_key": key,
             },

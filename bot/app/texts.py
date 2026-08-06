@@ -19,6 +19,8 @@ BTN_CLOSE_STORE = "🔴 Փակել խանութը"
 BTN_CANCEL = "✖️ Չեղարկել"
 BTN_CASH = "💵 Կանխիկ"
 BTN_CARD = "💳 Քարտ"
+BTN_RETAIL = "🏪 Մանրածախ"
+BTN_WHOLESALE = "📦 Մեծածախ"
 
 # -- greetings and prompts --------------------------------------------------
 
@@ -77,6 +79,7 @@ NOT_ENOUGH_STOCK = (
     "Գրեք ավելի փոքր թիվ։"
 )
 QUANTITY_TOO_BIG = "Չափազանց մեծ թիվ։ Առավելագույնը {limit} հատ։"
+ASK_PRICE_KIND = "«{item}» ×{quantity}\n\nՈ՞ր գնով եք վաճառում։"
 ASK_PAYMENT = "«{item}» ×{quantity} = <b>{total}</b>\n\nԻնչպե՞ս վճարեց հաճախորդը։"
 SALE_DONE = (
     "✅ Գրանցվեց՝ <b>{item}</b> ×{quantity} — {total} ({method})\n"

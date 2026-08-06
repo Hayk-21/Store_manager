@@ -21,6 +21,7 @@ from app import texts
 # Callback data is capped at 64 bytes by Telegram, so these stay terse.
 CB_ITEM = "i"
 CB_PAY = "p"
+CB_KIND = "k"
 # Belongs to the sell conversation alone, so its fallback is the only thing that
 # handles it and the conversation actually ends when it fires.
 CB_CANCEL = "x"
@@ -68,6 +69,26 @@ def item_choices(items: list[dict]) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(label[:64], callback_data=f"{CB_ITEM}:{item['id']}")])
     rows.append([InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)])
     return InlineKeyboardMarkup(rows)
+
+
+def price_kinds(retail: Decimal, wholesale: Decimal) -> InlineKeyboardMarkup:
+    """Only shown when the item actually has a wholesale price.
+
+    Most sales are over the counter, so making every sale answer this would be a
+    tax on the common case. Items with no wholesale price skip it entirely.
+    """
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(
+                f"{texts.BTN_RETAIL} — {retail:,.0f} ֏", callback_data=f"{CB_KIND}:retail"
+            )],
+            [InlineKeyboardButton(
+                f"{texts.BTN_WHOLESALE} — {wholesale:,.0f} ֏",
+                callback_data=f"{CB_KIND}:wholesale",
+            )],
+            [InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)],
+        ]
+    )
 
 
 def payment_methods() -> InlineKeyboardMarkup:

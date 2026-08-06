@@ -80,6 +80,11 @@ def build() -> Application:
             sell.ASK_QUANTITY: [
                 MessageHandler(_free_text, sell.choose_quantity),
             ],
+            sell.ASK_PRICE_KIND: [
+                CallbackQueryHandler(
+                    sell.choose_price_kind, pattern=f"^{keyboards.CB_KIND}:"
+                ),
+            ],
             sell.ASK_PAYMENT: [
                 CallbackQueryHandler(sell.choose_payment, pattern=f"^{keyboards.CB_PAY}:"),
             ],

@@ -43,6 +43,18 @@ def money(value: str | None, field: str, *, default: Decimal | None = None) -> D
     return amount
 
 
+def optional_money(value: str | None, field: str) -> Decimal | None:
+    """A price that may legitimately be left blank.
+
+    The owner's price sheet has a dash where a model is not sold wholesale, and
+    "we do not sell this one wholesale" is a real answer. Storing 0 for it would
+    read as "free".
+    """
+    if not (value or "").strip():
+        return None
+    return money(value, field)
+
+
 def whole(
     value: str | None,
     field: str,

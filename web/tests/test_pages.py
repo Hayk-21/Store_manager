@@ -72,7 +72,10 @@ async def test_the_five_columns_are_on_the_store_page(client):
 
     response = await client.get(f"/stores/{store_id}")
 
-    for header in ("Անուն", "Քանակ", "Ինքնարժեք", "Վաճառքի գին", "Հնարավոր շահույթ"):
+    for header in (
+        "Անուն", "Քանակ", "Ինքնարժեք", "Մեծածախ գին", "Մանրածախ գին",
+        "Շահույթ / հատ", "Հնարավոր շահույթ",
+    ):
         assert header in response.text, f"missing column {header}"
     # possible_profit = (3500 - 1500) * 10
     assert "20,000.00" in response.text

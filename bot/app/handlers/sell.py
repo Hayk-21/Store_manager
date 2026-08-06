@@ -1,4 +1,4 @@
-"""Recording a sale: type a name, tap the item, give a quantity, pick cash or card.
+﻿"""Recording a sale: type a name, tap the item, give a quantity, pick cash or card.
 
 Typing is the fast path for a cashier who knows the catalogue, but a typo must
 never sell the wrong SKU — so what is typed only ever *searches*. The thing that
@@ -19,7 +19,7 @@ from app.api import ApiError, ApiUnavailable, api, new_idempotency_key
 
 log = logging.getLogger("storemanager.bot.sell")
 
-ASK_ITEM, ASK_QUANTITY, ASK_PAYMENT = range(3)
+ASK_ITEM, ASK_QUANTITY, ASK_PRICE_KIND, ASK_PAYMENT = range(4)
 
 # The server refuses anything above this outright; catching it here turns a
 # validation_error into a sentence that says what to do.
@@ -135,10 +135,51 @@ async def choose_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # every retry of the request that follows.
     context.user_data["sale_key"] = new_idempotency_key()
 
-    total = Decimal(item["sell_price"]) * quantity
-    await update.effective_message.reply_text(
+    wholesale = item.get("wholesale_price")
+    if wholesale is not None:
+        # Ask which price only when there is a choice to make.
+        await update.effective_message.reply_text(
+            texts.ASK_PRICE_KIND.format(item=format.esc(item["name"]), quantity=quantity),
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboards.price_kinds(
+                Decimal(item["sell_price"]), Decimal(wholesale)
+            ),
+        )
+        return ASK_PRICE_KIND
+
+    context.user_data["unit_price"] = Decimal(item["sell_price"])
+    return await _ask_payment(update.effective_message, context)
+
+
+async def choose_price_kind(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    kind = query.data.split(":", 1)[1]
+    item = context.user_data.get("item")
+    if item is None:  # pragma: no cover
+        await query.edit_message_text(texts.CANCELLED)
+        return ConversationHandler.END
+
+    price = item["sell_price"] if kind == "retail" else item["wholesale_price"]
+    context.user_data["unit_price"] = Decimal(price)
+    context.user_data["price_kind"] = kind
+    await query.edit_message_reply_markup(reply_markup=None)
+    return await _ask_payment(query.message, context)
+
+
+async def _ask_payment(message, context: ContextTypes.DEFAULT_TYPE) -> int:
+    item = context.user_data["item"]
+    quantity = context.user_data["quantity"]
+    unit_price = context.user_data["unit_price"]
+    kind = context.user_data.get("price_kind")
+
+    label = format.esc(item["name"])
+    if kind == "wholesale":
+        label = f"{label} ({texts.BTN_WHOLESALE})"
+
+    await message.reply_text(
         texts.ASK_PAYMENT.format(
-            item=format.esc(item["name"]), quantity=quantity, total=format.money(total)
+            item=label, quantity=quantity, total=format.money(unit_price * quantity)
         ),
         parse_mode=ParseMode.HTML,
         reply_markup=keyboards.payment_methods(),
@@ -153,14 +194,25 @@ async def choose_payment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     item = context.user_data.get("item")
     quantity = context.user_data.get("quantity")
     key = context.user_data.get("sale_key")
+    unit_price = context.user_data.get("unit_price")
     if not (item and quantity and key):  # pragma: no cover
         await query.edit_message_text(texts.CANCELLED)
         return ConversationHandler.END
 
     await query.edit_message_reply_markup(reply_markup=None)
 
+    # Only sent when it differs from the shelf price; otherwise the server uses
+    # its own, which is one less thing that can disagree.
+    override = (
+        f"{unit_price:.2f}"
+        if unit_price is not None and unit_price != Decimal(item["sell_price"])
+        else None
+    )
+
     try:
-        result = await api.sell(query.from_user.id, item["id"], quantity, method, key)
+        result = await api.sell(
+            query.from_user.id, item["id"], quantity, method, key, unit_price=override
+        )
     except Exception as exc:  # noqa: BLE001
         return await _fail(update, exc)
 
@@ -246,5 +298,5 @@ async def undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def _clear(context: ContextTypes.DEFAULT_TYPE) -> None:
-    for key in ("item", "quantity", "sale_key", "candidates"):
+    for key in ("item", "quantity", "sale_key", "candidates", "unit_price", "price_kind"):
         context.user_data.pop(key, None)
