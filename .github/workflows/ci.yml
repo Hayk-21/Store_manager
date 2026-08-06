@@ -5,6 +5,47 @@ on:
   pull_request:
 
 jobs:
+  # Install exactly what production installs and import the app. A dependency
+  # that only exists in requirements-dev.txt passes every test on a developer
+  # machine and then fails at startup on Railway, which is how httpx got missed.
+  web-imports-with-production-deps:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    env:
+      DATABASE_URL: postgresql://u:p@localhost:5432/db
+      SESSION_SECRET: ci-session-secret-0123456789abcdef
+      BOT_SHARED_SECRET: ci-bot-secret-0123456789abcdef
+      PYTHONPATH: ${{ github.workspace }}/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -c "import app.main"
+
+  bot-imports-with-production-deps:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bot
+    env:
+      BOT_TOKEN: "1:ci"
+      API_BASE_URL: http://web.test/api/bot/v1
+      BOT_SHARED_SECRET: ci-bot-secret
+      PYTHONPATH: ${{ github.workspace }}/bot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -c "import app.__main__"
+
   web:
     runs-on: ubuntu-latest
     services:
