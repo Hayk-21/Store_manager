@@ -22,6 +22,7 @@ from app import texts
 CB_ITEM = "i"
 CB_PAY = "p"
 CB_KIND = "k"
+CB_SUBMIT = "s"
 # Belongs to the sell conversation alone, so its fallback is the only thing that
 # handles it and the conversation actually ends when it fires.
 CB_CANCEL = "x"
@@ -39,7 +40,6 @@ def off_shift() -> ReplyKeyboardMarkup:
 def on_shift() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(texts.BTN_SELL), KeyboardButton(texts.BTN_UNDO)],
             [KeyboardButton(texts.BTN_STOCK), KeyboardButton(texts.BTN_STATUS)],
             [KeyboardButton(texts.BTN_END_SHIFT), KeyboardButton(texts.BTN_CLOSE_STORE)],
         ],
@@ -57,9 +57,15 @@ def request_location() -> ReplyKeyboardMarkup:
     )
 
 
-def item_choices(items: list[dict]) -> InlineKeyboardMarkup:
+def item_choices(items: list[dict], allow_empty: bool = False) -> InlineKeyboardMarkup:
     """One button per match. Out-of-stock items are shown but marked, so a
-    cashier does not conclude the search is broken."""
+    cashier does not conclude the search is broken.
+
+    ``allow_empty`` is for the end-of-shift write-up, where an item showing zero
+    may still be something that was genuinely sold — the count is only as good
+    as the last close-out, and refusing it would make the discrepancy
+    unrecordable.
+    """
     rows = []
     for item in items:
         count = item["count"]
@@ -69,6 +75,50 @@ def item_choices(items: list[dict]) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(label[:64], callback_data=f"{CB_ITEM}:{item['id']}")])
     rows.append([InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)])
     return InlineKeyboardMarkup(rows)
+
+
+def suggested_prices(item: dict) -> InlineKeyboardMarkup:
+    """The shelf prices as one tap each, with typing always available.
+
+    Most lines go at one of these, so making the cashier type the usual number
+    every time would be the wrong default — but the price is a free field, and
+    that is the point of the step.
+    """
+    rows = [[InlineKeyboardButton(
+        f"{texts.BTN_RETAIL} — {Decimal(item['sell_price']):,.0f} ֏",
+        callback_data=f"{CB_KIND}:retail",
+    )]]
+    if item.get("wholesale_price") is not None:
+        rows.append([InlineKeyboardButton(
+            f"{texts.BTN_WHOLESALE} — {Decimal(item['wholesale_price']):,.0f} ֏",
+            callback_data=f"{CB_KIND}:wholesale",
+        )])
+    rows.append([InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)])
+    return InlineKeyboardMarkup(rows)
+
+
+def closeout_menu(empty: bool) -> ReplyKeyboardMarkup:
+    """The keyboard while writing the day up."""
+    rows = [[KeyboardButton(texts.BTN_CO_ADD)]]
+    if not empty:
+        rows.append([KeyboardButton(texts.BTN_CO_REMOVE), KeyboardButton(texts.BTN_CO_DONE)])
+    else:
+        rows.append([KeyboardButton(texts.BTN_CO_DONE)])
+    rows.append([KeyboardButton(texts.BTN_CO_ABANDON)])
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+
+
+def closeout_confirm() -> InlineKeyboardMarkup:
+    """Ending your own shift and shutting the shop are different decisions."""
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(texts.BTN_CO_SUBMIT, callback_data=f"{CB_SUBMIT}:shift")],
+            [InlineKeyboardButton(
+                texts.BTN_CO_SUBMIT_CLOSE, callback_data=f"{CB_SUBMIT}:store"
+            )],
+            [InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)],
+        ]
+    )
 
 
 def price_kinds(retail: Decimal, wholesale: Decimal) -> InlineKeyboardMarkup:

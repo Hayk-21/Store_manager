@@ -1,4 +1,4 @@
-﻿"""Entrypoint: build the application, register handlers, poll.
+"""Entrypoint: build the application, register handlers, poll.
 
 Long polling rather than a webhook, because it needs no public URL and no TLS
 plumbing. It does mean **exactly one replica**: two processes calling getUpdates
@@ -24,7 +24,7 @@ from telegram.ext import (
 from app import keyboards, texts
 from app.api import api
 from app.config import settings
-from app.handlers import common, sell, shift
+from app.handlers import closeout, common, shift, stock
 
 log = logging.getLogger("storemanager.bot")
 
@@ -37,89 +37,84 @@ def _exact(label: str):
 # Every label the bot ever puts on a button, collected from texts.py rather than
 # listed by hand so a new button cannot be forgotten here.
 #
-# A reply-keyboard tap arrives as ordinary text. Without this exclusion the sell
-# flow treated "📍 Ուղարկել տեղորոշումը" as the name of a product and answered
-# "you are not on shift" — true, and baffling. Telegram Desktop cannot attach a
-# location at all and sends the label as plain text, so it is not a rare case.
-#
-# Inline-keyboard labels arrive as callbacks and could not collide, but they are
-# swept up too: nobody stocks a product called "💳 Քարտ", and one rule is easier
-# to keep true than two.
+# A reply-keyboard tap arrives as ordinary text. Without this exclusion the
+# write-up flow would treat "📍 Ուղարկել տեղորոշումը" as the name of a product —
+# Telegram Desktop cannot attach a location at all and sends the label as plain
+# text, so it is not a rare case.
 BUTTON_LABELS = sorted(
     value
     for name, value in vars(texts).items()
     if name.startswith("BTN_") and isinstance(value, str)
 )
 
-# Text a cashier actually typed, as opposed to a button they tapped. The sell
-# flow only ever consumes this, so a button press is never mistaken for a
-# product name or a quantity.
+# Text a cashier actually typed, as opposed to a button they tapped. The
+# write-up only ever consumes this, so a button press is never mistaken for a
+# product name, a quantity or a price.
 _free_text = filters.TEXT & ~filters.COMMAND & ~filters.Text(BUTTON_LABELS)
 
 
 def build() -> Application:
     application = ApplicationBuilder().token(settings.bot_token).post_shutdown(_shutdown).build()
 
-    # The sell flow owns plain text while it is running, so it has to be
-    # registered before the catch-all text handler below.
-    sell_flow = ConversationHandler(
+    # Writing the day up. A cashier does not touch the bot while serving; they
+    # list what went out once, at the end, and that list is the only way a sale
+    # reaches the system.
+    closeout_flow = ConversationHandler(
         entry_points=[
-            MessageHandler(_exact(texts.BTN_SELL), sell.prompt),
-            # Typing a product name with no shift-control button pressed starts
-            # the flow directly — the fast path for someone who knows the stock.
-            MessageHandler(
-                filters.TEXT & ~filters.COMMAND & ~filters.Text(BUTTON_LABELS),
-                sell.search,
-            ),
+            MessageHandler(_exact(texts.BTN_END_SHIFT), closeout.begin),
+            MessageHandler(_exact(texts.BTN_CLOSE_STORE), closeout.begin),
         ],
         states={
-            sell.ASK_ITEM: [
-                CallbackQueryHandler(sell.choose_item, pattern=f"^{keyboards.CB_ITEM}:"),
-                MessageHandler(_free_text, sell.search),
+            closeout.PICK_ITEM: [
+                MessageHandler(_exact(texts.BTN_CO_ADD), closeout.prompt_item),
+                MessageHandler(_exact(texts.BTN_CO_REMOVE), closeout.drop_last),
+                MessageHandler(_exact(texts.BTN_CO_DONE), closeout.review),
+                CallbackQueryHandler(closeout.choose_item, pattern=f"^{keyboards.CB_ITEM}:"),
+                MessageHandler(_free_text, closeout.search),
             ],
-            sell.ASK_QUANTITY: [
-                MessageHandler(_free_text, sell.choose_quantity),
+            closeout.ASK_QUANTITY: [
+                MessageHandler(_free_text, closeout.choose_quantity),
             ],
-            sell.ASK_PRICE_KIND: [
+            closeout.ASK_PRICE: [
                 CallbackQueryHandler(
-                    sell.choose_price_kind, pattern=f"^{keyboards.CB_KIND}:"
+                    closeout.choose_suggested_price, pattern=f"^{keyboards.CB_KIND}:"
                 ),
+                MessageHandler(_free_text, closeout.type_price),
             ],
-            sell.ASK_PAYMENT: [
-                CallbackQueryHandler(sell.choose_payment, pattern=f"^{keyboards.CB_PAY}:"),
+            closeout.ASK_METHOD: [
+                CallbackQueryHandler(closeout.choose_method, pattern=f"^{keyboards.CB_PAY}:"),
+            ],
+            closeout.CONFIRM: [
+                CallbackQueryHandler(closeout.submit, pattern=f"^{keyboards.CB_SUBMIT}:"),
+                MessageHandler(_exact(texts.BTN_CO_ADD), closeout.prompt_item),
+                MessageHandler(_exact(texts.BTN_CO_REMOVE), closeout.drop_last),
             ],
         },
-        # Every reply-keyboard button is a way out. The states above only take
-        # *free* text, so a button pressed mid-sale lands here instead of being
-        # read as a product name or a quantity — which is what left a cashier
-        # unable to escape the flow at all.
+        # Every other button is a way out: the states above take only free text,
+        # so a button pressed mid-write-up lands here rather than being read as
+        # a product name or a price.
         fallbacks=[
-            CallbackQueryHandler(sell.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
-            CommandHandler("cancel", sell.cancel),
-            CommandHandler("start", sell.escape(shift.start)),
-            MessageHandler(_exact(texts.BTN_CANCEL), sell.cancel),
-            # Pressing "sell" again means start over, not "quantity = 🧾 Վաճառք".
-            MessageHandler(_exact(texts.BTN_SELL), sell.restart),
-            MessageHandler(_exact(texts.BTN_UNDO), sell.escape(sell.undo)),
-            MessageHandler(_exact(texts.BTN_STATUS), sell.escape(shift.status)),
-            MessageHandler(_exact(texts.BTN_STOCK), sell.escape(sell.stock)),
-            MessageHandler(_exact(texts.BTN_END_SHIFT), sell.escape(shift.end_shift)),
+            MessageHandler(_exact(texts.BTN_CO_ABANDON), closeout.cancel),
+            CallbackQueryHandler(closeout.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
+            CommandHandler("cancel", closeout.cancel),
+            CommandHandler("start", closeout.escape(shift.start)),
+            MessageHandler(_exact(texts.BTN_STOCK), closeout.escape(stock.show)),
+            MessageHandler(_exact(texts.BTN_STATUS), closeout.escape(shift.status)),
+            MessageHandler(_exact(texts.BTN_OPEN), closeout.escape(shift.ask_location)),
             MessageHandler(
-                _exact(texts.BTN_CLOSE_STORE), sell.escape(shift.confirm_close_store)
+                _exact(texts.BTN_SEND_LOCATION),
+                closeout.escape(common.location_from_desktop),
             ),
-            MessageHandler(_exact(texts.BTN_OPEN), sell.escape(shift.ask_location)),
-            MessageHandler(
-                _exact(texts.BTN_SEND_LOCATION), sell.escape(common.location_from_desktop)
-            ),
-            MessageHandler(filters.LOCATION, sell.escape(shift.handle_location)),
+            MessageHandler(filters.LOCATION, closeout.escape(shift.handle_location)),
         ],
-        # A cashier who wanders off mid-sale should not be stuck in the flow.
-        conversation_timeout=300,
+        # Long: a cashier writing up a busy day gets interrupted by customers.
+        conversation_timeout=1800,
         per_message=False,
     )
 
     application.add_handler(CommandHandler("start", shift.start))
     application.add_handler(CommandHandler("help", common.help_command))
+    application.add_handler(closeout_flow)
 
     application.add_handler(MessageHandler(_exact(texts.BTN_OPEN), shift.ask_location))
     application.add_handler(MessageHandler(filters.LOCATION, shift.handle_location))
@@ -128,25 +123,13 @@ def build() -> Application:
     application.add_handler(
         MessageHandler(_exact(texts.BTN_SEND_LOCATION), common.location_from_desktop)
     )
-    application.add_handler(MessageHandler(_exact(texts.BTN_STOCK), sell.stock))
+    application.add_handler(MessageHandler(_exact(texts.BTN_STOCK), stock.show))
     application.add_handler(MessageHandler(_exact(texts.BTN_STATUS), shift.status))
-    application.add_handler(MessageHandler(_exact(texts.BTN_UNDO), sell.undo))
-    application.add_handler(MessageHandler(_exact(texts.BTN_END_SHIFT), shift.end_shift))
-    application.add_handler(
-        MessageHandler(_exact(texts.BTN_CLOSE_STORE), shift.confirm_close_store)
-    )
-    application.add_handler(
-        CallbackQueryHandler(shift.close_store, pattern=f"^{keyboards.CB_CLOSE_STORE}$")
-    )
-    # Dismissing the close-store confirmation has its own callback data. It used
-    # to share CB_CANCEL with the sell flow, and being registered ahead of the
-    # conversation it swallowed the sell flow's own cancel button: the cashier
-    # saw "cancelled" while the conversation quietly stayed open.
+    # Dismissing a confirmation, which happens outside any conversation.
     application.add_handler(
         CallbackQueryHandler(common.dismiss, pattern=f"^{keyboards.CB_DISMISS}$")
     )
 
-    application.add_handler(sell_flow)
     application.add_handler(MessageHandler(filters.COMMAND, common.unknown))
     application.add_error_handler(common.on_error)
 

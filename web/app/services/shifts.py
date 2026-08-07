@@ -291,6 +291,64 @@ async def end_shift(
     return await _end_payload(row, duplicate=False, store_closed=store_closed)
 
 
+async def close_out_shift(
+    worker: Worker,
+    lines: list[dict],
+    idempotency_key: str,
+    lat: float | None = None,
+    lng: float | None = None,
+    close_store_too: bool = False,
+) -> dict:
+    """End a shift and record everything sold during it, in one transaction.
+
+    This is how a sale is recorded now: the cashier serves customers all day
+    without touching the bot, then writes the day up once. Either the whole
+    declaration lands with the shift closed and the salary paid, or none of it
+    does — a half-applied close-out would leave stock moved against a shift that
+    is still open, which nothing downstream could make sense of.
+    """
+    replay = await sessions_repo.by_end_idem(worker.owner_id, idempotency_key)
+    if replay is not None:
+        return await _end_payload(replay, duplicate=True)
+
+    # Import here: sales imports Worker from this module, so a module-level
+    # import would be circular.
+    from app.services import sales as sales_service
+
+    async with db.transaction() as conn:
+        shift = await sessions_repo.lock_open_for_worker(conn, worker.id)
+        if shift is None:
+            raise BotError("no_open_session")
+
+        for line in lines:
+            line["idempotency_key"] = idempotency_key
+        await sales_service.apply_closeout_lines(conn, worker, shift, lines)
+
+        salary = await _pay_and_close_shift(
+            conn,
+            shift,
+            worker.salary_due_at_shift_end,
+            lat=lat,
+            lng=lng,
+            idem_key=idempotency_key,
+            closed_by="worker",
+        )
+
+        remaining = await sessions_repo.open_shifts_in_session(
+            conn, shift["store_session_id"]
+        )
+        store_closed = close_store_too or not remaining
+        if store_closed:
+            await _close_store_session(conn, shift["store_session_id"], "worker")
+
+    log.info(
+        "worker %s closed out with %d line(s), salary %s, store %s",
+        worker.id, len(lines), salary, "closed" if store_closed else "still open",
+    )
+    row = await sessions_repo.by_end_idem(worker.owner_id, idempotency_key)
+    return await _end_payload(row, duplicate=False, store_closed=store_closed)
+
+
 async def close_store(worker: Worker, idempotency_key: str) -> dict:
     """Close the whole store for everyone, from the bot."""
     replay = await sessions_repo.by_end_idem(worker.owner_id, idempotency_key)

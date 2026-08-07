@@ -24,6 +24,7 @@ log = logging.getLogger("storemanager.sales")
 
 MAX_LINES = 50
 CENT = Decimal("0.01")
+ZERO = Decimal("0.00")
 
 
 def _merge(lines: list[dict]) -> list[dict]:
@@ -178,6 +179,126 @@ async def _explain_failure(conn, worker: Worker, store_id: int, item_id: int, qu
             "available": item["count"],
         },
     )
+
+
+async def apply_closeout_lines(conn, worker: Worker, shift, lines: list[dict]) -> dict:
+    """Record everything a worker declares at the end of their shift.
+
+    The cashier does not touch the bot while serving customers; they write the
+    day up once, at the end. So this arrives as a basket where each line carries
+    its own price and its own payment method — the same vape can go out at the
+    shelf price for cash in the morning and discounted on a card in the
+    afternoon, and both are one line here.
+
+    One ``sales`` row per line rather than one per basket. There is no receipt
+    being reconstructed: a line *is* the unit the cashier remembers, and keeping
+    them separate is what makes the report readable afterwards.
+
+    Runs inside the caller's transaction, which is what makes "the stock moved
+    but the shift did not close" impossible.
+    """
+    if not lines:
+        return {"receipts": 0, "total": ZERO, "cash": ZERO, "card": ZERO}
+
+    if len(lines) > MAX_LINES:
+        raise BotError("validation_error", f"Առավելագույնը {MAX_LINES} տող։")
+
+    # Ascending item id across the whole basket, so two workers closing out at
+    # once take the row locks in the same order and queue instead of deadlocking.
+    ordered = sorted(enumerate(lines), key=lambda pair: (pair[1]["item_id"], pair[0]))
+
+    totals = {"cash": ZERO, "card": ZERO}
+    recorded = []
+
+    for index, line in ordered:
+        item_id = line["item_id"]
+        quantity = line["quantity"]
+        method = line["payment_method"]
+
+        row = await conn.fetchrow(
+            """
+            UPDATE items
+               SET count = count - $4, updated_at = now()
+             WHERE id = $1 AND owner_id = $2 AND store_id = $3
+               AND is_active AND count >= $4
+            RETURNING name, sell_price, self_price, count AS remaining
+            """,
+            item_id,
+            worker.owner_id,
+            shift["store_id"],
+            quantity,
+        )
+        if row is None:
+            await _explain_failure(conn, worker, shift["store_id"], item_id, quantity)
+
+        unit_price = (
+            Decimal(line["unit_price"]) if line.get("unit_price") is not None
+            else Decimal(row["sell_price"])
+        )
+        line_total = (unit_price * quantity).quantize(CENT)
+
+        # Suffixed with the line's position so a replayed close-out resolves
+        # line by line rather than colliding on one key.
+        external_id = f"{line['idempotency_key']}-{index:02d}"
+        sale_id = await sales_repo.insert_sale(
+            conn,
+            owner_id=worker.owner_id,
+            store_id=shift["store_id"],
+            worker_id=worker.id,
+            work_session_id=shift["id"],
+            store_session_id=shift["store_session_id"],
+            payment_method=method,
+            total=line_total,
+            external_id=external_id,
+        )
+        await sales_repo.insert_lines(
+            conn,
+            worker.owner_id,
+            sale_id,
+            [{
+                "item_id": item_id,
+                "quantity": quantity,
+                "unit_price": unit_price,
+                "unit_cost": Decimal(row["self_price"]),
+                "line_total": line_total,
+            }],
+        )
+        await money_repo.insert_movement(
+            conn,
+            owner_id=worker.owner_id,
+            store_id=shift["store_id"],
+            store_session_id=shift["store_session_id"],
+            method=method,
+            kind="sale",
+            amount=line_total,
+            sale_id=sale_id,
+            work_session_id=shift["id"],
+            worker_id=worker.id,
+        )
+        totals[method] += line_total
+        recorded.append(
+            {
+                "item_id": item_id,
+                "name": row["name"],
+                "quantity": quantity,
+                "unit_price": f"{unit_price:.2f}",
+                "line_total": f"{line_total:.2f}",
+                "payment_method": method,
+                "remaining_count": row["remaining"],
+            }
+        )
+
+    log.info(
+        "worker %s closed out %d line(s): cash %s, card %s",
+        worker.id, len(recorded), totals["cash"], totals["card"],
+    )
+    return {
+        "receipts": len(recorded),
+        "total": totals["cash"] + totals["card"],
+        "cash": totals["cash"],
+        "card": totals["card"],
+        "lines": recorded,
+    }
 
 
 async def void_last_sale(worker: Worker, reason: str | None = None) -> dict:

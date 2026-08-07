@@ -91,3 +91,41 @@ class SaleRequest(IdempotentRequest):
 
 class VoidRequest(BotRequest):
     reason: str | None = Field(default=None, max_length=300)
+
+
+class CloseoutLine(BaseModel):
+    """One thing sold during the shift, as the cashier remembers it.
+
+    Price and payment method are per line, not per basket: the same product can
+    go out at the shelf price for cash and discounted on a card in the same day.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: int = Field(gt=0)
+    quantity: int = Field(gt=0, le=10_000)
+    unit_price: Decimal | None = Field(default=None, ge=0)
+    payment_method: str
+
+    @field_validator("unit_price", mode="before")
+    @classmethod
+    def _string_money(cls, value):
+        if isinstance(value, float):
+            raise ValueError("send money as a decimal string, not a float")
+        return value
+
+    @field_validator("payment_method")
+    @classmethod
+    def _known_method(cls, value: str) -> str:
+        if value not in {"cash", "card"}:
+            raise ValueError("payment_method must be 'cash' or 'card'")
+        return value
+
+
+class CloseoutRequest(IdempotentRequest):
+    """End the shift and declare what was sold, in one call."""
+
+    lines: list[CloseoutLine] = Field(default_factory=list, max_length=50)
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
+    close_store: bool = False

@@ -1,4 +1,4 @@
-"""Everything the bot says, in Armenian.
+﻿"""Everything the bot says, in Armenian.
 
 Only the bot's *own* wording lives here — buttons, prompts, summaries. Error
 sentences come from the server in ``error.message`` and are printed verbatim, so
@@ -11,8 +11,6 @@ from __future__ import annotations
 
 BTN_OPEN = "🟢 Բացել խանութը"
 BTN_SEND_LOCATION = "📍 Ուղարկել տեղորոշումը"
-BTN_SELL = "🧾 Վաճառք"
-BTN_UNDO = "↩️ Չեղարկել վերջինը"
 BTN_STATUS = "📊 Վիճակ"
 BTN_STOCK = "📦 Պահեստ"
 BTN_END_SHIFT = "🚪 Ավարտել իմ հերթափոխը"
@@ -22,6 +20,12 @@ BTN_CASH = "💵 Կանխիկ"
 BTN_CARD = "💳 Քարտ"
 BTN_RETAIL = "🏪 Մանրածախ"
 BTN_WHOLESALE = "📦 Մեծածախ"
+BTN_CO_ADD = "➕ Ավելացնել ապրանք"
+BTN_CO_REMOVE = "↩️ Ջնջել վերջինը"
+BTN_CO_DONE = "✅ Ավարտել ցուցակը"
+BTN_CO_ABANDON = "✖️ Չեղարկել ամբողջը"
+BTN_CO_SUBMIT = "✅ Հաստատել և ավարտել հերթափոխը"
+BTN_CO_SUBMIT_CLOSE = "🔴 Հաստատել և փակել խանութը"
 
 # -- greetings and prompts --------------------------------------------------
 
@@ -68,7 +72,8 @@ SHIFT_OPENED = (
     "✅ Դուք հերթափոխի մեջ եք։\n"
     "Խանութ՝ <b>{store}</b>\n"
     "Հեռավորությունը՝ {distance} մ\n\n"
-    "Վաճառք գրանցելու համար պարզապես գրեք ապրանքի անունը։"
+    "Աշխատեք հանգիստ։ Օրվա վերջում սեղմեք «🚪 Ավարտել իմ հերթափոխը» "
+    "և գրեք, թե ինչ եք վաճառել։"
 )
 SHIFT_ALREADY_OPEN = "Դուք արդեն աշխատում եք «{store}»-ում {since}-ից։"
 
@@ -102,6 +107,38 @@ SALE_DONE = (
 )
 SALE_ALREADY_RECORDED = "Այս վաճառքն արդեն գրանցված էր։"
 CANCELLED = "Չեղարկվեց։"
+
+# -- end-of-shift write-up ---------------------------------------------------
+
+CLOSEOUT_START = (
+    "🧾 <b>Հերթափոխի ամփոփում</b>\n\n"
+    "Գրեք, թե ինչ եք վաճառել այսօր։ Յուրաքանչյուր ապրանքի համար կնշեք "
+    "քանակը, գինը և վճարման ձևը։\n\n"
+    "Գրեք ապրանքի անունը կամ սեղմեք «➕ Ավելացնել ապրանք»։"
+)
+CLOSEOUT_ASK_ITEM = "Գրեք ապրանքի անունը կամ դրա մի մասը։"
+CLOSEOUT_ASK_QUANTITY = "«{item}» — քանի՞ հատ վաճառեցիք։\nՊահեստում կա {available} հատ։"
+CLOSEOUT_ASK_PRICE = (
+    "«{item}» ×{quantity}\n\n"
+    "Ի՞նչ գնով վաճառեցիք <b>մեկ հատը</b>։\n"
+    "Սեղմեք ներքևի կոճակը կամ գրեք գինը թվով (օրինակ՝ {suggested})։"
+)
+CLOSEOUT_BAD_PRICE = "Գրեք գինը թվով, օրինակ՝ 3500։"
+CLOSEOUT_ROW = "{index}. {name} ×{quantity} × {price} = <b>{total}</b> ({method})"
+CLOSEOUT_SUMMARY = (
+    "🧾 <b>Ցուցակ</b>\n\n{rows}\n\n"
+    "Կանխիկ՝ <b>{cash}</b>\nՔարտ՝ <b>{card}</b>\nԸնդամենը՝ <b>{total}</b>"
+)
+CLOSEOUT_EMPTY_BASKET = "Ցուցակը դատարկ է։ Այսօր վաճառք չի՞ եղել։"
+CLOSEOUT_CONFIRM_PROMPT = (
+    "Ամեն ինչ ճի՞շտ է։ Հաստատելուց հետո փոփոխություն կարող է անել միայն ղեկավարը։"
+)
+CLOSEOUT_REMOVED = "Ջնջվեց՝ «{name}»։"
+CLOSEOUT_NOTHING_TO_REMOVE = "Ջնջելու բան չկա։"
+CLOSEOUT_TOO_MANY = "Առավելագույնը {limit} տող։ Հաստատեք եղածը և սկսեք նորը։"
+CLOSEOUT_ABANDONED = (
+    "Չեղարկվեց։ Ոչինչ չի գրանցվել, հերթափոխը դեռ բաց է։"
+)
 
 STOCK_HEADER = "<b>{store}</b> — պահեստ\n{lines} անվանում · {units} հատ\n"
 STOCK_ROW = "• {name} — <b>{count}</b> հատ · {price}"
@@ -154,9 +191,10 @@ UNKNOWN_COMMAND = "Չհասկացա։ Օգտվեք ներքևի կոճակներ
 HELP = (
     "<b>Ինչպես օգտվել</b>\n\n"
     "1. Խանութ հասնելիս սեղմեք «{open_button}» և ուղարկեք տեղորոշումը։\n"
-    "2. Վաճառք գրանցելու համար գրեք ապրանքի անունը, ընտրեք ցանկից, "
-    "նշեք քանակը և վճարման ձևը։\n"
-    "3. Սխալվե՞լ եք — սեղմեք «{undo_button}»։\n"
-    "4. Աշխատանքն ավարտելիս սեղմեք «{end_button}»։\n\n"
+    "2. Աշխատեք հանգիստ — բոտին դիպչելու կարիք չկա։\n"
+    "3. «{stock_button}» — տեսնել, թե ինչ կա պահեստում։\n"
+    "4. Աշխատանքն ավարտելիս սեղմեք «{end_button}» և գրեք, թե ինչ եք վաճառել՝ "
+    "քանակը, գինը և վճարման ձևը։ Գինը կարող եք փոխել, եթե այլ գնով եք վաճառել։\n"
+    "5. Ցուցակը ստուգելուց հետո հաստատեք։\n\n"
     "Բոլոր հաշվարկները կատարվում են ավտոմատ։"
 )

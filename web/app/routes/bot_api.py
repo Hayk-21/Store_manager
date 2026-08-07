@@ -27,6 +27,7 @@ from app.repo import users as users_repo
 from app.repo import workers as workers_repo
 from app.schemas import (
     CheckinRequest,
+    CloseoutRequest,
     CloseStoreRequest,
     EndShiftRequest,
     OpenStoreRequest,
@@ -261,6 +262,32 @@ async def void_sale(body: VoidRequest) -> dict:
     """Undo the worker's own most recent receipt in this shift."""
     worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
     return await sales_service.void_last_sale(worker, body.reason)
+
+
+@router.post("/shift/close-out")
+async def close_out(body: CloseoutRequest) -> dict:
+    """End the shift and record everything sold during it, atomically.
+
+    This is the normal way a sale reaches the system: the cashier serves
+    customers without touching the bot and writes the day up once, at the end.
+    """
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
+    return await shifts_service.close_out_shift(
+        worker,
+        [
+            {
+                "item_id": line.item_id,
+                "quantity": line.quantity,
+                "unit_price": line.unit_price,
+                "payment_method": line.payment_method,
+            }
+            for line in body.lines
+        ],
+        body.idempotency_key,
+        lat=body.lat,
+        lng=body.lng,
+        close_store_too=body.close_store,
+    )
 
 
 @router.post("/shift/end")

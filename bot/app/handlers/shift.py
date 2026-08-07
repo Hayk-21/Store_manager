@@ -215,7 +215,7 @@ async def end_shift(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _reply_error(update, exc)
         return
     context.user_data.pop("end_key", None)
-    await _report_end(update, result["summary"])
+    await report_end(update, result["summary"])
 
 
 async def confirm_close_store(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -237,10 +237,10 @@ async def close_store(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
     context.user_data.pop("close_key", None)
     await query.edit_message_reply_markup(reply_markup=None)
-    await _report_end(update, result["summary"])
+    await report_end(update, result["summary"])
 
 
-async def _report_end(update: Update, summary: dict) -> None:
+async def report_end(update: Update, summary: dict) -> None:
     message = texts.SHIFT_ENDED.format(
         duration=format.duration_minutes(summary.get("duration_minutes")),
         receipts=summary["sales"]["receipts"],

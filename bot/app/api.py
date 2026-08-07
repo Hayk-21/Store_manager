@@ -172,6 +172,30 @@ class Api:
             },
         )
 
+    async def close_out(
+        self,
+        telegram_id: int,
+        lines: list[dict],
+        key: str,
+        close_store: bool = False,
+    ) -> dict:
+        """End the shift and declare the day's sales in one call.
+
+        One call rather than a sale per line then an end: the server applies the
+        whole thing in a single transaction, so there is no state where the stock
+        moved but the shift is still open.
+        """
+        return await self._call(
+            "POST",
+            "/shift/close-out",
+            json={
+                "telegram_id": telegram_id,
+                "lines": lines,
+                "idempotency_key": key,
+                "close_store": close_store,
+            },
+        )
+
     async def void_last(self, telegram_id: int, reason: str | None = None) -> dict:
         payload: dict[str, Any] = {"telegram_id": telegram_id}
         if reason:

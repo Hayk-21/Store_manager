@@ -1,4 +1,4 @@
-"""Help, the catch-all, and the global error handler."""
+﻿"""Help, the catch-all, and the global error handler."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.effective_message.reply_text(
         texts.HELP.format(
             open_button=texts.BTN_OPEN,
-            undo_button=texts.BTN_UNDO,
+            stock_button=texts.BTN_STOCK,
             end_button=texts.BTN_END_SHIFT,
         ),
         parse_mode=ParseMode.HTML,
