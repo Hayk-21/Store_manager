@@ -16,7 +16,7 @@ import pytest
 TEMPLATES = Path(__file__).resolve().parents[1] / "app" / "templates"
 CSS = Path(__file__).resolve().parents[1] / "app" / "static" / "app.css"
 
-CARD_TABLES = ["_items_table.html", "workers.html", "reports.html"]
+CARD_TABLES = ["_items_table.html", "workers.html", "reports.html", "expenses.html"]
 
 # <td ...> up to the closing angle bracket, ignoring any '>' inside a Jinja tag.
 CELL = re.compile(r"<td\b((?:[^>{]|\{[%{].*?[%}]\})*)>", re.DOTALL)
@@ -50,14 +50,17 @@ def test_every_cell_of_a_card_table_carries_a_label(template):
 @pytest.mark.parametrize("template", CARD_TABLES)
 def test_wide_tables_opt_into_the_card_layout(template):
     for opening in re.findall(r"<table\b[^>]*>", _source(template)):
-        assert "cards" in opening, f"{template}: {opening} will not collapse on a phone"
+        assert "cards" in opening or "stack" in opening, (
+            f"{template}: {opening} will not collapse on a phone"
+        )
 
 
 def test_the_stylesheet_actually_defines_the_card_layout():
     css = CSS.read_text(encoding="utf-8")
 
-    assert "@media (max-width: 900px)" in css
+    assert "@media (max-width: 1200px)" in css
     assert "table.cards thead { display: none; }" in css
+    assert "table.stack thead { display: none; }" in css, "always-stacked tables"
     assert "content: attr(data-label)" in css
 
 
@@ -66,7 +69,7 @@ def test_inputs_are_large_enough_that_ios_does_not_zoom():
     layout scrolled sideways with no obvious way back."""
     css = CSS.read_text(encoding="utf-8")
 
-    narrow = css.split("@media (max-width: 900px)", 1)[1]
+    narrow = css.split("@media (max-width: 1200px)", 1)[1]
     assert "input, select, textarea, button { font-size: 16px; }" in narrow
 
 

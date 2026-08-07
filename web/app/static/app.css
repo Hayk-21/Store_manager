@@ -149,7 +149,13 @@ table { width: 100%; border-collapse: collapse; }
 th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); }
 th { font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); font-weight: 600; }
 th a { color: inherit; }
-td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* Money must never wrap: "-7,000.00" on one line and a lone "֏" on the next
+   reads as a broken number, and it was happening in every report. */
+td.num, th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 tbody tr:hover { background: rgba(255, 255, 255, .02); }
 tfoot td { font-weight: 600; border-top: 2px solid var(--line); border-bottom: 0; }
 .voided { opacity: .55; text-decoration: line-through; }
@@ -301,6 +307,53 @@ table.items .cell-name input { min-width: 150px; }
 .cell-actions button + button { margin-left: 6px; }
 
 /* ==========================================================================
+   Stacked tables
+   ==========================================================================
+   `table.stack` never lays out as a table. Some tables — expenses, with eight
+   columns of dropdowns — do not fit a desktop either, and a horizontal
+   scrollbar that hides the last three fields is not a layout, it is a defect.
+   `table.cards` gets the same treatment, but only once the screen is too
+   narrow for the real thing.
+
+   The declarations are repeated inside the media query below rather than
+   shared: plain CSS has no way to add a selector to an existing rule.
+   ========================================================================== */
+
+table.stack, table.stack tbody, table.stack tfoot, table.stack tr, table.stack td {
+  display: block;
+  width: 100%;
+}
+table.stack thead { display: none; }
+table.stack tr {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+table.stack td {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) 1fr;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  padding: 5px 0;
+  text-align: left;
+}
+table.stack td::before {
+  content: attr(data-label);
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+table.stack td.empty-cell { display: none; }
+table.stack td input, table.stack td select { width: 100%; text-align: left; }
+table.stack td.num input { text-align: right; }
+table.stack .cell-actions { justify-content: flex-end; }
+table.stack .cell-actions::before { content: ""; }
+
+/* ==========================================================================
    Narrow screens
    ==========================================================================
    The owner runs this from a phone behind the counter as often as from a desk,
@@ -309,7 +362,7 @@ table.items .cell-name input { min-width: 150px; }
    data-label attribute on every cell is for.
    ========================================================================== */
 
-@media (max-width: 900px) {
+@media (max-width: 1200px) {
   table.cards, table.cards tbody, table.cards tfoot, table.cards tr, table.cards td {
     display: block;
     width: 100%;
@@ -426,7 +479,7 @@ td.num .tiny-input, td.num button.tiny { margin-left: 6px; }
 .bar-value { flex: 0 0 auto; font-variant-numeric: tabular-nums; font-size: 13px; }
 .month-picker input { width: auto; }
 
-@media (max-width: 900px) {
+@media (max-width: 1200px) {
   .bar-row { flex-wrap: wrap; }
   .bar-label { flex: 1 1 100%; }
   .bar-track { flex: 1 1 auto; }

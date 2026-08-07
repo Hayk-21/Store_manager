@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}Ծախսեր · Store Manager{% endblock %}
 
 {% macro method_options(current) %}
@@ -128,7 +128,7 @@
         <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
       </form>
     {% endfor %}
-    <table class="cards">
+    <table class="stack">
       <thead>
         <tr>
           <th>Ամսաթիվ</th><th>Նպատակ</th><th>Կատեգորիա</th><th>Խանութ</th>

@@ -14,8 +14,7 @@
       <thead>
         <tr>
           <th>Խանութ</th>
-          <th>Բացվել է</th>
-          <th>Փակվել է</th>
+          <th>Բացվել / փակվել է</th>
           <th class="num">Տևողություն</th>
           <th class="num">Աշխատողներ</th>
           <th class="num">Չեկեր</th>
@@ -31,8 +30,7 @@
         {% set card = s.card_at_close if s.closed_at else s.card_now %}
         <tr>
           <td class="cell-name" data-label="Խանութ">{{ s.store_name }}</td>
-          <td class="nowrap" data-label="Բացվել է">{{ s.opened_at | stamp }}</td>
-          <td class="nowrap" data-label="Փակվել է">
+          <td class="nowrap" data-label="Բացվել / փակվել է">{{ s.opened_at | stamp }}<br>
             {% if s.closed_at %}
               {{ s.closed_at | stamp }}
               {% if s.closed_by != 'worker' %}
