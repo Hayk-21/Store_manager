@@ -1,4 +1,4 @@
-"""Request bodies for the bot API.
+﻿"""Request bodies for the bot API.
 
 ``extra="forbid"`` throughout: a typo in a field name should be a loud 422, not
 a silently ignored value. Money arrives as a decimal string and is parsed to
@@ -10,6 +10,10 @@ from __future__ import annotations
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# Which price list a line came from. Kept here rather than in the database layer
+# because both the bot and the website have to agree on the vocabulary.
+PRICE_KINDS = {"retail", "wholesale", "custom"}
 
 
 class BotRequest(BaseModel):
@@ -124,6 +128,10 @@ class CloseoutLine(BaseModel):
     quantity: int = Field(gt=0, le=10_000)
     unit_price: Decimal | None = Field(default=None, ge=0)
     payment_method: str
+    # Which price list this came from. The amount is already in unit_price, so
+    # this records the *reason* — without it a wholesale run and a haggled
+    # discount are the same row with a smaller number.
+    price_kind: str = "retail"
 
     @field_validator("unit_price", mode="before")
     @classmethod
@@ -137,6 +145,13 @@ class CloseoutLine(BaseModel):
     def _known_method(cls, value: str) -> str:
         if value not in {"cash", "card"}:
             raise ValueError("payment_method must be 'cash' or 'card'")
+        return value
+
+    @field_validator("price_kind")
+    @classmethod
+    def _known_kind(cls, value: str) -> str:
+        if value not in PRICE_KINDS:
+            raise ValueError("price_kind must be one of " + ", ".join(sorted(PRICE_KINDS)))
         return value
 
 

@@ -23,6 +23,7 @@ from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
 from app.repo import stores as stores_repo
 from app.repo import workers as workers_repo
+from app.schemas import PRICE_KINDS
 from app.services import corrections, statistics
 from app.services import money as money_service
 from app.services import shifts as shifts_service
@@ -605,9 +606,20 @@ async def statistics_page(
 
 # -- corrections -------------------------------------------------------------
 
-def _basket(item_ids: list[str], quantities: list[str], prices: list[str]) -> list[dict]:
+def _basket(
+    item_ids: list[str],
+    quantities: list[str],
+    prices: list[str],
+    kinds: list[str] | None = None,
+) -> list[dict]:
     """Turn parallel form arrays into lines. Blank rows are simply dropped, so
-    a form with spare rows on it does not need clearing before submitting."""
+    a form with spare rows on it does not need clearing before submitting.
+
+    A row may name a price list instead of a price: leaving the amount empty and
+    choosing «Մեծածախ» takes the item's wholesale price, resolved server-side by
+    the same function the bot's write-up uses.
+    """
+    kinds = kinds or []
     lines = []
     for index, raw_id in enumerate(item_ids):
         if not (raw_id or "").strip():
@@ -618,10 +630,14 @@ def _basket(item_ids: list[str], quantities: list[str], prices: list[str]) -> li
         price = (
             forms.optional_money(prices[index], "Գին") if index < len(prices) else None
         )
+        kind = kinds[index] if index < len(kinds) else "retail"
+        if kind not in PRICE_KINDS:
+            raise AppError("validation_error", "Անհայտ գնացուցակ։")
         lines.append({
             "item_id": forms.whole(raw_id, "Ապրանք", minimum=1),
             "quantity": quantity,
             "unit_price": price,
+            "price_kind": kind,
         })
     if not lines:
         raise AppError("validation_error", "Ապրանք ընտրված չէ։")
@@ -645,13 +661,14 @@ async def amend_sale(
     item_id: list[str] = Form(default=[]),
     quantity: list[str] = Form(default=[]),
     unit_price: list[str] = Form(default=[]),
+    price_kind: list[str] = Form(default=[]),
     payment_method: str = Form("cash"),
     reason: str = Form(""),
     user: CurrentUser = Depends(require_csrf),
 ):
     store_session_id = await _session_of_sale(user.id, sale_id)
     await corrections.amend_sale(
-        user.id, user.id, sale_id, _basket(item_id, quantity, unit_price),
+        user.id, user.id, sale_id, _basket(item_id, quantity, unit_price, price_kind),
         payment_method,
         forms.text(reason, "Պատճառ", max_length=300, required=False),
     )
@@ -665,6 +682,7 @@ async def add_sale(
     item_id: list[str] = Form(default=[]),
     quantity: list[str] = Form(default=[]),
     unit_price: list[str] = Form(default=[]),
+    price_kind: list[str] = Form(default=[]),
     payment_method: str = Form("cash"),
     note: str = Form(""),
     user: CurrentUser = Depends(require_csrf),
@@ -672,7 +690,7 @@ async def add_sale(
     await corrections.add_sale(
         user.id, user.id, store_session_id,
         forms.whole(worker_id, "Աշխատող", minimum=1),
-        _basket(item_id, quantity, unit_price), payment_method,
+        _basket(item_id, quantity, unit_price, price_kind), payment_method,
         forms.text(note, "Նշում", max_length=300, required=False),
     )
     return _back_to_report(store_session_id)

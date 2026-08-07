@@ -32,6 +32,7 @@ STATUS_BY_CODE: dict[str, int] = {
     "session_already_open": 409,
     "no_open_session": 409,
     "store_not_open": 409,
+    "others_on_shift": 409,
     "unknown_item": 404,
     "insufficient_stock": 409,
     "nothing_to_void": 409,

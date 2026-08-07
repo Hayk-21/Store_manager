@@ -30,7 +30,7 @@ async def by_external_id(worker_id: int, external_id: str) -> asyncpg.Record | N
 async def lines_for_sale(sale_id: int) -> list[asyncpg.Record]:
     return await db.fetch(
         """
-        SELECT si.item_id, si.quantity, si.unit_price, si.line_total,
+        SELECT si.item_id, si.quantity, si.unit_price, si.line_total, si.price_kind,
                i.name, i.count AS remaining_count
           FROM sale_items si
           JOIN items i ON i.id = si.item_id
@@ -76,8 +76,8 @@ async def insert_lines(conn, owner_id: int, sale_id: int, lines: list[dict]) -> 
     await conn.executemany(
         """
         INSERT INTO sale_items (owner_id, sale_id, item_id, quantity, unit_price,
-                                unit_cost, line_total)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+                                unit_cost, line_total, price_kind)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         """,
         [
             (
@@ -88,6 +88,7 @@ async def insert_lines(conn, owner_id: int, sale_id: int, lines: list[dict]) -> 
                 line["unit_price"],
                 line["unit_cost"],
                 line["line_total"],
+                line.get("price_kind", "retail"),
             )
             for line in lines
         ],
@@ -119,7 +120,7 @@ async def lines_for_void(conn, sale_id: int) -> list[asyncpg.Record]:
     a concurrent sale that locks in the same order."""
     return await conn.fetch(
         """
-        SELECT item_id, quantity, unit_price, line_total
+        SELECT item_id, quantity, unit_price, line_total, price_kind
           FROM sale_items WHERE sale_id = $1 ORDER BY item_id
         """,
         sale_id,
@@ -165,7 +166,7 @@ async def receipts_in_store_session(store_session_id: int) -> list[asyncpg.Recor
                   FROM sale_items si JOIN items i ON i.id = si.item_id
                  WHERE si.sale_id = sa.id) AS lines,
                (SELECT count(*) FROM sale_items si WHERE si.sale_id = sa.id) AS line_count,
-               one.item_id, one.quantity, one.unit_price
+               one.item_id, one.quantity, one.unit_price, one.price_kind
           FROM sales sa
           JOIN workers w ON w.id = sa.worker_id
           LEFT JOIN workers vw ON vw.id = sa.voided_by_worker_id
@@ -173,7 +174,7 @@ async def receipts_in_store_session(store_session_id: int) -> list[asyncpg.Recor
           -- A close-out writes one sale per line, so in practice that is most
           -- of them; anything longer only gets the void button.
           LEFT JOIN LATERAL (
-               SELECT si.item_id, si.quantity, si.unit_price
+               SELECT si.item_id, si.quantity, si.unit_price, si.price_kind
                  FROM sale_items si WHERE si.sale_id = sa.id ORDER BY si.id LIMIT 1
           ) one ON true
          WHERE sa.store_session_id = $1

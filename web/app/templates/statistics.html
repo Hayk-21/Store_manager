@@ -48,6 +48,16 @@
     </span>
   </div>
   <div class="card stat">
+    <span class="total-label">Մեծածախ</span>
+    <span class="total-value">{{ summary.wholesale | money }}</span>
+    <span class="muted small">
+      {% if summary.revenue > 0 %}
+        հասույթի {{ (summary.wholesale / summary.revenue * 100) | round(1) }}% ·
+        {{ summary.wholesale_units }} հատ
+      {% else %}մեծածախ վաճառք չի եղել{% endif %}
+    </span>
+  </div>
+  <div class="card stat">
     <span class="total-label">Ծախսեր</span>
     <span class="total-value negative">{{ (salaries + spending) | money }}</span>
     <span class="muted small">

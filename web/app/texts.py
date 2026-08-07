@@ -38,6 +38,12 @@ ERROR_MESSAGES: dict[str, str] = {
     "session_already_open": "Դուք արդեն հերթափոխի մեջ եք։",
     "no_open_session": "Դուք հերթափոխի մեջ չեք։ Նախ բացեք խանութը։",
     "store_not_open": "Խանութը բաց չէ։",
+    # Always overridden with the names of whoever is still working, but a
+    # sensible sentence has to exist for the code on its own.
+    "others_on_shift": (
+        "Խանութը փակել չի կարելի՝ ուրիշ աշխատողներ դեռ հերթափոխի մեջ են։ "
+        "Ավարտեք ձեր հերթափոխը, իսկ խանութը կփակի վերջինը դուրս եկողը։"
+    ),
     # selling
     "unknown_item": "Այդպիսի ապրանք այս խանութում չկա։",
     "insufficient_stock": "Պահեստում բավարար քանակ չկա։",

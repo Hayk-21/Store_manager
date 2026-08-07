@@ -156,6 +156,11 @@
                      value="{{ (r.unit_price or 0) | plain_money }}" inputmode="decimal"
                      class="money-input" aria-label="Գին">
             {% else %}{{ (r.unit_price or 0) | money }}{% endif %}
+            {% if r.price_kind == 'wholesale' %}
+              <span class="badge">մեծածախ</span>
+            {% elif r.price_kind == 'custom' %}
+              <span class="badge">փոփոխված</span>
+            {% endif %}
           </td>
           <td data-label="Ձև">
             {% if editable %}
@@ -200,6 +205,10 @@
     <form id="amend-{{ r.id }}" method="post" action="/sales/{{ r.id }}/amend">
       <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
       <input type="hidden" name="item_id" value="{{ r.item_id }}">
+      {# The kind rides along unchanged: editing a quantity on a wholesale line
+         must not quietly re-file it as retail. Typing a different price is what
+         changes it, and the server decides that from the number. #}
+      <input type="hidden" name="price_kind" value="{{ r.price_kind or 'retail' }}">
       <input type="hidden" name="reason" value="ուղղում ղեկավարի կողմից">
     </form>
     {% endif %}
@@ -225,7 +234,9 @@
           <label for="as-item">Ապրանք</label>
           <select id="as-item" name="item_id" required>
             {% for i in d.stock %}
-              <option value="{{ i.id }}">{{ i.name }} ({{ i.count }} հատ)</option>
+              <option value="{{ i.id }}">{{ i.name }} ({{ i.count }} հատ ·
+                {{ i.sell_price | short_money }}{% if i.wholesale_price is not none %} /
+                {{ i.wholesale_price | short_money }} մեծ.{% endif %})</option>
             {% endfor %}
           </select>
         </div>
@@ -234,9 +245,16 @@
           <input id="as-qty" name="quantity" inputmode="numeric" value="1" required>
         </div>
         <div class="narrow">
+          <label for="as-kind">Գնացուցակ</label>
+          <select id="as-kind" name="price_kind">
+            <option value="retail">Մանրածախ</option>
+            <option value="wholesale">Մեծածախ</option>
+          </select>
+        </div>
+        <div class="narrow">
           <label for="as-price">Գին</label>
           <input id="as-price" name="unit_price" inputmode="decimal"
-                 placeholder="վաճառքի գին">
+                 placeholder="ըստ գնացուցակի">
         </div>
         <div class="narrow">
           <label for="as-method">Ձև</label>
@@ -247,7 +265,10 @@
         </div>
         <div class="actions"><button type="submit" class="secondary">Ավելացնել</button></div>
       </div>
-      <p class="muted small">Գինը դատարկ թողնելու դեպքում կվերցվի ապրանքի վաճառքի գինը։</p>
+      <p class="muted small">
+        Գինը դատարկ թողնելու դեպքում կվերցվի ընտրված գնացուցակի գինը՝ մանրածախ
+        կամ մեծածախ։ Ձեռքով գրված գինը գրանցվում է որպես «փոփոխված»։
+      </p>
     </form>
   </details>
 

@@ -1,4 +1,4 @@
-"""Recording and voiding a sale.
+﻿"""Recording and voiding a sale.
 
 This is the only place stock and money move together, so it is the only place a
 wrong number can come from. Everything here happens in one transaction: a basket
@@ -14,6 +14,7 @@ import asyncpg
 
 from app.db import db
 from app.errors import BotError
+from app.pricing import resolve_price
 from app.repo import money as money_repo
 from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
@@ -128,7 +129,7 @@ async def _apply_lines(
                SET count = count - $4, updated_at = now()
              WHERE id = $1 AND owner_id = $2 AND store_id = $3
                AND is_active AND count >= $4
-            RETURNING name, sell_price, self_price, count AS remaining
+            RETURNING name, sell_price, wholesale_price, self_price, count AS remaining
             """,
             item_id,
             worker.owner_id,
@@ -139,9 +140,8 @@ async def _apply_lines(
             # Nothing has been committed, so raising here undoes the whole basket.
             await _explain_failure(conn, worker, store_id, item_id, quantity)
 
-        unit_price = (
-            Decimal(line["unit_price"]) if line.get("unit_price") is not None
-            else Decimal(row["sell_price"])
+        unit_price, price_kind = resolve_price(
+            row, line.get("unit_price"), line.get("price_kind")
         )
         line_total = (unit_price * quantity).quantize(CENT)
         total += line_total
@@ -153,6 +153,7 @@ async def _apply_lines(
                 "unit_price": unit_price,
                 "unit_cost": Decimal(row["self_price"]),
                 "line_total": line_total,
+                "price_kind": price_kind,
                 "remaining": row["remaining"],
             }
         )
@@ -221,7 +222,7 @@ async def apply_closeout_lines(conn, worker: Worker, shift, lines: list[dict]) -
                SET count = count - $4, updated_at = now()
              WHERE id = $1 AND owner_id = $2 AND store_id = $3
                AND is_active AND count >= $4
-            RETURNING name, sell_price, self_price, count AS remaining
+            RETURNING name, sell_price, wholesale_price, self_price, count AS remaining
             """,
             item_id,
             worker.owner_id,
@@ -231,9 +232,8 @@ async def apply_closeout_lines(conn, worker: Worker, shift, lines: list[dict]) -
         if row is None:
             await _explain_failure(conn, worker, shift["store_id"], item_id, quantity)
 
-        unit_price = (
-            Decimal(line["unit_price"]) if line.get("unit_price") is not None
-            else Decimal(row["sell_price"])
+        unit_price, price_kind = resolve_price(
+            row, line.get("unit_price"), line.get("price_kind")
         )
         line_total = (unit_price * quantity).quantize(CENT)
 
@@ -261,6 +261,7 @@ async def apply_closeout_lines(conn, worker: Worker, shift, lines: list[dict]) -
                 "unit_price": unit_price,
                 "unit_cost": Decimal(row["self_price"]),
                 "line_total": line_total,
+                "price_kind": price_kind,
             }],
         )
         await money_repo.insert_movement(

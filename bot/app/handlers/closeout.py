@@ -1,4 +1,4 @@
-"""Writing the day up at the end of a shift.
+﻿"""Writing the day up at the end of a shift.
 
 The cashier serves customers without touching the bot. When the shift ends they
 list what went out: item, quantity, price, cash or card. The price is prefilled
@@ -39,6 +39,19 @@ def _clear(context) -> None:
         context.user_data.pop(key, None)
 
 
+def _kind_suffix(kind: str | None) -> str:
+    """Say why a price is not the shelf price, when it is not.
+
+    Retail lines get nothing: the common case should not be labelled, or the
+    label stops carrying information.
+    """
+    if kind == "wholesale":
+        return texts.KIND_WHOLESALE
+    if kind == "custom":
+        return texts.KIND_CUSTOM
+    return ""
+
+
 def _summary(basket: list[dict]) -> str:
     if not basket:
         return texts.CLOSEOUT_EMPTY_BASKET
@@ -56,6 +69,7 @@ def _summary(basket: list[dict]) -> str:
             price=format.money(line["unit_price"]),
             total=format.money(Decimal(line["unit_price"]) * line["quantity"]),
             method=texts.BTN_CASH if line["payment_method"] == "cash" else texts.BTN_CARD,
+            kind=_kind_suffix(line.get("price_kind")),
         )
         for index, line in enumerate(basket)
     ]
@@ -190,6 +204,9 @@ async def choose_suggested_price(update: Update, context: ContextTypes.DEFAULT_T
 
     price = item["wholesale_price"] if kind == "wholesale" else item["sell_price"]
     context.user_data["co_price"] = Decimal(price)
+    # Which list it came from, kept beside the amount. The server records it, so
+    # "how much do we sell wholesale" stops being a guess about low prices.
+    context.user_data["co_price_kind"] = kind
     await query.edit_message_reply_markup(reply_markup=None)
     return await _ask_method(query.message, context)
 
@@ -207,6 +224,10 @@ async def type_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ASK_PRICE
 
     context.user_data["co_price"] = price
+    # Typed by hand. The server downgrades this to the list price's own kind if
+    # the number turns out to match it exactly, so leaving a prefilled wholesale
+    # price alone is not filed as a haggle.
+    context.user_data["co_price_kind"] = "custom"
     return await _ask_method(update.effective_message, context)
 
 
@@ -243,11 +264,12 @@ async def choose_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             "item_id": item["id"],
             "name": item["name"],
             "quantity": context.user_data["co_qty"],
-            "unit_price": str(context.user_data["co_price"]),
+"unit_price": str(context.user_data["co_price"]),
+            "price_kind": context.user_data.get("co_price_kind", "retail"),
             "payment_method": method,
         }
     )
-    for key in ("co_item", "co_qty", "co_price", "co_candidates"):
+    for key in ("co_item", "co_qty", "co_price", "co_price_kind", "co_candidates"):
         context.user_data.pop(key, None)
 
     await query.edit_message_reply_markup(reply_markup=None)
@@ -304,6 +326,7 @@ async def submit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     "item_id": line["item_id"],
                     "quantity": line["quantity"],
                     "unit_price": line["unit_price"],
+                    "price_kind": line.get("price_kind", "retail"),
                     "payment_method": line["payment_method"],
                 }
                 for line in basket

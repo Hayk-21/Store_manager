@@ -137,7 +137,10 @@ CLOSEOUT_ASK_PRICE = (
     "Սեղմեք ներքևի կոճակը կամ գրեք գինը թվով (օրինակ՝ {suggested})։"
 )
 CLOSEOUT_BAD_PRICE = "Գրեք գինը թվով, օրինակ՝ 3500։"
-CLOSEOUT_ROW = "{index}. {name} ×{quantity} × {price} = <b>{total}</b> ({method})"
+CLOSEOUT_ROW = "{index}. {name} ×{quantity} × {price} = <b>{total}</b> ({method}{kind})"
+# Appended to a write-up row when the line did not go out at the shelf price.
+KIND_WHOLESALE = ", մեծածախ"
+KIND_CUSTOM = ", փոփոխված գին"
 CLOSEOUT_SUMMARY = (
     "🧾 <b>Ցուցակ</b>\n\n{rows}\n\n"
     "Կանխիկ՝ <b>{cash}</b>\nՔարտ՝ <b>{card}</b>\nԸնդամենը՝ <b>{total}</b>"
@@ -187,8 +190,10 @@ STORE_CLOSED = (
     "Կանխիկ՝ {cash} · Քարտ՝ {card}"
 )
 CONFIRM_CLOSE_STORE = (
-    "Փակե՞լ խանութը բոլորի համար։\n"
-    "Բոլոր բաց հերթափոխերն ավարտվելու են, աշխատավարձերը՝ հանվելու կանխիկից։"
+    "Փակե՞լ խանութը։\n\n"
+    "Ձեր հերթափոխը կավարտվի, աշխատավարձը կհանվի կանխիկից։\n\n"
+    "Եթե գործընկերները դեռ աշխատում են, խանութը չի փակվի՝ այն փակում է "
+    "վերջինը դուրս եկողը։"
 )
 BTN_CONFIRM_CLOSE = "Այո, փակել"
 

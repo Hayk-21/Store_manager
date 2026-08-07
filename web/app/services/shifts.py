@@ -29,6 +29,7 @@ from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
 from app.repo import stores as stores_repo
 from app.repo import tracking as tracking_repo
+from app.repo import workers as workers_repo
 from app.services import geofence
 from app.services.geofence import require_store
 
@@ -442,6 +443,8 @@ async def close_out_shift(
         remaining = await sessions_repo.open_shifts_in_session(
             conn, shift["store_session_id"]
         )
+        if close_store_too and remaining:
+            await _refuse_to_strand(conn, worker, remaining)
         store_closed = close_store_too or not remaining
         if store_closed:
             await _close_store_session(conn, shift["store_session_id"], "worker")
@@ -454,6 +457,37 @@ async def close_out_shift(
     return await _end_payload(row, duplicate=False, store_closed=store_closed)
 
 
+async def _refuse_to_strand(conn, worker: Worker, remaining: list) -> None:
+    """Stop one cashier from ending everybody else's shift.
+
+    Closing the store force-ends every shift still open in it. For the person
+    pressing the button that is what they asked for; for a colleague still
+    serving customers it means their shift ends without them ever being asked
+    what they sold, and that day's takings are simply never recorded. The
+    close-out *is* the sales record, so skipping it does not lose a formality —
+    it loses the money.
+
+    Whoever is last out closes the shop, which is the normal path and needs no
+    button. This only refuses closing it out from under somebody, and names them
+    so the worker knows who to go and ask.
+    """
+    others = [row for row in remaining if row["worker_id"] != worker.id]
+    if not others:
+        return
+
+    names = await conn.fetch(
+        f"SELECT {workers_repo.DISPLAY_NAME} AS name FROM workers w WHERE w.id = ANY($1::bigint[])",
+        [row["worker_id"] for row in others],
+    )
+    listed = "՝ " + ", ".join(row["name"] for row in names) if names else ""
+    raise BotError(
+        "others_on_shift",
+        f"Խանութը փակել չի կարելի՝ ևս {len(others)} աշխատող հերթափոխի մեջ է{listed}։ "
+        f"Ավարտեք ձեր հերթափոխը, իսկ խանութը կփակի վերջինը դուրս եկողը։",
+        details={"remaining": len(others)},
+    )
+
+
 async def close_store(worker: Worker, idempotency_key: str) -> dict:
     """Close the whole store for everyone, from the bot."""
     replay = await sessions_repo.by_end_idem(worker.owner_id, idempotency_key)
@@ -464,6 +498,12 @@ async def close_store(worker: Worker, idempotency_key: str) -> dict:
         shift = await sessions_repo.lock_open_for_worker(conn, worker.id)
         if shift is None:
             raise BotError("no_open_session")
+
+        await _refuse_to_strand(
+            conn,
+            worker,
+            await sessions_repo.open_shifts_in_session(conn, shift["store_session_id"]),
+        )
 
         await _pay_and_close_shift(
             conn,

@@ -197,14 +197,32 @@ async def test_the_store_stays_open_while_somebody_is_still_working(client):
     assert await db.fetchval("SELECT count(*) FROM store_sessions WHERE closed_at IS NULL") == 1
 
 
-async def test_closing_the_store_ends_everyone_and_pays_every_salary(client):
+async def test_a_worker_cannot_close_the_store_on_a_colleague(client):
+    """Closing force-ends every shift in the session, and a shift that ends
+    without its close-out never records what that person sold. So it is refused
+    while anybody else is still working; the last one out closes the shop."""
     owner_id, store_id, first, _ = await _setup(salary="8000.00")
     second_id, _ = await make_worker(owner_id, salary_amount="6000.00")
     second = await _worker_of(owner_id, second_id, "6000.00")
     await shifts_service.open_store(first, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa", 900)
     await shifts_service.open_store(second, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-bbbb", 900)
 
-    await shifts_service.close_store(first, "idem-key-close-1")
+    with pytest.raises(BotError) as caught:
+        await shifts_service.close_store(first, "idem-key-close-1")
+
+    assert caught.value.code == "others_on_shift"
+    assert await db.fetchval("SELECT count(*) FROM work_sessions WHERE ended_at IS NULL") == 2
+
+
+async def test_the_last_one_out_closes_the_store_and_every_salary_is_paid(client):
+    owner_id, store_id, first, _ = await _setup(salary="8000.00")
+    second_id, _ = await make_worker(owner_id, salary_amount="6000.00")
+    second = await _worker_of(owner_id, second_id, "6000.00")
+    await shifts_service.open_store(first, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa", 900)
+    await shifts_service.open_store(second, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-bbbb", 900)
+
+    await shifts_service.end_shift(first, None, None, "idem-key-end-1")
+    await shifts_service.close_store(second, "idem-key-close-1")
 
     assert await db.fetchval("SELECT count(*) FROM work_sessions WHERE ended_at IS NULL") == 0
     paid = await db.fetchval("SELECT -sum(amount) FROM cash_movements WHERE kind = 'salary'")

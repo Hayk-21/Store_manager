@@ -1,4 +1,4 @@
-"""Fixing the books after the fact, and undoing the fixes.
+﻿"""Fixing the books after the fact, and undoing the fixes.
 
 The rule everything here follows: **a completed sale is never edited in place.**
 
@@ -27,6 +27,7 @@ from decimal import Decimal
 
 from app.db import db
 from app.errors import AppError
+from app.pricing import resolve_price
 from app.repo import audit as audit_repo
 from app.repo import money as money_repo
 from app.repo import sales as sales_repo
@@ -102,7 +103,13 @@ async def _restore_stock(conn, sale_id: int) -> list:
 
 
 async def _take_stock(conn, owner_id: int, store_id: int, lines: list[dict]) -> list[dict]:
-    """Apply a basket, refusing rather than letting a count go negative."""
+    """Apply a basket, refusing rather than letting a count go negative.
+
+    A line may name a ``price_kind`` instead of a price: 'wholesale' takes the
+    item's wholesale price, 'retail' its shelf price. Resolving it here rather
+    than in the route means the owner's form and the cashier's bot cannot end up
+    charging different amounts for the same choice of words.
+    """
     applied = []
     for line in sorted(lines, key=lambda entry: entry["item_id"]):
         row = await conn.fetchrow(
@@ -110,7 +117,7 @@ async def _take_stock(conn, owner_id: int, store_id: int, lines: list[dict]) -> 
             UPDATE items SET count = count - $4, updated_at = now()
              WHERE id = $1 AND owner_id = $2 AND store_id = $3
                AND is_active AND count >= $4
-            RETURNING name, sell_price, self_price
+            RETURNING name, sell_price, wholesale_price, self_price
             """,
             line["item_id"], owner_id, store_id, line["quantity"],
         )
@@ -125,18 +132,17 @@ async def _take_stock(conn, owner_id: int, store_id: int, lines: list[dict]) -> 
                 "validation_error",
                 f"«{item['name']}» — պահեստում կա ընդամենը {item['count']} հատ։",
             )
-        unit_price = (
-            Decimal(line["unit_price"]) if line.get("unit_price") is not None
-            else Decimal(row["sell_price"])
-        )
+        unit_price, kind = resolve_price(row, line.get("unit_price"), line.get("price_kind"))
         applied.append({
             "item_id": line["item_id"],
             "quantity": line["quantity"],
             "unit_price": unit_price,
             "unit_cost": Decimal(row["self_price"]),
             "line_total": (unit_price * line["quantity"]).quantize(CENT),
+            "price_kind": kind,
         })
     return applied
+
 
 
 async def _retake_stock_for(conn, owner_id: int, sale_id: int, store_id: int) -> None:

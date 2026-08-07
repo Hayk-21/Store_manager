@@ -353,11 +353,34 @@ async def test_a_replayed_end_returns_the_same_summary(client, bot_headers):
     assert first["summary"]["salary_deducted"] == second["summary"]["salary_deducted"]
 
 
-async def test_closing_the_store_ends_it_for_everyone(client, bot_headers):
+async def test_closing_the_store_is_refused_while_a_colleague_is_on_shift(client, bot_headers):
+    """Their shift would end without them declaring what they sold."""
     owner_id, _, _, first_tg, _ = await _world(salary="8000.00")
     _, second_tg = await make_worker(owner_id, "Բ", salary_amount="6000.00")
     await _open(client, bot_headers, first_tg, "idem-key-open-aa")
     await _open(client, bot_headers, second_tg, "idem-key-open-bb")
+
+    response = await client.post(
+        f"{BASE}/store/close",
+        json={"telegram_id": first_tg, "idempotency_key": "idem-key-close-1"},
+        headers=bot_headers,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "others_on_shift"
+    assert await db.fetchval("SELECT count(*) FROM work_sessions WHERE ended_at IS NULL") == 2
+
+
+async def test_the_last_one_out_closes_the_store_for_everyone(client, bot_headers):
+    owner_id, _, _, first_tg, _ = await _world(salary="8000.00")
+    _, second_tg = await make_worker(owner_id, "Բ", salary_amount="6000.00")
+    await _open(client, bot_headers, first_tg, "idem-key-open-aa")
+    await _open(client, bot_headers, second_tg, "idem-key-open-bb")
+    await client.post(
+        f"{BASE}/shift/end",
+        json={"telegram_id": second_tg, "idempotency_key": "idem-key-end-bb"},
+        headers=bot_headers,
+    )
 
     response = await client.post(
         f"{BASE}/store/close",

@@ -48,7 +48,18 @@ async def summary(
                coalesce(sum(si.line_total) FILTER (WHERE sa.payment_method = 'cash'), 0)
                    AS cash,
                coalesce(sum(si.line_total) FILTER (WHERE sa.payment_method = 'card'), 0)
-                   AS card
+                   AS card,
+               -- Split by which price list the line came from. 'custom' is a
+               -- haggle or a discount and belongs with neither, so it is its own
+               -- figure rather than being folded into retail.
+               coalesce(sum(si.line_total) FILTER (WHERE si.price_kind = 'wholesale'), 0)
+                   AS wholesale,
+               coalesce(sum(si.line_total) FILTER (WHERE si.price_kind = 'retail'), 0)
+                   AS retail,
+               coalesce(sum(si.line_total) FILTER (WHERE si.price_kind = 'custom'), 0)
+                   AS custom_priced,
+               coalesce(sum(si.quantity) FILTER (WHERE si.price_kind = 'wholesale'), 0)
+                   AS wholesale_units
           FROM sale_items si
           JOIN sales sa ON sa.id = si.sale_id
         {_WHERE}

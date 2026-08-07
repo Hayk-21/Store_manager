@@ -208,7 +208,11 @@ async def test_the_last_worker_out_closes_the_store(client, bot_headers):
     assert await db.fetchval("SELECT count(*) FROM store_sessions WHERE closed_at IS NULL") == 0
 
 
-async def test_asking_to_close_the_store_closes_it_for_everyone(client, bot_headers):
+async def test_asking_to_close_the_store_is_refused_while_a_colleague_works(
+    client, bot_headers
+):
+    """Their close-out is the only record of what they sold, so ending their
+    shift for them would throw that day's takings away."""
     owner_id, store_id, tg, item_id, _ = await _on_shift()
     _, second_tg = await make_worker(owner_id, "Բ", salary_amount="6000.00")
     await _open(client, bot_headers, tg)
@@ -216,6 +220,34 @@ async def test_asking_to_close_the_store_closes_it_for_everyone(client, bot_head
         f"{BASE}/store/open",
         json={"telegram_id": second_tg, "lat": YEREVAN_LAT, "lng": YEREVAN_LNG,
               "accuracy_m": 20, "idempotency_key": "idem-key-open-02", "live_period": 900},
+        headers=bot_headers,
+    )
+
+    response = await _close_out(
+        client, bot_headers, tg,
+        [{"item_id": item_id, "quantity": 1, "payment_method": "cash"}],
+        close_store=True,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "others_on_shift"
+    assert await db.fetchval("SELECT count(*) FROM work_sessions WHERE ended_at IS NULL") == 2
+    assert await db.fetchval("SELECT count(*) FROM sales") == 0, "nothing was recorded either"
+
+
+async def test_the_last_one_out_closing_the_store_pays_everybody(client, bot_headers):
+    owner_id, store_id, tg, item_id, _ = await _on_shift()
+    _, second_tg = await make_worker(owner_id, "Բ", salary_amount="6000.00")
+    await _open(client, bot_headers, tg)
+    await client.post(
+        f"{BASE}/store/open",
+        json={"telegram_id": second_tg, "lat": YEREVAN_LAT, "lng": YEREVAN_LNG,
+              "accuracy_m": 20, "idempotency_key": "idem-key-open-02", "live_period": 900},
+        headers=bot_headers,
+    )
+    await client.post(
+        f"{BASE}/shift/end",
+        json={"telegram_id": second_tg, "idempotency_key": "idem-key-end-02"},
         headers=bot_headers,
     )
 

@@ -109,7 +109,12 @@ def closeout_menu(empty: bool) -> ReplyKeyboardMarkup:
 
 
 def closeout_confirm() -> InlineKeyboardMarkup:
-    """Ending your own shift and shutting the shop are different decisions."""
+    """Ending your own shift and shutting the shop are different decisions.
+
+    Both are offered because the last person out wants one tap, not two. The
+    server refuses the second when colleagues are still on shift, so the button
+    cannot end somebody else''s day before they have written up their sales.
+    """
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(texts.BTN_CO_SUBMIT, callback_data=f"{CB_SUBMIT}:shift")],
