@@ -139,7 +139,7 @@ async def test_opening_out_of_range_says_how_far(client, bot_headers):
 
     response = await client.post(
         f"{BASE}/store/open",
-        json={"telegram_id": telegram_id, "lat": FAR_LAT, "lng": YEREVAN_LNG,
+        json={"telegram_id": telegram_id, "lat": FAR_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20,
               "idempotency_key": "idem-key-open-01"},
         headers=bot_headers,
     )
@@ -158,7 +158,7 @@ async def test_the_bot_cannot_name_its_own_store(client, bot_headers):
     response = await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": telegram_id, "lat": YEREVAN_LAT, "lng": YEREVAN_LNG,
-              "store_id": store_id, "idempotency_key": "idem-key-open-01"},
+              "accuracy_m": 20, "store_id": store_id, "idempotency_key": "idem-key-open-01"},
         headers=bot_headers,
     )
 
@@ -172,7 +172,7 @@ async def test_a_short_idempotency_key_is_refused(client, bot_headers):
     response = await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": telegram_id, "lat": YEREVAN_LAT, "lng": YEREVAN_LNG,
-              "idempotency_key": "short"},
+              "accuracy_m": 20, "idempotency_key": "short"},
         headers=bot_headers,
     )
 

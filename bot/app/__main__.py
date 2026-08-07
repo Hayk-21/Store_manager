@@ -1,4 +1,4 @@
-"""Entrypoint: build the application, register handlers, poll.
+﻿"""Entrypoint: build the application, register handlers, poll.
 
 Long polling rather than a webhook, because it needs no public URL and no TLS
 plumbing. It does mean **exactly one replica**: two processes calling getUpdates
@@ -102,6 +102,7 @@ def build() -> Application:
             MessageHandler(_exact(texts.BTN_SELL), sell.restart),
             MessageHandler(_exact(texts.BTN_UNDO), sell.escape(sell.undo)),
             MessageHandler(_exact(texts.BTN_STATUS), sell.escape(shift.status)),
+            MessageHandler(_exact(texts.BTN_STOCK), sell.escape(sell.stock)),
             MessageHandler(_exact(texts.BTN_END_SHIFT), sell.escape(shift.end_shift)),
             MessageHandler(
                 _exact(texts.BTN_CLOSE_STORE), sell.escape(shift.confirm_close_store)
@@ -127,6 +128,7 @@ def build() -> Application:
     application.add_handler(
         MessageHandler(_exact(texts.BTN_SEND_LOCATION), common.location_from_desktop)
     )
+    application.add_handler(MessageHandler(_exact(texts.BTN_STOCK), sell.stock))
     application.add_handler(MessageHandler(_exact(texts.BTN_STATUS), shift.status))
     application.add_handler(MessageHandler(_exact(texts.BTN_UNDO), sell.undo))
     application.add_handler(MessageHandler(_exact(texts.BTN_END_SHIFT), shift.end_shift))

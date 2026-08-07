@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
 from telegram import ReplyKeyboardRemove, Update
 from telegram.constants import ParseMode
@@ -12,6 +13,10 @@ from app import format, keyboards, texts
 from app.api import ApiError, ApiUnavailable, api, new_idempotency_key
 
 log = logging.getLogger("storemanager.bot.shift")
+
+# A location older than this is being replayed rather than shared now. Generous
+# enough for a slow connection, short enough that yesterday's pin is useless.
+MAX_LOCATION_AGE_S = 120
 
 
 async def _reply_error(update: Update, exc: Exception) -> None:
@@ -75,10 +80,56 @@ async def ask_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
+def _reject_faked_location(message) -> str | None:
+    """Why this location should not be trusted, or None if it looks genuine.
+
+    Telegram lets somebody attach *any* point on the map, so "a location
+    arrived" is not the same as "this person is standing there". Three signals
+    separate a device reading from a hand-placed pin:
+
+    * ``horizontal_accuracy`` is only ever filled in by a real GPS fix. A pin
+      dropped on the map has none, which is the loophole being closed here.
+    * a forwarded location is someone else's, whenever and wherever they were.
+    * a message far older than now is a location from earlier being replayed.
+
+    None of this stops a mock-location app on a rooted phone. It stops the
+    thirty-second version anyone can do from the attachment menu.
+    """
+    location = message.location
+
+    if getattr(message, "forward_origin", None) or getattr(message, "forward_date", None):
+        return texts.LOCATION_FORWARDED
+
+    if location.horizontal_accuracy is None:
+        return texts.LOCATION_NOT_LIVE
+
+    age = (datetime.now(UTC) - message.date).total_seconds()
+    if age > MAX_LOCATION_AGE_S:
+        return texts.LOCATION_STALE
+
+    return None
+
+
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Requirement 8. The bot forwards the raw coordinate and nothing else."""
-    location = update.effective_message.location
+    message = update.effective_message
+    location = message.location
     user = update.effective_user
+
+    complaint = _reject_faked_location(message)
+    if complaint is not None:
+        log.warning(
+            "refused a location from %s: %s (accuracy=%s, live=%s, forwarded=%s)",
+            user.id, complaint[:40], location.horizontal_accuracy,
+            location.live_period, bool(getattr(message, "forward_origin", None)),
+        )
+        await message.reply_text(
+            complaint.format(button=texts.BTN_SEND_LOCATION),
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboards.request_location(),
+        )
+        return
+
     key = context.user_data.get("open_key") or new_idempotency_key()
     context.user_data["open_key"] = key
 

@@ -1,4 +1,4 @@
-"""Narrow screens.
+﻿"""Narrow screens.
 
 Below 900px each wide table becomes a list of cards and the column heading moves
 beside the value, taken from the cell's ``data-label``. A cell that forgets one

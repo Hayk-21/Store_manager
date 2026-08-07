@@ -1,4 +1,4 @@
-"""Keyboards.
+﻿"""Keyboards.
 
 Two kinds: the persistent reply keyboard at the bottom of the chat, which
 changes depending on whether a shift is open, and inline keyboards for picking
@@ -40,7 +40,7 @@ def on_shift() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(texts.BTN_SELL), KeyboardButton(texts.BTN_UNDO)],
-            [KeyboardButton(texts.BTN_STATUS)],
+            [KeyboardButton(texts.BTN_STOCK), KeyboardButton(texts.BTN_STATUS)],
             [KeyboardButton(texts.BTN_END_SHIFT), KeyboardButton(texts.BTN_CLOSE_STORE)],
         ],
         resize_keyboard=True,

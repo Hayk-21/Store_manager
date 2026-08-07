@@ -45,6 +45,10 @@ class CheckinRequest(LocationRequest):
 
 class OpenStoreRequest(LocationRequest):
     idempotency_key: str = Field(min_length=8, max_length=128)
+    # Required, unlike on /checkin. Telegram only fills accuracy in for a real
+    # GPS fix, so its absence means the point was placed by hand on the map --
+    # and a shift may not be opened on one of those.
+    accuracy_m: float = Field(ge=0)
 
 
 class EndShiftRequest(IdempotentRequest):
