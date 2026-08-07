@@ -1,4 +1,4 @@
-"""Stores, and the geofence candidate query."""
+﻿"""Stores, and the geofence candidate query."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from app.db import db
 async def list_for_owner(owner_id: int) -> list[asyncpg.Record]:
     return await db.fetch(
         """
-        SELECT id, name, address, lat, lng, radius_m
+        SELECT id, name, address, lat, lng, radius_m, day_start_hour
           FROM stores
          WHERE owner_id = $1 AND is_active
          ORDER BY lower(name)
@@ -24,7 +24,7 @@ async def get(owner_id: int, store_id: int) -> asyncpg.Record | None:
     missing, so the caller renders 404 rather than 403."""
     return await db.fetchrow(
         """
-        SELECT id, name, address, lat, lng, radius_m, is_active, created_at
+        SELECT id, name, address, lat, lng, radius_m, day_start_hour, is_active, created_at
           FROM stores
          WHERE id = $1 AND owner_id = $2 AND is_active
         """,
@@ -40,11 +40,12 @@ async def create(
     lat: float | None,
     lng: float | None,
     radius_m: int,
+    day_start_hour: int,
 ) -> int:
     return await db.fetchval(
         """
-        INSERT INTO stores (owner_id, name, address, lat, lng, radius_m)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO stores (owner_id, name, address, lat, lng, radius_m, day_start_hour)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id
         """,
         owner_id,
@@ -53,6 +54,7 @@ async def create(
         lat,
         lng,
         radius_m,
+        day_start_hour,
     )
 
 
@@ -64,11 +66,13 @@ async def update(
     lat: float | None,
     lng: float | None,
     radius_m: int,
+    day_start_hour: int,
 ) -> bool:
     result = await db.execute(
         """
         UPDATE stores
-           SET name = $3, address = $4, lat = $5, lng = $6, radius_m = $7, updated_at = now()
+           SET name = $3, address = $4, lat = $5, lng = $6, radius_m = $7,
+               day_start_hour = $8, updated_at = now()
          WHERE id = $1 AND owner_id = $2 AND is_active
         """,
         store_id,
@@ -78,6 +82,7 @@ async def update(
         lat,
         lng,
         radius_m,
+        day_start_hour,
     )
     return result.endswith(" 1")
 

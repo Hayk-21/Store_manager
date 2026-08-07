@@ -1,4 +1,4 @@
-"""Configuration, read once from the environment at import time.
+﻿"""Configuration, read once from the environment at import time.
 
 Two things in here are load-bearing and worth reading before anything else:
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
@@ -41,14 +41,19 @@ def _flag(name: str, default: bool = False) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
-def _int(name: str, default: int) -> int:
+def _int(
+    name: str, default: int, *, minimum: int | None = None, maximum: int | None = None
+) -> int:
     raw = os.getenv(name, "").strip()
     if not raw:
         return default
     try:
-        return int(raw)
+        value = int(raw)
     except ValueError as exc:
         raise ConfigError(f"{name}={raw!r} is not an integer") from exc
+    if (minimum is not None and value < minimum) or (maximum is not None and value > maximum):
+        raise ConfigError(f"{name}={value} is outside {minimum}..{maximum}")
+    return value
 
 
 @dataclass(frozen=True)
@@ -130,6 +135,11 @@ class Settings:
     login_window_minutes: int
     auto_close_hours: int
     max_accuracy_m: int
+    # The hour a new store's trading day rolls over, until the owner changes it
+    # on that store. Each store carries its own; this is only the starting
+    # point, because a shop open until 2am and one that shuts at 8pm do not
+    # share a morning.
+    default_day_start_hour: int
 
     @property
     def cookie_secure(self) -> bool:
@@ -150,6 +160,29 @@ class Settings:
         if moment.tzinfo is None:
             moment = moment.replace(tzinfo=self.timezone)
         return moment.astimezone(self.timezone).date()
+
+    def trading_day_start(
+        self, hour: int | None = None, moment: datetime | None = None
+    ) -> datetime:
+        """When the current trading day began, for a store whose day starts at
+        ``hour``.
+
+        Before that hour the day still running is yesterday's, which is what
+        keeps a late night attached to the evening it belongs to. This is the
+        whole of the "takings start again each morning" behaviour: a boundary
+        queries compare against, so there is nothing scheduled at 06:00 and
+        therefore nothing that can fail to run.
+        """
+        local = (moment or self.now()).astimezone(self.timezone)
+        start = local.replace(
+            hour=self.default_day_start_hour if hour is None else hour,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        if local < start:
+            start -= timedelta(days=1)
+        return start
 
 
 def _load() -> Settings:
@@ -188,6 +221,7 @@ def _load() -> Settings:
         # Telegram reports GPS accuracy; a reading vaguer than this cannot tell
         # two neighbouring stores apart, so it is refused rather than guessed at.
         max_accuracy_m=_int("MAX_ACCURACY_M", 100),
+        default_day_start_hour=_int("DAY_START_HOUR", 6, minimum=0, maximum=23),
     )
 
 

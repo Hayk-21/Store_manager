@@ -571,3 +571,8 @@ form.inline { display: inline; margin: 0; }
   .bar-cell { display: none; }
   .chart { height: 160px; }
 }
+
+/* The till figure sits under the day's takings and reads as secondary to it:
+   one is what the shop sold, the other is what is in the drawer right now. */
+.chip .chip-row.chip-till { border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 4px; }
+.chip .chip-row.chip-till span:first-child { color: var(--muted); }

@@ -11,7 +11,30 @@
     {% endif %}
   </div>
 
+  {# Today's takings first, because they are the figure that means the same
+     thing all day: the till empties when a worker closes up, this does not. #}
+  <div class="totals">
+    <div class="total">
+      <span class="total-label">Այսօր կանխիկ</span>
+      <span class="total-value {% if day.day_cash < 0 %}negative{% endif %}">{{ day.day_cash | money }}</span>
+    </div>
+    <div class="total">
+      <span class="total-label">Այսօր քարտ</span>
+      <span class="total-value {% if day.day_card < 0 %}negative{% endif %}">{{ day.day_card | money }}</span>
+    </div>
+    <div class="total">
+      <span class="total-label">Այսօր ընդամենը</span>
+      <span class="total-value {% if day.day_total < 0 %}negative{% endif %}">{{ day.day_total | money }}</span>
+    </div>
+  </div>
+  <p class="muted small">
+    {{ day.day_receipts }} վաճառք · {{ day.day_sessions }} հերթափոխ ·
+    օրը սկսվել է {{ day.day_start | stamp }}-ին։
+    Հաշվարկը զրոյանում է հաջորդ օրվա սկզբին։
+  </p>
+
   {% if store_session %}
+    <h3>Դրամարկղում հիմա</h3>
     <div class="totals">
       <div class="total">
         <span class="total-label">Կանխիկ</span>
@@ -90,8 +113,8 @@
     </div>
   {% else %}
     <p class="muted">
-      Հերթափոխը բաց չէ։ Երբ աշխատողը բոտում սեղմի «Բացել խանութը», այստեղ կերևան
-      կանխիկը, քարտը և աշխատողները։
+      Հերթափոխը բաց չէ, բայց այսօրվա վաճառքը վերևում մնում է մինչև օրվա վերջ։
+      Երբ աշխատողը բոտում սեղմի «Բացել խանութը», այստեղ կերևա նաև դրամարկղը։
     </p>
   {% endif %}
 </div>

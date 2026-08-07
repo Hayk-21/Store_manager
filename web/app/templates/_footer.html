@@ -1,5 +1,9 @@
-{# Requirement 4. One chip per store; a store with no open session shows "Փակ"
-   rather than a stale number, because its till was settled at close. #}
+{# Requirement 4. One chip per store.
+
+   Two figures, and they answer different questions. "Այսօր" is what the shop
+   has sold since its own day started, and stays there after a worker closes up
+   — the money was still taken. "Դրամարկղ" is what is in the till of the open
+   session, which closing settles, so it only appears while the store is open. #}
 <div class="footer-inner">
   {% if not stores %}
     <span class="muted">Խանութներ դեռ չկան։</span>
@@ -14,20 +18,26 @@
           <span class="badge">փակ</span>
         {% endif %}
       </div>
+      <div class="chip-row">
+        <span>Այսօր կանխիկ</span>
+        <span class="{% if s.day_cash < 0 %}negative{% endif %}">{{ s.day_cash | money }}</span>
+      </div>
+      <div class="chip-row">
+        <span>Այսօր քարտ</span>
+        <span class="{% if s.day_card < 0 %}negative{% endif %}">{{ s.day_card | money }}</span>
+      </div>
       {% if s.store_session_id %}
-        <div class="chip-row">
-          <span>Կանխիկ</span>
+        <div class="chip-row chip-till">
+          <span>Դրամարկղ</span>
           <span class="{% if s.cash < 0 %}negative{% endif %}">{{ s.cash | money }}</span>
-        </div>
-        <div class="chip-row">
-          <span>Քարտ</span>
-          <span class="{% if s.card < 0 %}negative{% endif %}">{{ s.card | money }}</span>
         </div>
         <div class="chip-meta">
           {{ s.on_shift }} հերթափոխի մեջ · {{ s.opened_at | clock }}-ից
         </div>
       {% else %}
-        <div class="chip-meta">Հերթափոխը բաց չէ</div>
+        <div class="chip-meta">
+          Փակ · օրը՝ {{ '%02d:00' % s.day_start_hour }}-ից
+        </div>
       {% endif %}
     </a>
   {% endfor %}

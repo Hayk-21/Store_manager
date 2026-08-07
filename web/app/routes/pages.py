@@ -66,6 +66,9 @@ async def _status_context(owner_id: int, store_id: int) -> dict:
         "store_session": session,
         "totals": totals,
         "on_shift": await sessions_repo.workers_on_shift(store_id) if session else [],
+        # Shown whether or not the store is open: closing settles the till, but
+        # the shop still sold what it sold this morning.
+        "day": await money_repo.day_totals_for_store(owner_id, store_id),
     }
 
 
@@ -88,6 +91,7 @@ async def create_store(
     lat: str = Form(""),
     lng: str = Form(""),
     radius_m: str = Form(""),
+    day_start_hour: str = Form(""),
     user: CurrentUser = Depends(require_csrf),
 ):
     latitude, longitude = forms.coordinate_pair(lat, lng)
@@ -98,6 +102,10 @@ async def create_store(
         lat=latitude,
         lng=longitude,
         radius_m=forms.whole(radius_m, "Շառավիղ", default=120, minimum=50, maximum=5000),
+        day_start_hour=forms.whole(
+            day_start_hour, "Օրվա սկիզբ",
+            default=settings.default_day_start_hour, minimum=0, maximum=23,
+        ),
     )
     log.info("store %s created by user %s", store_id, user.id)
     return RedirectResponse(f"/stores/{store_id}", status_code=303)
@@ -134,6 +142,7 @@ async def edit_store(
     lat: str = Form(""),
     lng: str = Form(""),
     radius_m: str = Form(""),
+    day_start_hour: str = Form(""),
     user: CurrentUser = Depends(require_csrf),
 ):
     await _store_or_404(user.id, store_id)
@@ -146,6 +155,10 @@ async def edit_store(
         lat=latitude,
         lng=longitude,
         radius_m=forms.whole(radius_m, "Շառավիղ", default=120, minimum=50, maximum=5000),
+        day_start_hour=forms.whole(
+            day_start_hour, "Օրվա սկիզբ",
+            default=settings.default_day_start_hour, minimum=0, maximum=23,
+        ),
     )
     return RedirectResponse(f"/stores/{store_id}", status_code=303)
 

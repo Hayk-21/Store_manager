@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}{{ store.name }} · Store Manager{% endblock %}
 
 {% block head %}
@@ -60,7 +60,7 @@
      hx-target="#store-status"
      hx-swap="outerHTML">
   {% with store_id = status.store_id, store_session = status.store_session,
-          totals = status.totals, on_shift = status.on_shift %}
+          totals = status.totals, on_shift = status.on_shift, day = status.day %}
     {% include "_store_status.html" %}
   {% endwith %}
 </div>
@@ -107,6 +107,15 @@
         <label for="s-radius">Շառավիղ (մ)</label>
         <input id="s-radius" name="radius_m" inputmode="numeric" value="{{ store.radius_m }}">
       </div>
+      <div class="narrow">
+        <label for="s-day-start">Օրվա սկիզբ</label>
+        <select id="s-day-start" name="day_start_hour">
+          {% for h in range(24) %}
+            <option value="{{ h }}" {% if h == store.day_start_hour %}selected{% endif %}>
+              {{ '%02d:00' % h }}</option>
+          {% endfor %}
+        </select>
+      </div>
       <div class="actions">
         <button type="submit">Պահել</button>
       </div>
@@ -114,6 +123,11 @@
     <p class="muted small">
       Աշխատողը կցվում է այս խանութին, եթե բոտում «Բացել» սեղմելիս գտնվում է
       կապույտ շրջանի ներսում։ Կանգնեք խանութի մուտքի մոտ և սեղմեք «Իմ տեղը»։
+    </p>
+    <p class="muted small">
+      «Օրվա սկիզբ»-ը որոշում է, թե երբ է զրոյանում «Այսօր»-ի հաշվարկը։ Եթե
+      խանութն աշխատում է մինչև գիշերվա 2-ը, 06:00-ը ճիշտ ընտրություն է․ գիշերվա
+      վաճառքը մնում է նույն օրվա հետ։ Յուրաքանչյուր խանութ ունի իր ժամը։
     </p>
   </form>
 

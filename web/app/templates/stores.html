@@ -25,14 +25,20 @@
         <span class="badge">փակ</span>
       {% endif %}
     </div>
+    {# Today's takings stay put after the store closes — the shop still sold
+       what it sold. The till, which closing settles, is shown only while open. #}
+    <div class="chip-row"><span>Այսօր կանխիկ</span>
+      <span class="{% if s.day_cash < 0 %}negative{% endif %}">{{ s.day_cash | money }}</span></div>
+    <div class="chip-row"><span>Այսօր քարտ</span>
+      <span class="{% if s.day_card < 0 %}negative{% endif %}">{{ s.day_card | money }}</span></div>
     {% if s.store_session_id %}
-      <div class="chip-row"><span>Կանխիկ</span>
+      <div class="chip-row chip-till"><span>Դրամարկղում</span>
         <span class="{% if s.cash < 0 %}negative{% endif %}">{{ s.cash | money }}</span></div>
-      <div class="chip-row"><span>Քարտ</span>
-        <span class="{% if s.card < 0 %}negative{% endif %}">{{ s.card | money }}</span></div>
       <div class="chip-meta">{{ s.on_shift }} աշխատող · բացվել է {{ s.opened_at | clock }}</div>
     {% else %}
-      <div class="chip-meta">Հերթափոխը բաց չէ</div>
+      <div class="chip-meta">
+        {{ s.day_receipts }} վաճառք այսօր · օրը սկսվում է {{ '%02d:00' % s.day_start_hour }}-ին
+      </div>
     {% endif %}
   </a>
   {% endfor %}
@@ -75,6 +81,14 @@
       <div class="narrow">
         <label for="radius_m">Շառավիղ (մ)</label>
         <input id="radius_m" name="radius_m" inputmode="numeric" value="120">
+      </div>
+      <div class="narrow">
+        <label for="day_start_hour">Օրվա սկիզբ</label>
+        <select id="day_start_hour" name="day_start_hour">
+          {% for h in range(24) %}
+            <option value="{{ h }}" {% if h == 6 %}selected{% endif %}>{{ '%02d:00' % h }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div class="actions">
         <button type="submit">Ավելացնել</button>

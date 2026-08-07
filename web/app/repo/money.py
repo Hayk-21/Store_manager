@@ -1,8 +1,13 @@
 ﻿"""The ledger.
 
-Every money figure in the UI is a SUM over ``cash_movements`` filtered to one
-store session. There is no running-balance column: that is what makes "closing
-the store resets the till" fall out with nothing running at midnight.
+Every money figure in the UI is a SUM over ``cash_movements``. There is no
+running-balance column, which is what lets the same rows answer two different
+questions without either one needing a job to run:
+
+* filtered to the *open store session* — what is in the till right now, so
+  closing the store settles it and the next opening starts at zero;
+* filtered to *this store's trading day* — what the shop sold today, which
+  outlives a close and starts again at the store's own boundary hour.
 """
 
 from __future__ import annotations
@@ -11,33 +16,103 @@ from decimal import Decimal
 
 import asyncpg
 
+from app.config import settings
 from app.db import db
 from app.repo.workers import DISPLAY_NAME
+
+
+def _day_start(tz_param: str) -> str:
+    """SQL for the moment store ``s``'s trading day began, as a local timestamp.
+
+    Subtracting the boundary hour before truncating and adding it back is what
+    makes "before 06:00 still belongs to yesterday" fall out arithmetically
+    rather than needing a branch. ``tz_param`` is the placeholder holding the
+    display timezone in the calling query.
+    """
+    return (
+        f"date_trunc('day', (now() AT TIME ZONE {tz_param})"
+        " - make_interval(hours => s.day_start_hour))"
+        " + make_interval(hours => s.day_start_hour)"
+    )
 
 
 async def totals_by_store(owner_id: int) -> list[asyncpg.Record]:
     """One row per active store — backs the fixed footer and the store list.
 
-    ``store_session_id IS NULL`` means the store is closed, and the totals are
-    zero because there is no open session for a movement to belong to.
+    Two different figures, and the difference matters:
+
+    * ``cash`` / ``card`` — what is in the till of the *open session*. Closing
+      settles the till, so these are zero when the store is closed.
+    * ``day_cash`` / ``day_card`` — what the store has *sold today*, across every
+      session of the trading day. These survive a close, because the shop still
+      took that money this morning, and start again at the store's own boundary
+      hour.
     """
     return await db.fetch(
-        """
-        SELECT s.id, s.name,
+        f"""
+        SELECT s.id, s.name, s.day_start_hour,
                ss.id        AS store_session_id,
                ss.opened_at AS opened_at,
                coalesce(sum(m.amount) FILTER (WHERE m.method = 'cash'), 0) AS cash,
                coalesce(sum(m.amount) FILTER (WHERE m.method = 'card'), 0) AS card,
                (SELECT count(*) FROM work_sessions ws
-                 WHERE ws.store_session_id = ss.id AND ws.ended_at IS NULL) AS on_shift
+                 WHERE ws.store_session_id = ss.id AND ws.ended_at IS NULL) AS on_shift,
+               d.day_start,
+               d.day_cash, d.day_card, d.day_total, d.day_receipts
           FROM stores s
           LEFT JOIN store_sessions ss ON ss.store_id = s.id AND ss.closed_at IS NULL
           LEFT JOIN cash_movements m  ON m.store_session_id = ss.id
+          CROSS JOIN LATERAL (
+              SELECT dd.day_start,
+                     coalesce(sum(dm.amount) FILTER (WHERE dm.method = 'cash'), 0) AS day_cash,
+                     coalesce(sum(dm.amount) FILTER (WHERE dm.method = 'card'), 0) AS day_card,
+                     coalesce(sum(dm.amount), 0)                                   AS day_total,
+                     count(DISTINCT dm.sale_id) FILTER (WHERE dm.kind = 'sale')     AS day_receipts
+                FROM (SELECT {_day_start("$2")} AS day_start) dd
+                LEFT JOIN cash_movements dm
+                       ON dm.store_id = s.id
+                      AND dm.kind IN ('sale', 'void')
+                      AND (dm.created_at AT TIME ZONE $2) >= dd.day_start
+               GROUP BY dd.day_start
+          ) d
          WHERE s.owner_id = $1 AND s.is_active
-         GROUP BY s.id, s.name, ss.id, ss.opened_at
+         GROUP BY s.id, s.name, s.day_start_hour, ss.id, ss.opened_at,
+                  d.day_start, d.day_cash, d.day_card, d.day_total, d.day_receipts
          ORDER BY lower(s.name)
         """,
         owner_id,
+        settings.tzname,
+    )
+
+
+async def day_totals_for_store(owner_id: int, store_id: int) -> asyncpg.Record | None:
+    """Today's takings for one store, whether or not it is open now.
+
+    Sales and their reversals only: a salary paid out of the till is a cost, not
+    a negative sale, and netting it off here would understate what the shop sold.
+    """
+    return await db.fetchrow(
+        f"""
+        SELECT d.day_start,
+               coalesce(sum(dm.amount) FILTER (WHERE dm.method = 'cash'), 0) AS day_cash,
+               coalesce(sum(dm.amount) FILTER (WHERE dm.method = 'card'), 0) AS day_card,
+               coalesce(sum(dm.amount), 0)                                   AS day_total,
+               count(DISTINCT dm.sale_id) FILTER (WHERE dm.kind = 'sale')     AS day_receipts,
+               (SELECT count(*) FROM store_sessions ss
+                 WHERE ss.store_id = s.id
+                   AND (ss.opened_at AT TIME ZONE $3) >= d.day_start)        AS day_sessions
+          FROM stores s
+          CROSS JOIN LATERAL (SELECT {_day_start("$3")} AS day_start) d
+          LEFT JOIN cash_movements dm
+                 ON dm.store_id = s.id
+                AND dm.kind IN ('sale', 'void')
+                AND (dm.created_at AT TIME ZONE $3) >= d.day_start
+         WHERE s.id = $1 AND s.owner_id = $2 AND s.is_active
+         GROUP BY s.id, d.day_start
+        """,
+        store_id,
+        owner_id,
+        settings.tzname,
     )
 
 
