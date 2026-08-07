@@ -11,6 +11,7 @@ from telegram.ext import ContextTypes
 
 from app import format, keyboards, texts
 from app.api import ApiError, ApiUnavailable, api, new_idempotency_key
+from app.config import settings
 
 log = logging.getLogger("storemanager.bot.shift")
 
@@ -83,29 +84,33 @@ async def ask_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 def _reject_faked_location(message) -> str | None:
     """Why this location should not be trusted, or None if it looks genuine.
 
-    Telegram lets somebody attach *any* point on the map, so "a location
-    arrived" is not the same as "this person is standing there". Three signals
-    separate a device reading from a hand-placed pin:
+    What Telegram actually tells us is less than it first appears. A point
+    dropped on the map and a real "send my current location" arrive as the same
+    object; ``horizontal_accuracy`` looked like it separated them, but plenty of
+    clients omit it on a perfectly genuine reading, so requiring it locked out
+    honest workers. It is not a usable signal.
 
-    * ``horizontal_accuracy`` is only ever filled in by a real GPS fix. A pin
-      dropped on the map has none, which is the loophole being closed here.
-    * a forwarded location is someone else's, whenever and wherever they were.
-    * a message far older than now is a location from earlier being replayed.
+    Two things remain reliable, and both are checked:
 
-    None of this stops a mock-location app on a rooted phone. It stops the
-    thirty-second version anyone can do from the attachment menu.
+    * a forwarded location is someone else's, from whenever they sent it;
+    * a message far older than now is an earlier reading being replayed.
+
+    ``REQUIRE_LIVE_LOCATION`` adds the one check that genuinely cannot be
+    faked through the normal interface -- a live location tracks the device and
+    cannot be aimed at a chosen point. It is off by default because it means
+    the worker must share a *live* location from the attachment menu rather
+    than tapping the button, which is a real cost for a shop that trusts its
+    staff. Turn it on if that stops being true.
     """
-    location = message.location
-
     if getattr(message, "forward_origin", None) or getattr(message, "forward_date", None):
         return texts.LOCATION_FORWARDED
-
-    if location.horizontal_accuracy is None:
-        return texts.LOCATION_NOT_LIVE
 
     age = (datetime.now(UTC) - message.date).total_seconds()
     if age > MAX_LOCATION_AGE_S:
         return texts.LOCATION_STALE
+
+    if settings.require_live_location and message.location.live_period is None:
+        return texts.LOCATION_NOT_LIVE
 
     return None
 

@@ -45,10 +45,12 @@ class CheckinRequest(LocationRequest):
 
 class OpenStoreRequest(LocationRequest):
     idempotency_key: str = Field(min_length=8, max_length=128)
-    # Required, unlike on /checkin. Telegram only fills accuracy in for a real
-    # GPS fix, so its absence means the point was placed by hand on the map --
-    # and a shift may not be opened on one of those.
-    accuracy_m: float = Field(ge=0)
+    # accuracy_m stays optional (inherited). It briefly was not: the absence of
+    # accuracy looked like a reliable sign of a hand-placed pin, but plenty of
+    # Telegram clients omit it on a perfectly genuine reading, and requiring it
+    # locked honest workers out of their own shift. When it *is* present it is
+    # still used -- a reading too vague to tell two neighbouring shops apart is
+    # refused by the geofence.
 
 
 class EndShiftRequest(IdempotentRequest):

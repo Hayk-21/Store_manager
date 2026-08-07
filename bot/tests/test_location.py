@@ -1,8 +1,9 @@
-"""Only a real device reading opens a shift.
+"""What the bot will accept as "I am standing here".
 
-Telegram lets anyone attach any point on the map, so "a location arrived" is not
-the same as "this person is standing there". These are the cases that separate
-the two.
+Telegram tells us less than it looks. A point dropped on the map and a genuine
+"send my current location" arrive as the same object — ``horizontal_accuracy``
+seemed to separate them but is simply absent on many real readings, which is how
+an earlier version locked honest workers out of their own shift.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app import texts
+from app.config import settings
 from app.handlers.shift import MAX_LOCATION_AGE_S, _reject_faked_location
 
 
@@ -31,33 +33,34 @@ class FakeMessage:
         self.forward_date = self.date if forwarded else None
 
 
-def test_a_real_gps_fix_is_accepted():
+@pytest.fixture(autouse=True)
+def lenient(monkeypatch):
+    """The shipped default: trust the reading, check what can be checked."""
+    monkeypatch.setattr(settings, "require_live_location", False)
+
+
+# -- the default: a working shop ---------------------------------------------
+
+def test_a_reading_with_accuracy_is_accepted():
     assert _reject_faked_location(FakeMessage(accuracy=18)) is None
+
+
+def test_a_reading_WITHOUT_accuracy_is_accepted():
+    """The regression. Many Telegram clients omit accuracy on a genuine
+    location, and refusing those meant a worker standing in their own shop was
+    told their position was hand-placed."""
+    assert _reject_faked_location(FakeMessage(accuracy=None)) is None
 
 
 def test_a_live_location_is_accepted():
     assert _reject_faked_location(FakeMessage(accuracy=12, live_period=900)) is None
 
 
-def test_a_pin_dropped_on_the_map_is_refused():
-    """The whole point. Telegram only fills in accuracy for a device reading, so
-    a hand-placed pin has none — which is how somebody 'opens the shop' from
-    home."""
-    complaint = _reject_faked_location(FakeMessage(accuracy=None))
-
-    assert complaint == texts.LOCATION_NOT_LIVE
-    assert "ձեռքով" in complaint, "the worker is told what was wrong with it"
-
+# -- what is still refused, and can be told apart reliably --------------------
 
 def test_a_forwarded_location_is_refused():
     """It is somebody else's position, from whenever they sent it."""
     assert _reject_faked_location(FakeMessage(accuracy=18, forwarded=True)) == (
-        texts.LOCATION_FORWARDED
-    )
-
-
-def test_a_forwarded_pin_is_refused_for_being_forwarded_first():
-    assert _reject_faked_location(FakeMessage(accuracy=None, forwarded=True)) == (
         texts.LOCATION_FORWARDED
     )
 
@@ -76,10 +79,36 @@ def test_a_slow_connection_is_still_accepted(age):
     assert _reject_faked_location(FakeMessage(accuracy=18, age_s=age)) is None
 
 
-def test_every_complaint_names_the_button_to_press():
-    """A refusal that does not say what to do next is just a dead end."""
+# -- strict mode, for a shop that stops trusting its staff --------------------
+
+def test_strict_mode_demands_a_live_location(monkeypatch):
+    """The one thing that cannot be aimed at a chosen point through the normal
+    interface. Off by default because it costs the worker real effort."""
+    monkeypatch.setattr(settings, "require_live_location", True)
+
+    assert _reject_faked_location(FakeMessage(accuracy=18)) == texts.LOCATION_NOT_LIVE
+    assert _reject_faked_location(FakeMessage(accuracy=None)) == texts.LOCATION_NOT_LIVE
+    assert _reject_faked_location(FakeMessage(live_period=900)) is None
+
+
+def test_strict_mode_still_refuses_a_forwarded_live_location(monkeypatch):
+    monkeypatch.setattr(settings, "require_live_location", True)
+
+    assert _reject_faked_location(FakeMessage(live_period=900, forwarded=True)) == (
+        texts.LOCATION_FORWARDED
+    )
+
+
+def test_strict_mode_explains_where_the_button_is():
+    """"Share a live location" is not obvious; the message has to say how."""
+    assert "live" in texts.LOCATION_NOT_LIVE.lower()
+    assert "📎" in texts.LOCATION_NOT_LIVE
+
+
+def test_every_complaint_survives_being_formatted():
+    """They are sent through .format(button=...); a stray brace would raise."""
     for complaint in (
         texts.LOCATION_NOT_LIVE, texts.LOCATION_FORWARDED, texts.LOCATION_STALE,
     ):
-        assert "{button}" in complaint
-        assert texts.BTN_SEND_LOCATION in complaint.format(button=texts.BTN_SEND_LOCATION)
+        rendered = complaint.format(button=texts.BTN_SEND_LOCATION)
+        assert "{" not in rendered
