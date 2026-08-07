@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}Ծախսեր · Store Manager{% endblock %}
+
+{% macro method_options(current) %}
+  <option value="cash"  {% if current == 'cash'  %}selected{% endif %}>Կանխիկ</option>
+  <option value="card"  {% if current == 'card'  %}selected{% endif %}>Քարտ</option>
+  <option value="bank"  {% if current == 'bank'  %}selected{% endif %}>Բանկային փոխանցում</option>
+  <option value="other" {% if current == 'other' %}selected{% endif %}>Այլ</option>
+{% endmacro %}
+
+{% macro recurrence_options(current) %}
+  <option value="once"    {% if current == 'once'    %}selected{% endif %}>Մեկանգամյա</option>
+  <option value="monthly" {% if current == 'monthly' %}selected{% endif %}>Ամսական</option>
+{% endmacro %}
+
+{% macro store_options(stores, current) %}
+  <option value="">Ամբողջ բիզնեսի համար</option>
+  {% for s in stores %}
+    <option value="{{ s.id }}" {% if current == s.id %}selected{% endif %}>{{ s.name }}</option>
+  {% endfor %}
+{% endmacro %}
+
+{% macro category_options(categories, current) %}
+  <option value="">— առանց կատեգորիայի —</option>
+  {% for c in categories %}
+    <option value="{{ c.id }}" {% if current == c.id %}selected{% endif %}>{{ c.name }}</option>
+  {% endfor %}
+{% endmacro %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Ծախսեր</h1>
+  <form method="get" action="/expenses" class="month-picker">
+    <input type="month" name="month" value="{{ month }}" onchange="this.form.submit()"
+           aria-label="Ամիս">
+  </form>
+</div>
+
+<div class="card">
+  <div class="totals">
+    <div class="total">
+      <span class="total-label">Այս ամսվա ծախսերը</span>
+      <span class="total-value negative">{{ total | money }}</span>
+    </div>
+    <div class="total">
+      <span class="total-label">Գրառումներ</span>
+      <span class="total-value">{{ expenses | length }}</span>
+    </div>
+  </div>
+
+  {% if by_category %}
+  <h3>Ըստ կատեգորիայի</h3>
+  <div class="bars">
+    {% set biggest = by_category[0].total %}
+    {% for row in by_category %}
+    <div class="bar-row">
+      <span class="bar-label">{{ row.category }}</span>
+      <span class="bar-track">
+        {# Widths are inline because they are data, not style. #}
+        <span class="bar-fill" style="width: {{ (row.total / biggest * 100) | round(1) }}%"></span>
+      </span>
+      <span class="bar-value">{{ row.total | money }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<details class="card" {% if not expenses %}open{% endif %}>
+  <summary><h2>Նոր ծախս</h2></summary>
+  <form method="post" action="/expenses">
+    <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    <div class="form-row">
+      <div>
+        <label for="e-purpose">Նպատակ</label>
+        <input id="e-purpose" name="purpose" required maxlength="300"
+               placeholder="օր.՝ Ինստագրամ բլոգերի վճար">
+      </div>
+      <div class="narrow">
+        <label for="e-amount">Գումար</label>
+        <input id="e-amount" name="amount" inputmode="decimal" required>
+      </div>
+      <div class="narrow">
+        <label for="e-date">Ամսաթիվ</label>
+        <input id="e-date" name="spent_on" type="date" value="{{ today }}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div>
+        <label for="e-category">Կատեգորիա</label>
+        <select id="e-category" name="category_id">{{ category_options(categories, None) }}</select>
+      </div>
+      <div>
+        <label for="e-store">Խանութ</label>
+        <select id="e-store" name="store_id">{{ store_options(stores, None) }}</select>
+      </div>
+      <div class="narrow">
+        <label for="e-method">Վճարման ձև</label>
+        <select id="e-method" name="method">{{ method_options('cash') }}</select>
+      </div>
+      <div class="narrow">
+        <label for="e-recurrence">Պարբերականություն</label>
+        <select id="e-recurrence" name="recurrence">{{ recurrence_options('once') }}</select>
+      </div>
+      <div class="actions">
+        <button type="submit">Գրանցել</button>
+      </div>
+    </div>
+    <p class="muted small">
+      «Ամբողջ բիզնեսի համար» ընտրեք, երբ ծախսը մեկ խանութին չի վերաբերում՝
+      օրինակ գովազդ։ «Ամսական» նշեք կրկնվող ծախսերի համար՝ վարձակալություն,
+      ինտերնետ։ Ամեն ամիս գրանցեք առանձին տողով։<br>
+      Ծախսերը <b>չեն</b> հանվում խանութի դրամարկղից — դրանք բիզնեսի ծախս են,
+      ոչ թե հերթափոխի։
+    </p>
+  </form>
+</details>
+
+<div class="card">
+  {% if expenses %}
+  <div class="table-wrap">
+    {% for e in expenses %}
+      <form id="exp-{{ e.id }}" method="post" action="/expenses/{{ e.id }}">
+        <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+      </form>
+      <form id="exp-drop-{{ e.id }}" method="post" action="/expenses/{{ e.id }}/delete"
+            onsubmit="return confirm('Ջնջե՞լ այս ծախսը։');">
+        <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+      </form>
+    {% endfor %}
+    <table class="cards">
+      <thead>
+        <tr>
+          <th>Ամսաթիվ</th><th>Նպատակ</th><th>Կատեգորիա</th><th>Խանութ</th>
+          <th>Ձև</th><th>Պարբեր.</th><th class="num">Գումար</th><th class="num"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in expenses %}
+        <tr>
+          <td data-label="Ամսաթիվ">
+            <input form="exp-{{ e.id }}" name="spent_on" type="date"
+                   value="{{ e.spent_on }}" aria-label="Ամսաթիվ">
+          </td>
+          <td class="cell-name" data-label="Նպատակ">
+            <input form="exp-{{ e.id }}" name="purpose" value="{{ e.purpose }}"
+                   required maxlength="300" aria-label="Նպատակ">
+          </td>
+          <td data-label="Կատեգորիա">
+            <select form="exp-{{ e.id }}" name="category_id" aria-label="Կատեգորիա">
+              {{ category_options(categories, e.category_id) }}
+            </select>
+          </td>
+          <td data-label="Խանութ">
+            <select form="exp-{{ e.id }}" name="store_id" aria-label="Խանութ">
+              {{ store_options(stores, e.store_id) }}
+            </select>
+          </td>
+          <td data-label="Ձև">
+            <select form="exp-{{ e.id }}" name="method" aria-label="Վճարման ձև">
+              {{ method_options(e.method) }}
+            </select>
+          </td>
+          <td data-label="Պարբերականություն">
+            <select form="exp-{{ e.id }}" name="recurrence" aria-label="Պարբերականություն">
+              {{ recurrence_options(e.recurrence) }}
+            </select>
+          </td>
+          <td class="num" data-label="Գումար">
+            <input form="exp-{{ e.id }}" name="amount" value="{{ e.amount | plain_money }}"
+                   inputmode="decimal" class="money-input" aria-label="Գումար">
+          </td>
+          <td class="num nowrap cell-actions" data-label="">
+            <button form="exp-{{ e.id }}" type="submit" class="secondary tiny">Պահել</button>
+            <button form="exp-drop-{{ e.id }}" type="submit" class="danger tiny">✕</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">Այս ամսվա համար ծախս գրանցված չէ։</p>
+  {% endif %}
+</div>
+
+<details class="card">
+  <summary><h2>Կատեգորիաներ</h2></summary>
+  <p class="muted small">{{ categories | map(attribute='name') | join(' · ') }}</p>
+  <form method="post" action="/expenses/categories">
+    <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    <div class="form-row">
+      <div>
+        <label for="c-name">Նոր կատեգորիա</label>
+        <input id="c-name" name="name" required maxlength="80">
+      </div>
+      <div class="actions"><button type="submit" class="secondary">Ավելացնել</button></div>
+    </div>
+  </form>
+</details>
+{% endblock %}

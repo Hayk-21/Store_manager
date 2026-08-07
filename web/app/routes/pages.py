@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, timedelta
 from decimal import Decimal
 
 import asyncpg
@@ -10,8 +11,10 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 
 from app import forms
+from app.config import settings
 from app.deps import CurrentUser, current_user, require_csrf
 from app.errors import AppError
+from app.repo import expenses as expenses_repo
 from app.repo import items as items_repo
 from app.repo import money as money_repo
 from app.repo import sales as sales_repo
@@ -393,6 +396,136 @@ async def unbind_worker(worker_id: int, user: CurrentUser = Depends(require_csrf
         raise AppError("not_found", "Աշխատողը չի գտնվել։")
     await workers_repo.unbind(user.id, worker_id)
     return RedirectResponse("/workers", status_code=303)
+
+
+# -- expenses ----------------------------------------------------------------
+
+def _month_range(raw: str | None) -> tuple[date, date, str]:
+    """The month being looked at, defaulting to this one."""
+    today = settings.local_day()
+    try:
+        year, month = (int(part) for part in (raw or "").split("-", 1))
+        first = date(year, month, 1)
+    except (ValueError, TypeError):
+        first = today.replace(day=1)
+    last = (first + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    return first, last, first.strftime("%Y-%m")
+
+
+@router.get("/expenses")
+async def expenses_page(
+    request: Request, month: str | None = None, user: CurrentUser = Depends(current_user)
+):
+    """Rent, advertising, paying an influencer — money out with no customer.
+
+    Kept off the store pages because most of it belongs to the business rather
+    than to any one shop.
+    """
+    await expenses_repo.ensure_starter_categories(user.id)
+    since, until, label = _month_range(month)
+    return render(
+        request,
+        "expenses.html",
+        {
+            "user": user,
+            "active": "expenses",
+            "month": label,
+            "since": since,
+            "until": until,
+            "expenses": await expenses_repo.list_between(user.id, since, until),
+            "total": await expenses_repo.total_between(user.id, since, until),
+            "by_category": await expenses_repo.by_category_between(user.id, since, until),
+            "categories": await expenses_repo.categories(user.id),
+            "stores": await stores_repo.list_for_owner(user.id),
+            "today": settings.local_day(),
+        },
+    )
+
+
+def _expense_form(
+    purpose: str, amount: str, spent_on: str, store_id: str, category_id: str,
+    method: str, recurrence: str, note: str,
+) -> dict:
+    if method not in expenses_repo.METHODS:
+        raise AppError("validation_error", "Անհայտ վճարման ձև։")
+    if recurrence not in expenses_repo.RECURRENCES:
+        raise AppError("validation_error", "Անհայտ պարբերականություն։")
+    return {
+        "purpose": forms.text(purpose, "Նպատակ", max_length=300),
+        "amount": forms.money(amount, "Գումար"),
+        "spent_on": forms.day(spent_on, "Ամսաթիվ"),
+        "store_id": forms.whole(store_id, "Խանութ", default=0) or None,
+        "category_id": forms.whole(category_id, "Կատեգորիա", default=0) or None,
+        "method": method,
+        "recurrence": recurrence,
+        "note": forms.text(note, "Նշում", max_length=1000, required=False),
+    }
+
+
+@router.post("/expenses")
+async def create_expense(
+    purpose: str = Form(""),
+    amount: str = Form(""),
+    spent_on: str = Form(""),
+    store_id: str = Form(""),
+    category_id: str = Form(""),
+    method: str = Form("cash"),
+    recurrence: str = Form("once"),
+    note: str = Form(""),
+    user: CurrentUser = Depends(require_csrf),
+):
+    fields = _expense_form(
+        purpose, amount, spent_on, store_id, category_id, method, recurrence, note
+    )
+    await expenses_repo.create(user.id, **fields)
+    log.info("expense recorded by user %s: %s", user.id, fields["purpose"][:40])
+    return RedirectResponse(f"/expenses?month={fields['spent_on']:%Y-%m}", status_code=303)
+
+
+@router.post("/expenses/categories")
+async def create_expense_category(
+    name: str = Form(""), user: CurrentUser = Depends(require_csrf)
+):
+    """Registered above /expenses/{expense_id}: FastAPI matches in declaration
+    order, so the parameterised route would otherwise swallow "categories" and
+    fail trying to read it as a number."""
+    await expenses_repo.create_category(
+        user.id, forms.text(name, "Անվանում", max_length=80)
+    )
+    return RedirectResponse("/expenses", status_code=303)
+
+
+@router.post("/expenses/{expense_id}")
+async def edit_expense(
+    expense_id: int,
+    purpose: str = Form(""),
+    amount: str = Form(""),
+    spent_on: str = Form(""),
+    store_id: str = Form(""),
+    category_id: str = Form(""),
+    method: str = Form("cash"),
+    recurrence: str = Form("once"),
+    note: str = Form(""),
+    user: CurrentUser = Depends(require_csrf),
+):
+    if await expenses_repo.get(user.id, expense_id) is None:
+        raise AppError("not_found", "Ծախսը չի գտնվել։")
+    fields = _expense_form(
+        purpose, amount, spent_on, store_id, category_id, method, recurrence, note
+    )
+    await expenses_repo.update(user.id, expense_id, **fields)
+    return RedirectResponse(f"/expenses?month={fields['spent_on']:%Y-%m}", status_code=303)
+
+
+@router.post("/expenses/{expense_id}/delete")
+async def delete_expense(expense_id: int, user: CurrentUser = Depends(require_csrf)):
+    existing = await expenses_repo.get(user.id, expense_id)
+    if existing is None:
+        raise AppError("not_found", "Ծախսը չի գտնվել։")
+    await expenses_repo.delete(user.id, expense_id)
+    return RedirectResponse(
+        f"/expenses?month={existing['spent_on']:%Y-%m}", status_code=303
+    )
 
 
 @router.get("/reports")

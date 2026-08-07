@@ -1,4 +1,4 @@
-"""Turning form strings into the types the database wants.
+﻿"""Turning form strings into the types the database wants.
 
 Every parser raises ``AppError('validation_error', <Armenian sentence>)`` on bad
 input, so a route never has to write its own error handling for a stray comma.
@@ -6,6 +6,7 @@ input, so a route never has to write its own error handling for a stray comma.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from app.errors import AppError
@@ -77,6 +78,19 @@ def whole(
             "validation_error", f"«{field}» դաշտը պետք է լինի {minimum}-ից {maximum}։"
         )
     return number
+
+
+def day(value: str | None, field: str) -> date:
+    """A ``YYYY-MM-DD`` from a date input, defaulting to today when blank."""
+    raw = (value or "").strip()
+    if not raw:
+        from app.config import settings
+
+        return settings.local_day()
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        raise AppError("validation_error", f"«{field}» դաշտը ամսաթիվ չէ։") from None
 
 
 def coordinate(value: str | None, field: str, *, limit: float) -> float | None:
