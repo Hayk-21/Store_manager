@@ -1,14 +1,17 @@
-"""The application assembles, and no button can trap a cashier."""
+﻿"""The application assembles, and no button can trap a cashier."""
 
 from __future__ import annotations
 
 from decimal import Decimal
+from unittest import mock
 
-from telegram import Chat, Message, Update, User
-from telegram.ext import ConversationHandler
+import pytest
+from telegram import Chat, Location, Message, Update, User
+from telegram.ext import ApplicationHandlerStop, ConversationHandler, MessageHandler
 
 from app import format, keyboards, texts
 from app.__main__ import BUTTON_LABELS, build
+from app.api import ApiError
 from app.handlers import common, shift, stock
 
 
@@ -112,6 +115,106 @@ def test_the_location_label_has_its_own_handler():
     assert any(
         getattr(h, "callback", None) is common.location_from_desktop for h in handlers
     ), "tapping the location button on desktop would go unanswered"
+
+
+def _location(*, edited: bool, live_period: int | None = 900) -> Update:
+    """A shared live location, or one of the edits Telegram sends as it moves."""
+    user = User(id=1, first_name="T", is_bot=False)
+    message = Message(
+        message_id=1, date=None, chat=Chat(id=1, type="private"),
+        from_user=user,
+        location=Location(latitude=40.1772, longitude=44.5032, live_period=live_period),
+    )
+    if edited:
+        return Update(update_id=1, edited_message=message)
+    return Update(update_id=1, message=message)
+
+
+def test_a_moving_live_location_never_reaches_the_open_a_shift_handler():
+    """The subtle one. Telegram sends a live location once as a message and then
+    as a stream of *edits* to it, and python-telegram-bot applies no update-type
+    restriction of its own — so a bare ``filters.LOCATION`` hands every edit to
+    the handler that opens a shift, which answers "you are already on shift"
+    every few seconds for as long as the worker keeps walking."""
+    handlers = build().handlers[0]
+    opens = [h for h in handlers if getattr(h, "callback", None) is shift.handle_location]
+
+    assert opens, "nothing opens a shift from a location"
+    for handler in opens:
+        assert handler.filters.check_update(_location(edited=False)), "a share must open"
+        assert not handler.filters.check_update(_location(edited=True)), (
+            "an edit is movement, not a request to open a shift"
+        )
+
+
+def test_movement_is_handled_before_anything_else_and_stops_there():
+    """It runs in an earlier group than the write-up conversation, so a location
+    updating mid-write-up cannot be read as the cashier leaving the flow."""
+    app = build()
+    groups = {
+        group: [getattr(h, "callback", None) for h in handlers]
+        for group, handlers in app.handlers.items()
+    }
+    live_groups = [g for g, callbacks in groups.items() if shift.handle_live_update in callbacks]
+
+    assert live_groups, "nothing records a moving live location"
+    assert min(live_groups) < 0, "movement must be handled ahead of the conversation"
+
+
+def test_the_write_ups_location_escape_only_fires_on_a_fresh_share():
+    """Its fallback exists so a worker can re-open a store mid-write-up. A
+    location that merely moved is not that, and must not end the flow."""
+    flow = _flow()
+    location_fallbacks = [
+        h for h in flow.fallbacks
+        if isinstance(h, MessageHandler) and h.filters.check_update(_location(edited=False))
+    ]
+
+    assert location_fallbacks, "a fresh location must still be a way out of the write-up"
+    for handler in location_fallbacks:
+        assert not handler.filters.check_update(_location(edited=True)), (
+            "a live location moving would abandon the cashier's write-up"
+        )
+
+
+async def test_recording_movement_stops_the_update_going_any_further():
+    """The guarantee the group ordering alone cannot give. Without this the
+    update falls through to the write-up conversation, whose fallbacks would
+    read it as the cashier leaving the flow — every few seconds, all shift."""
+    calls = []
+
+    async def fake_ping(**kwargs):
+        calls.append(kwargs)
+        return {"ok": True, "distance_m": 8, "in_range": True}
+
+    with (
+        mock.patch.object(shift.api, "ping", fake_ping),
+        pytest.raises(ApplicationHandlerStop),
+    ):
+        await shift.handle_live_update(_location(edited=True), None)
+
+    assert calls and calls[0]["lat"] == 40.1772
+
+
+async def test_a_failed_ping_still_stops_and_still_says_nothing():
+    """A missed reading is a gap in a trail, not something the worker did or can
+    fix. It must not produce a message, and must not let the update through."""
+    replies = []
+
+    async def fake_reply(self, *args, **kwargs):
+        replies.append(args)
+
+    async def boom(**kwargs):
+        raise ApiError("internal", "…")
+
+    with (
+        mock.patch.object(shift.api, "ping", boom),
+        mock.patch.object(Message, "reply_text", fake_reply),
+        pytest.raises(ApplicationHandlerStop),
+    ):
+        await shift.handle_live_update(_location(edited=True), None)
+
+    assert replies == [], "a worker who gets told off for walking will stop sharing"
 
 
 def test_the_shift_buttons_are_registered_outside_the_flow_too():

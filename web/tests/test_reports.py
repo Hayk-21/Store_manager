@@ -26,7 +26,7 @@ async def _a_completed_shift():
         id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("8000.00")
     )
     item_id = await make_item(owner_id, store_id, "HQD Cuvie", count=10, sell_price="3500.00")
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1", 900)
     await sales_service.record_sale(
         worker, [{"item_id": item_id, "quantity": 3}], "cash", "idem-key-sale-1"
     )

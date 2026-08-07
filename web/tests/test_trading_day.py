@@ -35,7 +35,7 @@ async def _trade(owner_id: int, store_id: int, item_id: int, *, quantity: int, k
     worker = shifts_service.Worker(
         id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("0.00")
     )
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, f"open-{key}")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, f"open-{key}", 900)
     await shifts_service.close_out_shift(
         worker,
         [{"item_id": item_id, "quantity": quantity, "unit_price": "3500.00",
@@ -190,7 +190,7 @@ async def test_a_salary_is_not_deducted_from_what_the_shop_sold(client):
     worker = shifts_service.Worker(
         id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("8000.00")
     )
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "open-s")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "open-s", 900)
     await shifts_service.close_out_shift(
         worker,
         [{"item_id": item_id, "quantity": 3, "unit_price": "3500.00",

@@ -129,18 +129,42 @@ class Api:
         key: str,
         telegram_name: str | None = None,
         telegram_username: str | None = None,
+        live_period: int | None = None,
     ) -> dict:
         payload: dict[str, Any] = {
             "telegram_id": telegram_id, "lat": lat, "lng": lng, "idempotency_key": key
         }
         if accuracy_m is not None:
             payload["accuracy_m"] = accuracy_m
+        # How long the device agreed to keep streaming. The server refuses to
+        # open a shift without it: it is the only field that distinguishes a real
+        # position from a pin dropped on the map.
+        if live_period is not None:
+            payload["live_period"] = live_period
         if telegram_name:
             payload["telegram_name"] = telegram_name
         # The owner registered a @username; this is what binds it to an account.
         if telegram_username:
             payload["telegram_username"] = telegram_username
         return await self._call("POST", "/store/open", json=payload)
+
+    async def ping(
+        self,
+        telegram_id: int,
+        lat: float,
+        lng: float,
+        accuracy_m: float | None = None,
+    ) -> dict:
+        """One reading from a running live location.
+
+        No idempotency key: a repeated position costs a duplicate row and
+        nothing else, and this is called often enough that the cheapest possible
+        request is the right one.
+        """
+        payload: dict[str, Any] = {"telegram_id": telegram_id, "lat": lat, "lng": lng}
+        if accuracy_m is not None:
+            payload["accuracy_m"] = accuracy_m
+        return await self._call("POST", "/location/ping", json=payload)
 
     async def search_items(self, telegram_id: int, query: str, limit: int = 8) -> dict:
         return await self._call(

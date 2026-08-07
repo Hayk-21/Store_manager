@@ -153,7 +153,10 @@ async def workers_on_shift(store_id: int) -> list[asyncpg.Record]:
     return await db.fetch(
         f"""
         SELECT ws.id, ws.worker_id, {DISPLAY_NAME} AS name, ws.started_at,
-               ws.start_distance_m, w.salary_amount
+               ws.start_distance_m, w.salary_amount,
+               ws.last_distance_m, ws.last_ping_at, ws.ping_count,
+               ws.left_area_at, ws.live_until,
+               ws.live_until IS NOT NULL AND ws.live_until > now() AS live_now
           FROM work_sessions ws
           JOIN workers w ON w.id = ws.worker_id
          WHERE ws.store_id = $1 AND ws.ended_at IS NULL

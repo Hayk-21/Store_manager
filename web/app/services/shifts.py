@@ -27,6 +27,9 @@ from app.errors import BotError
 from app.repo import money as money_repo
 from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
+from app.repo import stores as stores_repo
+from app.repo import tracking as tracking_repo
+from app.services import geofence
 from app.services.geofence import require_store
 
 log = logging.getLogger("storemanager.shifts")
@@ -54,18 +57,49 @@ class Worker:
 
 # -- opening -----------------------------------------------------------------
 
+# The shortest span Telegram offers for sharing a live location. Requiring at
+# least this means every one of its three choices (15 minutes, 1 hour, 8 hours)
+# is accepted, while a value that could only have been synthesised is not.
+MIN_LIVE_PERIOD_S = 15 * 60
+
+
+def require_live(live_period: int | None) -> int:
+    """Refuse anything but a genuinely live position.
+
+    This is the one check that cannot be worked around through the normal
+    interface. A dropped pin and a real reading arrive as the same object, and
+    ``horizontal_accuracy`` does not separate them — plenty of clients omit it on
+    a genuine one. A live location is different in kind: Telegram streams it from
+    the device and edits the message as it moves, so it cannot be aimed at a
+    chosen point.
+
+    Enforced here rather than only in the bot, because the bot is a client. The
+    rule belongs where the other rules that decide whether a shift may open are.
+    """
+    if not live_period:
+        raise BotError("location_not_live")
+    if live_period < MIN_LIVE_PERIOD_S:
+        raise BotError(
+            "location_not_live",
+            details={"live_period": live_period, "minimum_s": MIN_LIVE_PERIOD_S},
+        )
+    return live_period
+
+
 async def open_store(
     worker: Worker,
     lat: float,
     lng: float,
     accuracy_m: float | None,
     idempotency_key: str,
+    live_period: int | None = None,
 ) -> dict:
     """Requirement 8: located, matched to a store, attached to it."""
     replay = await sessions_repo.by_start_idem(worker.owner_id, idempotency_key)
     if replay is not None:
         return _open_payload(worker, replay, duplicate=True)
 
+    require_live(live_period)
     match = await require_store(worker.owner_id, lat, lng, accuracy_m)
     store = match.matched
 
@@ -94,6 +128,25 @@ async def open_store(
                 lng=lng,
                 distance_m=store.distance_m,
                 idem_key=idempotency_key,
+            )
+            await tracking_repo.set_live_window(conn, work_session_id, live_period)
+            # The opening position is the first point of the trail, so the track
+            # starts where the shift did rather than at whenever the first
+            # movement happened to arrive.
+            await tracking_repo.record_ping(
+                conn,
+                owner_id=worker.owner_id,
+                worker_id=worker.id,
+                work_session_id=work_session_id,
+                store_id=store.id,
+                lat=lat,
+                lng=lng,
+                distance_m=store.distance_m,
+                accuracy_m=int(accuracy_m) if accuracy_m is not None else None,
+                in_range=True,
+            )
+            await tracking_repo.mark_position(
+                conn, work_session_id, lat, lng, store.distance_m, in_range=True
             )
     except asyncpg.exceptions.UniqueViolationError as exc:
         return await _resolve_open_conflict(worker, idempotency_key, exc)
@@ -161,6 +214,58 @@ def _open_payload(worker: Worker, row, *, duplicate: bool) -> dict:
             "name": worker.name,
             "salary_amount": f"{worker.salary_amount:.2f}",
         },
+    }
+
+
+# -- tracking ----------------------------------------------------------------
+
+async def record_position(
+    worker: Worker, lat: float, lng: float, accuracy_m: float | None = None
+) -> dict:
+    """One reading from a live location that is already running.
+
+    Recorded, never enforced. A cashier who steps out to the bank has not ended
+    their shift, and a bot that decided otherwise from a GPS reading would be
+    wrong often enough to be worse than useless. The owner sees where people
+    were; the system does not act on it.
+
+    Distance is measured to the store the shift is attached to, not to the
+    nearest one — the question is "how far from your post", and the nearest shop
+    to a worker on an errand may well be a different branch.
+    """
+    shift = await sessions_repo.open_for_worker(worker.id)
+    if shift is None:
+        raise BotError("no_open_session")
+
+    store = await stores_repo.get(worker.owner_id, shift["store_id"])
+    distance = None
+    in_range = True
+    if store is not None and store["lat"] is not None:
+        distance = await geofence.distance_to(store["lat"], store["lng"], lat, lng)
+        in_range = distance <= store["radius_m"]
+
+    async with db.transaction() as conn:
+        await tracking_repo.record_ping(
+            conn,
+            owner_id=worker.owner_id,
+            worker_id=worker.id,
+            work_session_id=shift["id"],
+            store_id=shift["store_id"],
+            lat=lat,
+            lng=lng,
+            distance_m=distance,
+            accuracy_m=int(accuracy_m) if accuracy_m is not None else None,
+            in_range=in_range,
+        )
+        await tracking_repo.mark_position(
+            conn, shift["id"], lat, lng, distance, in_range=in_range
+        )
+
+    return {
+        "ok": True,
+        "distance_m": distance,
+        "in_range": in_range,
+        "store_name": shift["store_name"],
     }
 
 

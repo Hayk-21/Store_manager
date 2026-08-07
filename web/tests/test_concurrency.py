@@ -81,7 +81,7 @@ async def test_ten_simultaneous_retries_of_one_tap_sell_exactly_once(pooled):
     in both — only the unique index can arbitrate.
     """
     _, _, worker, item_id = await _world()
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1", 900)
 
     results = await asyncio.gather(
         *(
@@ -106,7 +106,7 @@ async def test_ten_simultaneous_retries_of_one_tap_sell_exactly_once(pooled):
 async def test_distinct_simultaneous_sales_all_apply(pooled):
     """The opposite property: real concurrency must not be serialised away."""
     _, _, worker, item_id = await _world()
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1", 900)
 
     results = await asyncio.gather(
         *(
@@ -125,7 +125,7 @@ async def test_distinct_simultaneous_sales_all_apply(pooled):
 async def test_stock_cannot_be_oversold_by_simultaneous_sales(pooled):
     """Five units, five people asking for two each: at most two can win."""
     _, _, worker, item_id = await _world(stock=5)
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1", 900)
 
     results = await asyncio.gather(
         *(
@@ -151,7 +151,7 @@ async def test_two_simultaneous_opens_produce_one_shift(pooled):
 
     results = await asyncio.gather(
         *(
-            shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-same")
+            shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-same", 900)
             for _ in range(6)
         ),
         return_exceptions=True,
@@ -179,8 +179,8 @@ async def test_two_workers_opening_at_once_share_one_store_session(pooled):
     )
 
     a, b = await asyncio.gather(
-        shifts_service.open_store(first, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa-01"),
-        shifts_service.open_store(second, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-bbbb-02"),
+        shifts_service.open_store(first, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa-01", 900),
+        shifts_service.open_store(second, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-bbbb-02", 900),
     )
 
     assert await db.fetchval("SELECT count(*) FROM store_sessions") == 1
@@ -191,7 +191,7 @@ async def test_two_workers_opening_at_once_share_one_store_session(pooled):
 async def test_a_sale_cannot_land_after_the_shift_closed(pooled):
     """The FOR UPDATE on the work session is what orders these two."""
     _, _, worker, item_id = await _world(salary="1000.00")
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1", 900)
 
     outcomes = await asyncio.gather(
         sales_service.record_sale(

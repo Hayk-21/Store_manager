@@ -7,11 +7,10 @@ from datetime import UTC, datetime
 
 from telegram import ReplyKeyboardRemove, Update
 from telegram.constants import ParseMode
-from telegram.ext import ContextTypes
+from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from app import format, keyboards, texts
 from app.api import ApiError, ApiUnavailable, api, new_idempotency_key
-from app.config import settings
 
 log = logging.getLogger("storemanager.bot.shift")
 
@@ -71,36 +70,38 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def ask_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """The worker pressed "open". Ask for the coordinate; the server decides the rest."""
+    """The worker pressed "open". Ask for a live location; the server decides the rest.
+
+    No location button here any more. ``request_location`` sends a single static
+    point, which is exactly what is no longer accepted — offering it would teach
+    the wrong gesture and then refuse it. Sharing a live location is four taps in
+    the attachment menu, so the instructions are the interface.
+    """
     # One key for this whole attempt at opening, reused if the location arrives
     # twice or the request has to be retried.
     context.user_data["open_key"] = new_idempotency_key()
     await update.effective_message.reply_text(
-        texts.ASK_LOCATION.format(button=texts.BTN_SEND_LOCATION),
-        reply_markup=keyboards.request_location(),
+        texts.ASK_LOCATION,
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboards.off_shift(),
     )
 
 
 def _reject_faked_location(message) -> str | None:
     """Why this location should not be trusted, or None if it looks genuine.
 
-    What Telegram actually tells us is less than it first appears. A point
-    dropped on the map and a real "send my current location" arrive as the same
-    object; ``horizontal_accuracy`` looked like it separated them, but plenty of
-    clients omit it on a perfectly genuine reading, so requiring it locked out
-    honest workers. It is not a usable signal.
+    A live location is the one thing here that cannot be faked through the
+    normal interface. A point dropped on the map and a real "send my current
+    location" arrive as the same object -- ``horizontal_accuracy`` looked like
+    it separated them and does not, since plenty of clients omit it on a
+    perfectly genuine reading. But a *live* location is different in kind:
+    Telegram streams it from the device and keeps editing the message as it
+    moves, and there is no way to aim that at a chosen point.
 
-    Two things remain reliable, and both are checked:
+    Two cheaper checks come first, because they give a more specific answer:
 
     * a forwarded location is someone else's, from whenever they sent it;
     * a message far older than now is an earlier reading being replayed.
-
-    ``REQUIRE_LIVE_LOCATION`` adds the one check that genuinely cannot be
-    faked through the normal interface -- a live location tracks the device and
-    cannot be aimed at a chosen point. It is off by default because it means
-    the worker must share a *live* location from the attachment menu rather
-    than tapping the button, which is a real cost for a shop that trusts its
-    staff. Turn it on if that stops being true.
     """
     if getattr(message, "forward_origin", None) or getattr(message, "forward_date", None):
         return texts.LOCATION_FORWARDED
@@ -109,7 +110,7 @@ def _reject_faked_location(message) -> str | None:
     if age > MAX_LOCATION_AGE_S:
         return texts.LOCATION_STALE
 
-    if settings.require_live_location and message.location.live_period is None:
+    if not message.location.live_period:
         return texts.LOCATION_NOT_LIVE
 
     return None
@@ -129,9 +130,9 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             location.live_period, bool(getattr(message, "forward_origin", None)),
         )
         await message.reply_text(
-            complaint.format(button=texts.BTN_SEND_LOCATION),
+            complaint,
             parse_mode=ParseMode.HTML,
-            reply_markup=keyboards.request_location(),
+            reply_markup=keyboards.off_shift(),
         )
         return
 
@@ -147,6 +148,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             key=key,
             telegram_name=user.full_name,
             telegram_username=user.username,
+            live_period=location.live_period,
         )
     except ApiError as exc:
         if exc.code == "session_already_open":
@@ -172,11 +174,50 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     session = result["session"]
     await update.effective_message.reply_text(
         texts.SHIFT_OPENED.format(
-            store=format.esc(session["store_name"]), distance=session["distance_m"]
+            store=format.esc(session["store_name"]),
+            distance=session["distance_m"],
+            minutes=round((location.live_period or 0) / 60),
         ),
         parse_mode=ParseMode.HTML,
         reply_markup=keyboards.on_shift(),
     )
+
+
+async def handle_live_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """A live location moved.
+
+    Telegram does not send a new message for this — it edits the original, once
+    every few seconds to a few minutes depending on how much the device has
+    moved. Each edit is one reading, forwarded and forgotten.
+
+    Deliberately silent. A worker who gets a chat notification every time they
+    walk to the counter will turn sharing off, which is the one outcome that
+    breaks the feature. Failures are swallowed for the same reason: a missed
+    reading is a gap in a trail, not something the worker did wrong and not
+    something they can fix.
+    """
+    location = update.effective_message.location
+    if location is None:  # pragma: no cover - the filter already guarantees this
+        return
+    try:
+        await api.ping(
+            telegram_id=update.effective_user.id,
+            lat=location.latitude,
+            lng=location.longitude,
+            accuracy_m=getattr(location, "horizontal_accuracy", None),
+        )
+    except ApiError as exc:
+        # "You are not on shift" is the normal end of the story: the worker
+        # closed up but left sharing running. Nothing to say about it.
+        if exc.code != "no_open_session":
+            log.info("live location ping refused for %s: %s", update.effective_user.id, exc.code)
+    except Exception:  # noqa: BLE001 - telemetry must never interrupt a shift
+        log.warning("could not record a live location ping", exc_info=True)
+
+    # Nothing else may see this update. Without stopping here it would fall
+    # through to the write-up conversation, whose fallbacks would read it as the
+    # worker abandoning the flow — every few seconds, all shift.
+    raise ApplicationHandlerStop
 
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -52,6 +52,15 @@ BUTTON_LABELS = sorted(
 # product name, a quantity or a price.
 _free_text = filters.TEXT & ~filters.COMMAND & ~filters.Text(BUTTON_LABELS)
 
+# A live location arrives once as a message and then as a stream of *edits* to
+# that same message, one every few seconds while the worker moves. The two mean
+# completely different things -- "open my shift" and "I am still here" -- and
+# PTB applies no update-type restriction of its own, so a plain
+# ``filters.LOCATION`` would hand every edit to the open-a-shift handler and
+# answer "you are already on shift" all afternoon. They are told apart here.
+_shared_location = filters.LOCATION & ~filters.UpdateType.EDITED_MESSAGE
+_moved = filters.LOCATION & filters.UpdateType.EDITED_MESSAGE
+
 
 def build() -> Application:
     application = ApplicationBuilder().token(settings.bot_token).post_shutdown(_shutdown).build()
@@ -105,19 +114,25 @@ def build() -> Application:
                 _exact(texts.BTN_SEND_LOCATION),
                 closeout.escape(common.location_from_desktop),
             ),
-            MessageHandler(filters.LOCATION, closeout.escape(shift.handle_location)),
+            MessageHandler(_shared_location, closeout.escape(shift.handle_location)),
         ],
         # Long: a cashier writing up a busy day gets interrupted by customers.
         conversation_timeout=1800,
         per_message=False,
     )
 
+    # Group -1, ahead of everything: a live location moving is not a thing the
+    # worker did, and it must not disturb whatever they are doing. Handled
+    # first, then stopped, so the write-up conversation never sees it and never
+    # treats it as a way out of the flow.
+    application.add_handler(MessageHandler(_moved, shift.handle_live_update), group=-1)
+
     application.add_handler(CommandHandler("start", shift.start))
     application.add_handler(CommandHandler("help", common.help_command))
     application.add_handler(closeout_flow)
 
     application.add_handler(MessageHandler(_exact(texts.BTN_OPEN), shift.ask_location))
-    application.add_handler(MessageHandler(filters.LOCATION, shift.handle_location))
+    application.add_handler(MessageHandler(_shared_location, shift.handle_location))
     # The label arriving as text means the tap produced no location: Telegram
     # Desktop cannot share one. Say so, instead of letting it fall through.
     application.add_handler(

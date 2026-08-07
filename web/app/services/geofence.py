@@ -1,4 +1,4 @@
-"""Deciding which store a worker is standing in.
+﻿"""Deciding which store a worker is standing in.
 
 This runs on the server, against ``stores.lat/lng/radius_m``. The bot forwards a
 raw coordinate and nothing else — it holds no store list, no radius and no
@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass
 
 from app.config import settings
+from app.db import db
 from app.errors import BotError
 from app.repo import stores as stores_repo
 from app.texts import no_store_in_range_message
@@ -70,6 +71,21 @@ async def match_store(owner_id: int, lat: float, lng: float) -> Match:
         (c for c in candidates if c.within), key=lambda c: (c.distance_m, c.id)
     )
     return Match(matched=inside[0] if inside else None, candidates=candidates)
+
+
+async def distance_to(
+    store_lat: float, store_lng: float, lat: float, lng: float
+) -> int:
+    """Metres between a store and a point, by the same function the geofence uses.
+
+    Goes to Postgres rather than repeating the haversine in Python: one
+    definition of distance means a tracked position and a check-in can never
+    disagree about how far away the same point is.
+    """
+    metres = await db.fetchval(
+        "SELECT distance_m($1, $2, $3, $4)", store_lat, store_lng, lat, lng
+    )
+    return int(round(metres))
 
 
 async def require_store(

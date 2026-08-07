@@ -38,16 +38,17 @@ async def dismiss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def location_from_desktop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """The button's label arrived as text, so the tap produced no location.
+    """Somebody sent a plain location, or tapped a location button, on desktop.
 
-    That is what Telegram Desktop does — it renders the button but cannot attach
-    a coordinate. Without this handler the label falls through to the sell flow
-    and the worker is told they are not on shift, which is true but baffling.
+    Telegram Desktop cannot share a live location at all — no menu item, no
+    button that works. Without this the message falls through to the write-up
+    flow and the worker is told they are not on shift, which is true and
+    baffling. The one useful thing to say is "do this on your phone".
     """
     await update.effective_message.reply_text(
-        texts.LOCATION_ONLY_FROM_PHONE.format(button=texts.BTN_SEND_LOCATION),
+        texts.LOCATION_ONLY_FROM_PHONE,
         parse_mode=ParseMode.HTML,
-        reply_markup=keyboards.request_location(),
+        reply_markup=keyboards.off_shift(),
     )
 
 

@@ -60,10 +60,29 @@
           <li>
             <strong>{{ w.name }}</strong>
             <span class="muted">{{ w.started_at | clock }}-ից · {{ w.started_at | duration }}</span>
-            {% if w.start_distance_m is not none %}
-              <span class="muted small">· {{ w.start_distance_m }} մ</span>
-            {% endif %}
             <span class="muted small">· աշխատավարձ {{ w.salary_amount | money }}</span>
+            {# Where they are now, from the live location they shared to open
+               the shift. Recorded, never acted on: stepping out is not the
+               system's business to prevent, only the owner's to see. #}
+            <div class="small {% if w.left_area_at %}negative{% else %}muted{% endif %}">
+              📍
+              {% if w.last_distance_m is not none %}
+                {{ w.last_distance_m }} մ
+                {%- if w.last_distance_m > 0 and w.left_area_at %} — խանութից դուրս{% endif %}
+              {% else %}
+                տեղորոշում չկա
+              {% endif %}
+              {%- if w.last_ping_at %} · {{ w.last_ping_at | clock }}{% endif %}
+              {%- if w.live_now %}
+                <span class="badge open">ուղիղ</span>
+              {% elif w.live_until %}
+                <span class="badge" title="Կենդանի տեղորոշման ժամկետը լրացել է">
+                  ավարտվել է {{ w.live_until | clock }}</span>
+              {% endif %}
+              {%- if w.left_area_at and not w.last_distance_m %}
+                · դուրս է եկել {{ w.left_area_at | clock }}-ին
+              {% endif %}
+            </div>
           </li>
         {% endfor %}
       </ul>

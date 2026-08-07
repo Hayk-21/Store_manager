@@ -1,4 +1,4 @@
-"""The error types the whole application raises, and their HTTP mapping.
+﻿"""The error types the whole application raises, and their HTTP mapping.
 
 Two kinds:
 
@@ -28,6 +28,7 @@ STATUS_BY_CODE: dict[str, int] = {
     "no_store_in_range": 422,
     "no_stores_located": 422,
     "location_too_vague": 422,
+    "location_not_live": 422,
     "session_already_open": 409,
     "no_open_session": 409,
     "store_not_open": 409,

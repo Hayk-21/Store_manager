@@ -223,7 +223,7 @@ async def test_binding_also_happens_when_opening_a_store(client, bot_headers):
         f"{BASE}/store/open",
         json={"telegram_id": TG_ID, "telegram_username": "justhayk",
               "telegram_name": "Գոռ", "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20,
-              "idempotency_key": "idem-key-open-01"},
+              "idempotency_key": "idem-key-open-01", "live_period": 900},
         headers=bot_headers,
     )
 
@@ -273,7 +273,7 @@ async def test_the_name_shows_up_in_reports(client, bot_headers):
     await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": TG_ID, "telegram_username": "justhayk", "telegram_name": "Գոռ",
-              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01"},
+              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01", "live_period": 900},
         headers=bot_headers,
     )
     session_id = await db.fetchval("SELECT id FROM store_sessions")
@@ -306,7 +306,7 @@ async def test_a_per_shift_worker_is_paid_out_of_the_till(client, bot_headers):
     await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": TG_ID, "telegram_username": "justhayk",
-              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01"},
+              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01", "live_period": 900},
         headers=bot_headers,
     )
 
@@ -328,7 +328,7 @@ async def test_a_monthly_worker_costs_the_till_nothing_at_shift_end(client, bot_
     await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": TG_ID, "telegram_username": "justhayk",
-              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01"},
+              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01", "live_period": 900},
         headers=bot_headers,
     )
 
@@ -350,7 +350,7 @@ async def test_a_monthly_worker_is_not_paid_by_a_forced_close_either(client, bot
     await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": TG_ID, "telegram_username": "justhayk",
-              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01"},
+              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01", "live_period": 900},
         headers=bot_headers,
     )
     session_id = await db.fetchval("SELECT id FROM store_sessions")
@@ -408,7 +408,7 @@ async def test_removing_someone_who_worked_keeps_their_history(client, bot_heade
     await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": TG_ID, "telegram_username": "justhayk", "telegram_name": "Գոռ",
-              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01"},
+              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01", "live_period": 900},
         headers=bot_headers,
     )
     await client.post(
@@ -435,7 +435,7 @@ async def test_a_removed_worker_is_off_the_list(client, bot_headers):
     await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": TG_ID, "telegram_username": "justhayk",
-              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01"},
+              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01", "live_period": 900},
         headers=bot_headers,
     )
     await client.post(
@@ -461,7 +461,7 @@ async def test_removing_a_worker_frees_their_handle_for_the_next_person(client, 
     await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": TG_ID, "telegram_username": "justhayk",
-              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01"},
+              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01", "live_period": 900},
         headers=bot_headers,
     )
     await client.post(
@@ -482,7 +482,7 @@ async def test_somebody_on_shift_cannot_be_removed(client, bot_headers):
     await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": TG_ID, "telegram_username": "justhayk",
-              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01"},
+              "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01", "live_period": 900},
         headers=bot_headers,
     )
     worker_id = await db.fetchval("SELECT id FROM workers")

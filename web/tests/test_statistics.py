@@ -42,7 +42,7 @@ async def _sold(
     worker = shifts_service.Worker(
         id=worker_id, owner_id=owner_id, name=worker_name, salary_amount=Decimal(salary)
     )
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, f"open-{key}")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, f"open-{key}", 900)
     await shifts_service.close_out_shift(
         worker, lines, f"close-{key}", close_store_too=True
     )

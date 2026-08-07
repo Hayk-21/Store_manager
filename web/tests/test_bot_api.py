@@ -26,11 +26,12 @@ async def _world(salary: str = "8000.00", stock: int = 10):
     return owner_id, store_id, worker_id, telegram_id, item_id
 
 
-async def _open(client, headers, telegram_id, key="idem-key-open-01"):
+async def _open(client, headers, telegram_id, key="idem-key-open-01", live_period=900):
+    """Opening a shift needs a live location; 900s is Telegram's shortest span."""
     return await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": telegram_id, "lat": YEREVAN_LAT, "lng": YEREVAN_LNG,
-              "accuracy_m": 20, "idempotency_key": key},
+              "accuracy_m": 20, "idempotency_key": key, "live_period": live_period},
         headers=headers,
     )
 
@@ -140,7 +141,7 @@ async def test_opening_out_of_range_says_how_far(client, bot_headers):
     response = await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": telegram_id, "lat": FAR_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20,
-              "idempotency_key": "idem-key-open-01"},
+              "idempotency_key": "idem-key-open-01", "live_period": 900},
         headers=bot_headers,
     )
 
@@ -158,7 +159,7 @@ async def test_the_bot_cannot_name_its_own_store(client, bot_headers):
     response = await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": telegram_id, "lat": YEREVAN_LAT, "lng": YEREVAN_LNG,
-              "accuracy_m": 20, "store_id": store_id, "idempotency_key": "idem-key-open-01"},
+              "accuracy_m": 20, "store_id": store_id, "idempotency_key": "idem-key-open-01", "live_period": 900},
         headers=bot_headers,
     )
 

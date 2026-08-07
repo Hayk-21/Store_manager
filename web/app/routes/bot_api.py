@@ -30,6 +30,7 @@ from app.schemas import (
     CloseoutRequest,
     CloseStoreRequest,
     EndShiftRequest,
+    LocationPingRequest,
     OpenStoreRequest,
     SaleRequest,
     VoidRequest,
@@ -194,10 +195,25 @@ async def checkin(body: CheckinRequest) -> dict:
 
 @router.post("/store/open", status_code=201)
 async def open_store(body: OpenStoreRequest) -> dict:
-    """Requirement 8: location in, attached to a store."""
+    """Requirement 8: live location in, attached to a store."""
     worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
     return await shifts_service.open_store(
-        worker, body.lat, body.lng, body.accuracy_m, body.idempotency_key
+        worker, body.lat, body.lng, body.accuracy_m, body.idempotency_key,
+        live_period=body.live_period,
+    )
+
+
+@router.post("/location/ping")
+async def location_ping(body: LocationPingRequest) -> dict:
+    """One reading from a live location, while the shift runs.
+
+    Telegram edits the original message as the device moves and the bot forwards
+    each edit here. Cheap on purpose: no idempotency key, no locking, one insert
+    and one update — this is called every time a worker walks down the street.
+    """
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
+    return await shifts_service.record_position(
+        worker, body.lat, body.lng, body.accuracy_m
     )
 
 

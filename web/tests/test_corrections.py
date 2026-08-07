@@ -1,4 +1,4 @@
-"""Correcting the books, and undoing the corrections.
+﻿"""Correcting the books, and undoing the corrections.
 
 The property under test throughout: a correction never destroys anything, so
 every one of them can be put back. The ledger stays the source of truth and a
@@ -33,7 +33,7 @@ async def _a_closed_shift(stock: int = 20, sold: int = 3, salary: str = "8000.00
     worker = shifts_service.Worker(
         id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal(salary)
     )
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1", 900)
     await shifts_service.close_out_shift(
         worker,
         [{"item_id": item_id, "quantity": sold, "unit_price": "3500.00",

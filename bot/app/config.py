@@ -40,9 +40,6 @@ class Settings:
         # Off by default: it forces the worker to share a *live* location from
         # the attachment menu rather than tapping the button, which is the only
         # thing Telegram offers that cannot be aimed at a chosen point.
-        self.require_live_location = (
-            os.getenv("REQUIRE_LIVE_LOCATION", "").strip().lower() in {"1", "true", "yes", "on"}
-        )
 
 
 settings = Settings()

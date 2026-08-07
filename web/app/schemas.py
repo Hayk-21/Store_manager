@@ -51,6 +51,22 @@ class OpenStoreRequest(LocationRequest):
     # locked honest workers out of their own shift. When it *is* present it is
     # still used -- a reading too vague to tell two neighbouring shops apart is
     # refused by the geofence.
+    #
+    # live_period is the one thing that does separate a real position from a pin
+    # dropped on the map: Telegram only sets it when the device is streaming its
+    # location for a chosen span. Optional in the schema and required in the
+    # service, so a missing value is a refusal with a sentence the worker can act
+    # on rather than a 422 full of field paths.
+    live_period: int | None = Field(default=None, ge=0)
+
+
+class LocationPingRequest(LocationRequest):
+    """One reading from a live location that is already running.
+
+    No idempotency key: this is a stream of observations, and recording the same
+    position twice costs a duplicate row and nothing else. Anything that must not
+    happen twice does not go through here.
+    """
 
 
 class EndShiftRequest(IdempotentRequest):

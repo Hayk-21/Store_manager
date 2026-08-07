@@ -27,7 +27,7 @@ async def _a_closed_session():
     worker = shifts_service.Worker(
         id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("8000.00")
     )
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-1")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-1", 900)
     await shifts_service.close_out_shift(
         worker,
         [{"item_id": item_id, "quantity": 3, "unit_price": "3500.00",

@@ -29,7 +29,7 @@ async def _open_store(salary: str = "0.00"):
     worker = shifts_service.Worker(
         id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal(salary)
     )
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1", 900)
     session_id = await db.fetchval("SELECT id FROM store_sessions WHERE closed_at IS NULL")
     return owner_id, store_id, worker, session_id
 
@@ -112,7 +112,7 @@ async def test_one_sessions_money_never_leaks_into_another(client):
     )
     await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
 
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-2")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-2", 900)
     second_session = await db.fetchval("SELECT id FROM store_sessions WHERE closed_at IS NULL")
 
     assert (await money_repo.totals_for_session(second_session))["cash"] == Decimal("0")
@@ -212,7 +212,7 @@ async def test_another_owners_session_cannot_be_closed(client):
     other_worker = shifts_service.Worker(
         id=other_worker_id, owner_id=other_owner, name="Բ", salary_amount=Decimal("0")
     )
-    await shifts_service.open_store(other_worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-9")
+    await shifts_service.open_store(other_worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-9", 900)
     their_session = await db.fetchval("SELECT id FROM store_sessions")
 
     await login(client, "@ownerhandle")

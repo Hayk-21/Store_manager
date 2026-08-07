@@ -44,7 +44,7 @@ async def _setup(salary: str = "8000.00", radius_m: int = 120):
 async def test_opening_creates_a_store_session_and_a_shift(client):
     owner_id, store_id, worker, _ = await _setup()
 
-    result = await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
+    result = await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
 
     assert result["duplicate"] is False
     assert result["session"]["store_id"] == store_id
@@ -57,7 +57,7 @@ async def test_opening_out_of_range_attaches_nobody(client):
     owner_id, store_id, worker, _ = await _setup()
 
     with pytest.raises(BotError) as caught:
-        await shifts_service.open_store(worker, FAR_LAT, YEREVAN_LNG, 20, KEY)
+        await shifts_service.open_store(worker, FAR_LAT, YEREVAN_LNG, 20, KEY, 900)
 
     assert caught.value.code == "no_store_in_range"
     assert await db.fetchval("SELECT count(*) FROM store_sessions") == 0
@@ -67,8 +67,8 @@ async def test_opening_out_of_range_attaches_nobody(client):
 async def test_opening_twice_with_the_same_key_is_one_shift(client):
     _, _, worker, _ = await _setup()
 
-    first = await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
-    second = await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
+    first = await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
+    second = await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
 
     assert first["duplicate"] is False and second["duplicate"] is True
     assert first["session"]["id"] == second["session"]["id"]
@@ -77,10 +77,10 @@ async def test_opening_twice_with_the_same_key_is_one_shift(client):
 
 async def test_opening_twice_with_different_keys_is_refused(client):
     _, _, worker, _ = await _setup()
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
 
     with pytest.raises(BotError) as caught:
-        await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-other-1")
+        await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-other-1", 900)
 
     assert caught.value.code == "session_already_open"
     assert caught.value.status == 409
@@ -94,8 +94,8 @@ async def test_two_workers_share_one_store_session(client):
     second_id, _ = await make_worker(owner_id, salary_amount="6000.00")
     second = await _worker_of(owner_id, second_id, "6000.00")
 
-    a = await shifts_service.open_store(first, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa")
-    b = await shifts_service.open_store(second, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-bbbb")
+    a = await shifts_service.open_store(first, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa", 900)
+    b = await shifts_service.open_store(second, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-bbbb", 900)
 
     assert a["session"]["store_session_id"] == b["session"]["store_session_id"]
     assert await db.fetchval("SELECT count(*) FROM store_sessions") == 1
@@ -107,7 +107,7 @@ async def test_two_workers_share_one_store_session(client):
 async def test_ending_a_shift_takes_the_salary_out_of_cash(client):
     """Requirement 5."""
     _, _, worker, _ = await _setup(salary="8000.00")
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
 
     result = await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
 
@@ -122,7 +122,7 @@ async def test_ending_a_shift_takes_the_salary_out_of_cash(client):
 async def test_the_salary_is_snapshotted_and_survives_a_later_rate_change(client):
     """What a past shift cost must not change when the rate does."""
     owner_id, _, worker, _ = await _setup(salary="8000.00")
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
     await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
 
     await db.execute("UPDATE workers SET salary_amount = 99999.00 WHERE id = $1", worker.id)
@@ -135,7 +135,7 @@ async def test_a_shift_can_only_ever_pay_its_salary_once(client):
     import asyncpg
 
     _, _, worker, _ = await _setup()
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
     await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
     shift = await db.fetchrow("SELECT * FROM work_sessions")
 
@@ -152,7 +152,7 @@ async def test_a_shift_can_only_ever_pay_its_salary_once(client):
 
 async def test_a_zero_salary_writes_no_movement(client):
     _, _, worker, _ = await _setup(salary="0.00")
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
 
     await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
 
@@ -161,7 +161,7 @@ async def test_a_zero_salary_writes_no_movement(client):
 
 async def test_ending_a_shift_twice_is_refused_after_the_replay_window(client):
     _, _, worker, _ = await _setup()
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
     await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
 
     replay = await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
@@ -176,7 +176,7 @@ async def test_ending_a_shift_twice_is_refused_after_the_replay_window(client):
 
 async def test_the_last_worker_out_closes_the_store(client):
     _, store_id, worker, _ = await _setup()
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
 
     result = await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
 
@@ -188,8 +188,8 @@ async def test_the_store_stays_open_while_somebody_is_still_working(client):
     owner_id, store_id, first, _ = await _setup()
     second_id, _ = await make_worker(owner_id)
     second = await _worker_of(owner_id, second_id)
-    await shifts_service.open_store(first, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa")
-    await shifts_service.open_store(second, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-bbbb")
+    await shifts_service.open_store(first, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa", 900)
+    await shifts_service.open_store(second, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-bbbb", 900)
 
     result = await shifts_service.end_shift(first, None, None, "idem-key-end-01")
 
@@ -201,8 +201,8 @@ async def test_closing_the_store_ends_everyone_and_pays_every_salary(client):
     owner_id, store_id, first, _ = await _setup(salary="8000.00")
     second_id, _ = await make_worker(owner_id, salary_amount="6000.00")
     second = await _worker_of(owner_id, second_id, "6000.00")
-    await shifts_service.open_store(first, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa")
-    await shifts_service.open_store(second, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-bbbb")
+    await shifts_service.open_store(first, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa", 900)
+    await shifts_service.open_store(second, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-bbbb", 900)
 
     await shifts_service.close_store(first, "idem-key-close-1")
 
@@ -216,7 +216,7 @@ async def test_closing_snapshots_the_till_and_resets_the_visible_total(client):
     from app.repo import money as money_repo
 
     _, store_id, worker, _ = await _setup(salary="3000.00")
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
     session_id = await db.fetchval("SELECT id FROM store_sessions")
     # Pretend a sale happened.
     await db.execute(
@@ -248,7 +248,7 @@ async def test_the_store_can_be_opened_again_and_starts_from_zero(client):
     from app.repo import money as money_repo
 
     owner_id, store_id, worker, _ = await _setup(salary="0.00")
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa", 900)
     first_session = await db.fetchval("SELECT id FROM store_sessions")
     await db.execute(
         """
@@ -259,7 +259,7 @@ async def test_the_store_can_be_opened_again_and_starts_from_zero(client):
     )
     await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
 
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-bbbb")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-bbbb", 900)
 
     footer = await money_repo.totals_by_store(owner_id)
     row = next(r for r in footer if r["id"] == store_id)
@@ -270,7 +270,7 @@ async def test_the_store_can_be_opened_again_and_starts_from_zero(client):
 async def test_cash_is_allowed_to_go_negative(client):
     """A store can genuinely owe wages it has not taken in. Clamping would hide it."""
     _, _, worker, _ = await _setup(salary="8000.00")
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
 
     await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
 
@@ -281,7 +281,7 @@ async def test_cash_is_allowed_to_go_negative(client):
 
 async def test_the_owner_can_force_close_a_forgotten_shift(client):
     owner_id, _, worker, _ = await _setup()
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
     session_id = await db.fetchval("SELECT id FROM store_sessions")
 
     await shifts_service.close_store_session_as_owner(owner_id, session_id)
@@ -296,7 +296,7 @@ async def test_the_owner_can_force_close_a_forgotten_shift(client):
 async def test_a_forgotten_store_is_auto_closed_and_the_salary_still_paid(client):
     """Without this, a worker who never pressed "close" could not start tomorrow."""
     _, _, worker, _ = await _setup(salary="8000.00")
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
     await db.execute("UPDATE store_sessions SET opened_at = now() - interval '17 hours'")
 
     closed = await shifts_service.auto_close_stale()
@@ -311,7 +311,7 @@ async def test_a_forgotten_store_is_auto_closed_and_the_salary_still_paid(client
 
 async def test_a_store_open_for_a_normal_day_is_left_alone(client):
     _, _, worker, _ = await _setup()
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY)
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
     await db.execute("UPDATE store_sessions SET opened_at = now() - interval '9 hours'")
 
     assert await shifts_service.auto_close_stale() == 0

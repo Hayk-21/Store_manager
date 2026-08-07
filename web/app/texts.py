@@ -1,4 +1,4 @@
-"""Server-owned, display-ready Armenian wording.
+﻿"""Server-owned, display-ready Armenian wording.
 
 The bot prints ``error.message`` verbatim rather than translating a code, so the
 wording lives here and cannot drift between the two services. The cost is that
@@ -23,6 +23,16 @@ ERROR_MESSAGES: dict[str, str] = {
     "no_stores_located": "Ոչ մի խանութի կոորդինատները նշված չեն։ Դիմեք ղեկավարին։",
     "location_too_vague": (
         "Տեղորոշումը բավականաչափ ճշգրիտ չէ։ Դուրս եկեք բաց տարածք և կրկին ուղարկեք։"
+    ),
+    # Deliberately a set of instructions rather than a complaint: "live location"
+    # is a menu item most people have never used, and being told no without
+    # being told how is a dead end.
+    "location_not_live": (
+        "Անհրաժեշտ է կենդանի տեղորոշում (Live Location)։\n\n"
+        "Հեռախոսում՝ 📎 → «Location» → «Share My Live Location» → "
+        "ընտրեք 15 րոպե և ուղարկեք։\n\n"
+        "Սովորական տեղորոշումը կարելի է ձեռքով նշել քարտեզին, դրա համար այն "
+        "չի ընդունվում։ Համակարգչի Telegram-ը կենդանի տեղորոշում ուղարկել չի կարող։"
     ),
     # shift state
     "session_already_open": "Դուք արդեն հերթափոխի մեջ եք։",

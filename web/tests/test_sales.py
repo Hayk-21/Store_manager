@@ -27,7 +27,7 @@ async def _open_shift(salary: str = "0.00"):
     worker = shifts_service.Worker(
         id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal(salary)
     )
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1", 900)
     item_id = await make_item(owner_id, store_id, "HQD Cuvie", count=10,
                               self_price="1500.00", sell_price="3500.00")
     return owner_id, store_id, worker, item_id, telegram_id
@@ -303,7 +303,7 @@ async def test_a_sale_from_an_earlier_shift_cannot_be_reached(client):
     _, _, worker, item_id, _ = await _open_shift()
     await sales_service.record_sale(worker, [{"item_id": item_id, "quantity": 1}], "cash", SALE_KEY)
     await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
-    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-2")
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-2", 900)
 
     with pytest.raises(BotError) as caught:
         await sales_service.void_last_sale(worker)

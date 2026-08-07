@@ -1,4 +1,4 @@
-"""Writing the day up at the end of a shift.
+﻿"""Writing the day up at the end of a shift.
 
 The cashier serves customers without touching the bot and declares everything
 once, at the end. Either the whole declaration lands with the shift closed and
@@ -32,7 +32,7 @@ async def _open(client, headers, telegram_id):
     return await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": telegram_id, "lat": YEREVAN_LAT, "lng": YEREVAN_LNG,
-              "accuracy_m": 20, "idempotency_key": "idem-key-open-01"},
+              "accuracy_m": 20, "idempotency_key": "idem-key-open-01", "live_period": 900},
         headers=headers,
     )
 
@@ -215,7 +215,7 @@ async def test_asking_to_close_the_store_closes_it_for_everyone(client, bot_head
     await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": second_tg, "lat": YEREVAN_LAT, "lng": YEREVAN_LNG,
-              "accuracy_m": 20, "idempotency_key": "idem-key-open-02"},
+              "accuracy_m": 20, "idempotency_key": "idem-key-open-02", "live_period": 900},
         headers=bot_headers,
     )
 
@@ -238,7 +238,7 @@ async def test_a_colleague_still_working_keeps_the_store_open(client, bot_header
     await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": second_tg, "lat": YEREVAN_LAT, "lng": YEREVAN_LNG,
-              "accuracy_m": 20, "idempotency_key": "idem-key-open-02"},
+              "accuracy_m": 20, "idempotency_key": "idem-key-open-02", "live_period": 900},
         headers=bot_headers,
     )
 
