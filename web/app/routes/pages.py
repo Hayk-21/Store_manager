@@ -193,15 +193,23 @@ async def add_item(
     user: CurrentUser = Depends(require_csrf),
 ):
     await _store_or_404(user.id, store_id)
-    await items_repo.create(
+    clean_name = forms.text(name, "Անվանում", max_length=200)
+    item_id = await items_repo.create(
         owner_id=user.id,
         store_id=store_id,
-        name=forms.text(name, "Անվանում", max_length=200),
+        name=clean_name,
         count=forms.whole(count, "Քանակ", default=0),
         self_price=forms.money(self_price, "Ինքնարժեք", default=None),
         sell_price=forms.money(sell_price, "Մանրածախ գին", default=None),
         wholesale_price=forms.optional_money(wholesale_price, "Մեծածախ գին"),
     )
+    if item_id is None:
+        # The name belongs to an item that is still on the list. Overwriting it
+        # would replace somebody's prices without saying so.
+        raise AppError(
+            "validation_error",
+            f"«{clean_name}» արդեն կա այս խանութում։ Խմբագրեք ցուցակի տողը։",
+        )
     return render(
         request, "_items_table.html", await _items_context(user.id, store_id, "name", False)
     )
@@ -212,15 +220,20 @@ async def edit_item(
     request: Request,
     item_id: int,
     name: str = Form(""),
+    count: str = Form(""),
     self_price: str = Form(""),
     sell_price: str = Form(""),
     wholesale_price: str = Form(""),
     user: CurrentUser = Depends(require_csrf),
 ):
+    """One row, one save: the name, the prices and the count together.
+
+    The count is written as typed rather than as a delta. It is what the owner
+    just counted off the shelf, so it is the last word.
+    """
     item = await items_repo.get(user.id, item_id)
     if item is None or not item["is_active"]:
         raise AppError("not_found", "Ապրանքը չի գտնվել։")
-    # Count is intentionally not editable here; see items_repo.update_details.
     await items_repo.update_details(
         owner_id=user.id,
         item_id=item_id,
@@ -228,32 +241,8 @@ async def edit_item(
         self_price=forms.money(self_price, "Ինքնարժեք"),
         sell_price=forms.money(sell_price, "Մանրածախ գին"),
         wholesale_price=forms.optional_money(wholesale_price, "Մեծածախ գին"),
+        count=forms.whole(count, "Քանակ", minimum=0, maximum=1_000_000),
     )
-    return render(
-        request,
-        "_items_table.html",
-        await _items_context(user.id, item["store_id"], "name", False),
-    )
-
-
-@router.post("/items/{item_id}/restock")
-async def restock_item(
-    request: Request,
-    item_id: int,
-    delta: str = Form(""),
-    user: CurrentUser = Depends(require_csrf),
-):
-    item = await items_repo.get(user.id, item_id)
-    if item is None or not item["is_active"]:
-        raise AppError("not_found", "Ապրանքը չի գտնվել։")
-    amount = forms.whole(delta, "Քանակ", minimum=-1_000_000, maximum=1_000_000)
-    if amount == 0:
-        raise AppError("validation_error", "Քանակը 0 է — փոփոխելու բան չկա։")
-    if await items_repo.restock(user.id, item_id, amount) is None:
-        raise AppError(
-            "validation_error",
-            f"«{item['name']}» — պահեստում կա ընդամենը {item['count']} հատ։",
-        )
     return render(
         request,
         "_items_table.html",

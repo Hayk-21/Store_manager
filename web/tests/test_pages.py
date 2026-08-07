@@ -73,8 +73,7 @@ async def test_the_five_columns_are_on_the_store_page(client):
     response = await client.get(f"/stores/{store_id}")
 
     for header in (
-        "Անուն", "Քանակ", "Ինքնարժեք", "Մեծածախ", "Մանրածախ",
-        "Շահույթ/հատ", "Հնարավոր շահույթ",
+        "Անուն", "Քանակ", "Ինքնարժեք", "Մեծածախ", "Մանրածախ", "Հնարավոր շահույթ",
     ):
         assert header in response.text, f"missing column {header}"
     # possible_profit = (3500 - 1500) * 10
@@ -95,20 +94,27 @@ async def test_possible_profit_follows_the_columns_behind_it(client):
 
     await client.post(
         f"/items/{item_id}",
-        data={"name": "HQD", "self_price": "1000.00", "sell_price": "3500.00",
-              "csrf_token": await _token(owner_id)},
+        data={"name": "HQD", "count": "10", "self_price": "1000.00",
+              "sell_price": "3500.00", "csrf_token": await _token(owner_id)},
     )
     assert await profit() == Decimal("25000.00")
 
     await client.post(
-        f"/items/{item_id}/restock",
-        data={"delta": "5", "csrf_token": await _token(owner_id)},
+        f"/items/{item_id}",
+        data={"name": "HQD", "count": "15", "self_price": "1000.00",
+              "sell_price": "3500.00", "csrf_token": await _token(owner_id)},
     )
     assert await profit() == Decimal("37500.00")
 
 
-async def test_editing_an_item_never_writes_an_absolute_count(client):
-    """A count written from a stale page would silently undo a bot sale."""
+async def test_the_count_is_written_as_the_owner_typed_it(client):
+    """It is what they counted off the shelf, so it is the last word.
+
+    This replaces a rule that refused to write the count at all, on the grounds
+    that a sale might land between the page rendering and the form being sent.
+    That protected a race nobody hit and removed the only way to correct a wrong
+    figure, which people hit constantly.
+    """
     owner_id = await _signed_in(client)
     store_id = await make_store(owner_id)
     item_id = await make_item(owner_id, store_id, count=10)
@@ -117,24 +123,25 @@ async def test_editing_an_item_never_writes_an_absolute_count(client):
         f"/items/{item_id}",
         data={
             "name": "renamed",
-            "count": "999",          # present in the payload and must be ignored
+            "count": "999",
             "self_price": "1500.00",
             "sell_price": "3500.00",
             "csrf_token": await _token(owner_id),
         },
     )
 
-    assert await db.fetchval("SELECT count FROM items WHERE id = $1", item_id) == 10
+    assert await db.fetchval("SELECT count FROM items WHERE id = $1", item_id) == 999
 
 
-async def test_restock_cannot_drive_the_count_negative(client):
+async def test_the_count_cannot_be_set_negative(client):
     owner_id = await _signed_in(client)
     store_id = await make_store(owner_id)
     item_id = await make_item(owner_id, store_id, count=3)
 
     response = await client.post(
-        f"/items/{item_id}/restock",
-        data={"delta": "-5", "csrf_token": await _token(owner_id)},
+        f"/items/{item_id}",
+        data={"name": "x", "count": "-5", "self_price": "1500.00",
+              "sell_price": "3500.00", "csrf_token": await _token(owner_id)},
     )
 
     assert response.status_code == 422

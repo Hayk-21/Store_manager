@@ -297,12 +297,25 @@ td select { width: auto; padding: 5px 8px; }
 
 /* -- stock table ----------------------------------------------------------- */
 
+/* The stock table has to fit the page. Every field in it is an input, and
+   fixed-width inputs are what pushed it off the right-hand edge -- the owner
+   had to scroll sideways to see the profit column, which is the one they came
+   for. So the cells are given shares of the width and the inputs fill their
+   cell, whatever that turns out to be. */
+table.items { table-layout: fixed; }
 table.items td { vertical-align: middle; }
-table.items .cell-name input { min-width: 150px; }
-/* The count, the +N box and the button are one unit; letting the button wrap
-   below the input made the row look broken. */
-.stock-cell { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.stock-now { font-variant-numeric: tabular-nums; min-width: 2ch; text-align: right; }
+table.items th:first-child, table.items td:first-child { width: auto; }
+table.items .cell-name input { width: 100%; min-width: 0; }
+table.items td.num input { width: 100%; min-width: 0; }
+table.items th.num:nth-child(2), table.items td.num:nth-child(2) { width: 8ch; }
+table.items th.num:nth-child(3), table.items td.num:nth-child(3),
+table.items th.num:nth-child(4), table.items td.num:nth-child(4),
+table.items th.num:nth-child(5), table.items td.num:nth-child(5) { width: 11ch; }
+table.items th.num:nth-child(6), table.items td.num:nth-child(6) { width: 15ch; }
+table.items th:last-child, table.items td:last-child { width: 11ch; }
+/* Counted off the shelf, so it reads as a figure rather than a text box. */
+.count-input { text-align: right; font-variant-numeric: tabular-nums; padding: 5px 8px; }
+.count-input.negative { color: var(--bad); }
 .cell-actions { white-space: nowrap; }
 .cell-actions button + button { margin-left: 6px; }
 
@@ -576,3 +589,14 @@ form.inline { display: inline; margin: 0; }
    one is what the shop sold, the other is what is in the drawer right now. */
 .chip .chip-row.chip-till { border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 4px; }
 .chip .chip-row.chip-till span:first-child { color: var(--muted); }
+
+/* Below the card breakpoint the fixed layout is meaningless -- each row is a
+   list of labelled fields, so the widths above must not survive. */
+@media (max-width: 1200px) {
+  table.items { table-layout: auto; }
+  table.items th.num, table.items td.num,
+  table.items th:first-child, table.items td:first-child,
+  table.items th:last-child, table.items td:last-child { width: auto; }
+  table.items td.num input, table.items .cell-name input { width: auto; }
+  .count-input { width: 6ch; }
+}

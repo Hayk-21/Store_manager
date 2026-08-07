@@ -73,12 +73,36 @@ async def create(
     self_price: Decimal,
     sell_price: Decimal,
     wholesale_price: Decimal | None = None,
-) -> int:
+) -> int | None:
+    """Add an item, or bring back one that was deleted under the same name.
+
+    Deleting is a soft delete — past sale lines reference the row forever — but
+    the name index covers deleted rows too, so the name stayed taken. Adding the
+    product back therefore failed against a row the owner could no longer see,
+    which is the worst kind of failure: nothing on screen explains it.
+
+    Reviving is better than allowing a second row: the product keeps the sales
+    history it already has, and a shop never ends up with two "HQD Cuvie" that
+    mean the same thing.
+
+    Returns ``None`` when the name belongs to an item that is still *active* —
+    that is a real collision and the caller should say so rather than silently
+    overwrite somebody's prices.
+    """
     return await db.fetchval(
         """
         INSERT INTO items (owner_id, store_id, name, count, self_price, sell_price,
                            wholesale_price)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (store_id, lower(btrim(name))) DO UPDATE
+           SET is_active = true,
+               name = EXCLUDED.name,
+               count = EXCLUDED.count,
+               self_price = EXCLUDED.self_price,
+               sell_price = EXCLUDED.sell_price,
+               wholesale_price = EXCLUDED.wholesale_price,
+               updated_at = now()
+         WHERE NOT items.is_active
         RETURNING id
         """,
         owner_id,
@@ -98,16 +122,25 @@ async def update_details(
     self_price: Decimal,
     sell_price: Decimal,
     wholesale_price: Decimal | None = None,
+    count: int | None = None,
 ) -> bool:
-    """Rename and reprice. Deliberately does NOT touch ``count``.
+    """Rename, reprice, and optionally set the count outright.
 
-    Writing an absolute count here would silently undo any sale the bot recorded
-    between the page rendering and the form being submitted.
+    The count is written as an absolute number because that is what the owner is
+    doing: they have counted the shelf and this is what is on it. The risk is
+    real — a sale recorded between the page loading and the form being submitted
+    is overwritten — so it is deliberately *only* written when a number was
+    typed, and it is the last word rather than an accumulated delta.
+
+    That is the correct trade for a stock count. The alternative, refusing to
+    write what the owner just counted because the number might be stale, leaves
+    them with no way to correct the figure at all.
     """
     result = await db.execute(
         """
         UPDATE items
            SET name = $3, self_price = $4, sell_price = $5, wholesale_price = $6,
+               count = coalesce($7, count),
                updated_at = now()
          WHERE id = $1 AND owner_id = $2 AND is_active
         """,
@@ -117,6 +150,7 @@ async def update_details(
         self_price,
         sell_price,
         wholesale_price,
+        count,
     )
     return result.endswith(" 1")
 
