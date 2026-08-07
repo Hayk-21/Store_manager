@@ -295,7 +295,8 @@ async def by_end_idem(owner_id: int, idem_key: str) -> asyncpg.Record | None:
 async def shifts_in_session(store_session_id: int) -> list[asyncpg.Record]:
     return await db.fetch(
         f"""
-        SELECT ws.id, {DISPLAY_NAME} AS worker_name, ws.started_at, ws.ended_at,
+        SELECT ws.id, ws.worker_id, {DISPLAY_NAME} AS worker_name,
+               ws.started_at, ws.ended_at,
                ws.salary_paid, ws.start_distance_m, ws.closed_by
           FROM work_sessions ws
           JOIN workers w ON w.id = ws.worker_id

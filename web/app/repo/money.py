@@ -1,4 +1,4 @@
-"""The ledger.
+﻿"""The ledger.
 
 Every money figure in the UI is a SUM over ``cash_movements`` filtered to one
 store session. There is no running-balance column: that is what makes "closing
@@ -95,15 +95,20 @@ async def insert_movement(
     work_session_id: int | None = None,
     worker_id: int | None = None,
     note: str | None = None,
+    created_by: str = "system",
 ) -> int:
     """Append one row. Takes an explicit connection because every caller is
-    already inside a transaction that must include this write."""
+    already inside a transaction that must include this write.
+
+    ``created_by`` separates what the system recorded from what the owner typed
+    afterwards, so a reader of the ledger can tell a fact from an amendment.
+    """
     return await conn.fetchval(
         """
         INSERT INTO cash_movements
             (owner_id, store_id, store_session_id, method, kind, amount,
-             sale_id, work_session_id, worker_id, note)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             sale_id, work_session_id, worker_id, note, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         RETURNING id
         """,
         owner_id,
@@ -116,6 +121,7 @@ async def insert_movement(
         work_session_id,
         worker_id,
         note,
+        created_by,
     )
 
 
@@ -123,7 +129,7 @@ async def ledger_for_session(store_session_id: int) -> list[asyncpg.Record]:
     """Every movement of one session, newest first — the audit trail."""
     return await db.fetch(
         f"""
-        SELECT m.id, m.method, m.kind, m.amount, m.note, m.created_at,
+        SELECT m.id, m.method, m.kind, m.amount, m.note, m.created_at, m.created_by,
                CASE WHEN w.id IS NULL THEN NULL ELSE {DISPLAY_NAME} END AS worker_name
           FROM cash_movements m
           LEFT JOIN workers w ON w.id = m.worker_id

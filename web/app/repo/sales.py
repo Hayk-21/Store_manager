@@ -1,4 +1,4 @@
-"""Receipts and their lines."""
+﻿"""Receipts and their lines."""
 
 from __future__ import annotations
 
@@ -158,14 +158,24 @@ async def receipts_in_store_session(store_session_id: int) -> list[asyncpg.Recor
     return await db.fetch(
         f"""
         SELECT sa.id, sa.total, sa.payment_method, sa.sold_at, sa.voided_at,
+               sa.superseded_by_sale_id,
                {DISPLAY_NAME} AS worker_name,
                {VOIDED_BY_NAME} AS voided_by_name,
                (SELECT string_agg(i.name || ' ×' || si.quantity, ', ' ORDER BY si.id)
                   FROM sale_items si JOIN items i ON i.id = si.item_id
-                 WHERE si.sale_id = sa.id) AS lines
+                 WHERE si.sale_id = sa.id) AS lines,
+               (SELECT count(*) FROM sale_items si WHERE si.sale_id = sa.id) AS line_count,
+               one.item_id, one.quantity, one.unit_price
           FROM sales sa
           JOIN workers w ON w.id = sa.worker_id
           LEFT JOIN workers vw ON vw.id = sa.voided_by_worker_id
+          -- The first line, so a single-line receipt can be edited in place.
+          -- A close-out writes one sale per line, so in practice that is most
+          -- of them; anything longer only gets the void button.
+          LEFT JOIN LATERAL (
+               SELECT si.item_id, si.quantity, si.unit_price
+                 FROM sale_items si WHERE si.sale_id = sa.id ORDER BY si.id LIMIT 1
+          ) one ON true
          WHERE sa.store_session_id = $1
          ORDER BY sa.sold_at DESC, sa.id DESC
         """,

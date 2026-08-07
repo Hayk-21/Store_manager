@@ -12,8 +12,10 @@ from fastapi.responses import RedirectResponse
 
 from app import forms
 from app.config import settings
+from app.db import db
 from app.deps import CurrentUser, current_user, require_csrf
 from app.errors import AppError
+from app.repo import audit as audit_repo
 from app.repo import expenses as expenses_repo
 from app.repo import items as items_repo
 from app.repo import money as money_repo
@@ -21,6 +23,7 @@ from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
 from app.repo import stores as stores_repo
 from app.repo import workers as workers_repo
+from app.services import corrections, statistics
 from app.services import money as money_service
 from app.services import shifts as shifts_service
 from app.templating import render
@@ -546,6 +549,10 @@ async def reports_page(
             "shifts": await sessions_repo.shifts_in_session(store_session_id),
             "receipts": await sales_repo.receipts_in_store_session(store_session_id),
             "ledger": await money_repo.ledger_for_session(store_session_id),
+# Named "stock", not "items": `d.items` in a template resolves to
+            # dict.items and silently renders nothing.
+            "stock": await items_repo.list_for_store(user.id, session["store_id"]),
+            "history": await audit_repo.for_session(user.id, store_session_id),
         }
     return render(
         request,
@@ -557,6 +564,183 @@ async def reports_page(
             "detail": detail,
         },
     )
+
+
+@router.get("/statistics")
+async def statistics_page(
+    request: Request,
+    period: str | None = None,
+    store_id: int | None = None,
+    user: CurrentUser = Depends(current_user),
+):
+    """What the business earned, and what that cost."""
+    since, until, preset = statistics.range_for(period)
+    if store_id is not None:
+        await _store_or_404(user.id, store_id)
+    return render(
+        request,
+        "statistics.html",
+        {
+            "user": user,
+            "active": "statistics",
+            "preset": preset,
+            "presets": statistics.PRESETS,
+            **await statistics.overview(user.id, since, until, store_id),
+        },
+    )
+
+
+# -- corrections -------------------------------------------------------------
+
+def _basket(item_ids: list[str], quantities: list[str], prices: list[str]) -> list[dict]:
+    """Turn parallel form arrays into lines. Blank rows are simply dropped, so
+    a form with spare rows on it does not need clearing before submitting."""
+    lines = []
+    for index, raw_id in enumerate(item_ids):
+        if not (raw_id or "").strip():
+            continue
+        quantity = forms.whole(
+            quantities[index] if index < len(quantities) else "", "Քանակ", minimum=1
+        )
+        price = (
+            forms.optional_money(prices[index], "Գին") if index < len(prices) else None
+        )
+        lines.append({
+            "item_id": forms.whole(raw_id, "Ապրանք", minimum=1),
+            "quantity": quantity,
+            "unit_price": price,
+        })
+    if not lines:
+        raise AppError("validation_error", "Ապրանք ընտրված չէ։")
+    return lines
+
+
+@router.post("/sales/{sale_id}/void")
+async def void_sale(
+    sale_id: int, reason: str = Form(""), user: CurrentUser = Depends(require_csrf)
+):
+    await corrections.void_sale(
+        user.id, user.id, sale_id, forms.text(reason, "Պատճառ", max_length=300,
+                                              required=False)
+    )
+    return _back_to_report(await _session_of_sale(user.id, sale_id))
+
+
+@router.post("/sales/{sale_id}/amend")
+async def amend_sale(
+    sale_id: int,
+    item_id: list[str] = Form(default=[]),
+    quantity: list[str] = Form(default=[]),
+    unit_price: list[str] = Form(default=[]),
+    payment_method: str = Form("cash"),
+    reason: str = Form(""),
+    user: CurrentUser = Depends(require_csrf),
+):
+    store_session_id = await _session_of_sale(user.id, sale_id)
+    await corrections.amend_sale(
+        user.id, user.id, sale_id, _basket(item_id, quantity, unit_price),
+        payment_method,
+        forms.text(reason, "Պատճառ", max_length=300, required=False),
+    )
+    return _back_to_report(store_session_id)
+
+
+@router.post("/store-sessions/{store_session_id}/sales")
+async def add_sale(
+    store_session_id: int,
+    worker_id: str = Form(""),
+    item_id: list[str] = Form(default=[]),
+    quantity: list[str] = Form(default=[]),
+    unit_price: list[str] = Form(default=[]),
+    payment_method: str = Form("cash"),
+    note: str = Form(""),
+    user: CurrentUser = Depends(require_csrf),
+):
+    await corrections.add_sale(
+        user.id, user.id, store_session_id,
+        forms.whole(worker_id, "Աշխատող", minimum=1),
+        _basket(item_id, quantity, unit_price), payment_method,
+        forms.text(note, "Նշում", max_length=300, required=False),
+    )
+    return _back_to_report(store_session_id)
+
+
+@router.post("/store-sessions/{store_session_id}/movements")
+async def add_movement(
+    store_session_id: int,
+    kind: str = Form("withdrawal"),
+    method: str = Form("cash"),
+    amount: str = Form(""),
+    purpose: str = Form(""),
+    user: CurrentUser = Depends(require_csrf),
+):
+    """Money in or out that was not a sale — paying an influencer, say. The
+    purpose is required: an amount with no reason is not a record of anything."""
+    await corrections.add_movement(
+        user.id, user.id, store_session_id, kind, method,
+        forms.money(amount, "Գումար"),
+        forms.text(purpose, "Նպատակ", max_length=300),
+    )
+    return _back_to_report(store_session_id)
+
+
+@router.post("/movements/{movement_id}/delete")
+async def delete_movement(movement_id: int, user: CurrentUser = Depends(require_csrf)):
+    store_session_id = await db.fetchval(
+        "SELECT store_session_id FROM cash_movements WHERE id = $1 AND owner_id = $2",
+        movement_id, user.id,
+    )
+    await corrections.delete_movement(user.id, user.id, movement_id)
+    return _back_to_report(store_session_id)
+
+
+@router.post("/shifts/{work_session_id}/salary")
+async def set_salary(
+    work_session_id: int, salary: str = Form(""), user: CurrentUser = Depends(require_csrf)
+):
+    store_session_id = await db.fetchval(
+        "SELECT store_session_id FROM work_sessions WHERE id = $1 AND owner_id = $2",
+        work_session_id, user.id,
+    )
+    await corrections.set_salary(
+        user.id, user.id, work_session_id, forms.money(salary, "Աշխատավարձ")
+    )
+    return _back_to_report(store_session_id)
+
+
+@router.post("/history/{event_id}/revert")
+async def revert_correction(event_id: int, user: CurrentUser = Depends(require_csrf)):
+    """Undo one correction. Newest-first, so rewinding to a moment is undoing
+    back to it a step at a time."""
+    await corrections.revert(user.id, user.id, event_id)
+    return RedirectResponse("/history", status_code=303)
+
+
+@router.get("/history")
+async def history_page(request: Request, user: CurrentUser = Depends(current_user)):
+    return render(
+        request,
+        "history.html",
+        {
+            "user": user,
+            "active": "history",
+            "events": await audit_repo.recent(user.id),
+            "undoable": await audit_repo.newest_pending(user.id),
+            "labels": corrections.ACTION_LABELS,
+        },
+    )
+
+
+async def _session_of_sale(owner_id: int, sale_id: int) -> int | None:
+    return await db.fetchval(
+        "SELECT store_session_id FROM sales WHERE id = $1 AND owner_id = $2",
+        sale_id, owner_id,
+    )
+
+
+def _back_to_report(store_session_id: int | None):
+    target = f"/reports?store_session_id={store_session_id}" if store_session_id else "/reports"
+    return RedirectResponse(target, status_code=303)
 
 
 @router.post("/workers/{worker_id}")

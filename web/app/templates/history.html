@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Փոփոխությունների պատմություն · Store Manager{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Փոփոխությունների պատմություն</h1>
+  <span class="muted small">Ամեն ուղղում՝ ով, երբ, ինչ</span>
+</div>
+
+<div class="card">
+  <p class="muted small">
+    Հետ շրջելը կատարվում է <b>վերջինից սկսած</b>։ Որևէ պահի վերադառնալու համար
+    հետ շրջեք փոփոխությունները մեկ առ մեկ՝ մինչև այդ պահը։ Այդպես ամեն քայլ
+    առանձին-առանձին ապահով է․ միջից մեկը հանելը կխախտեր դրանից հետո եղածները։
+  </p>
+  {% if undoable %}
+  <p class="notice">
+    Վերջին փոփոխությունը՝ <b>{{ undoable.summary }}</b>
+  </p>
+  {% endif %}
+</div>
+
+<div class="card">
+  {% if events %}
+  <div class="table-wrap">
+    {% for e in events %}
+      {% if not e.reverted_at and undoable and e.id == undoable.id %}
+      <form id="revert-{{ e.id }}" method="post" action="/history/{{ e.id }}/revert"
+            onsubmit="return confirm('Հետ շրջե՞լ՝ {{ e.summary }}');">
+        <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+      </form>
+      {% endif %}
+    {% endfor %}
+    <table class="cards">
+      <thead>
+        <tr>
+          <th>Երբ</th><th>Ի՞նչ</th><th>Մանրամասն</th><th>Խանութ</th><th>Ո՞վ</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in events %}
+        <tr class="{% if e.reverted_at %}voided{% endif %}">
+          <td class="nowrap" data-label="Երբ">{{ e.created_at | stamp }}</td>
+          <td data-label="Ի՞նչ">{{ labels.get(e.action, e.action) }}</td>
+          <td class="cell-name" data-label="Մանրամասն">
+            {{ e.summary }}
+            {% if e.reverted_at %}
+              <span class="badge">հետ շրջված</span>
+            {% endif %}
+          </td>
+          <td data-label="Խանութ">
+            {% if e.store_session_id %}
+              <a href="/reports?store_session_id={{ e.store_session_id }}">
+                {{ e.store_name or 'հերթափոխ' }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td data-label="Ո՞վ">{{ e.by_whom or '—' }}</td>
+          <td class="num cell-actions" data-label="">
+            {% if not e.reverted_at and undoable and e.id == undoable.id %}
+              <button form="revert-{{ e.id }}" type="submit" class="secondary tiny">
+                ↩️ Հետ շրջել
+              </button>
+            {% elif not e.reverted_at %}
+              <span class="muted small">նախ՝ վերևինները</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">Դեռ ոչ մի փոփոխություն չի կատարվել։</p>
+  {% endif %}
+</div>
+{% endblock %}

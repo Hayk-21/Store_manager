@@ -39,6 +39,25 @@ def plain_money(value: Any) -> str:
     return f"{amount:.2f}"
 
 
+def short_money(value: Any) -> str:
+    """``1234567`` -> ``1.2մլն``, ``48000`` -> ``48հզ``.
+
+    For chart labels, where the full figure would be wider than the bar it sits
+    on. Nowhere that anybody adds numbers up.
+    """
+    if value is None:
+        return ""
+    amount = value if isinstance(value, Decimal) else Decimal(str(value))
+    size = abs(amount)
+    if size >= 1_000_000:
+        return f"{amount / 1_000_000:.1f}մլն"
+    if size >= 1_000:
+        return f"{amount / 1000:.0f}հզ"
+    if size == 0:
+        return ""
+    return f"{amount:.0f}"
+
+
 def clock(value: datetime | None) -> str:
     """``HH:MM`` in the display timezone."""
     if value is None:
@@ -74,6 +93,7 @@ def duration(start: datetime | None, end: datetime | None = None) -> str:
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.filters["money"] = money
 templates.env.filters["plain_money"] = plain_money
+templates.env.filters["short_money"] = short_money
 templates.env.filters["clock"] = clock
 templates.env.filters["stamp"] = stamp
 templates.env.filters["day"] = day

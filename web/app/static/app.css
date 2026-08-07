@@ -484,3 +484,90 @@ td.num .tiny-input, td.num button.tiny { margin-left: 6px; }
   .bar-label { flex: 1 1 100%; }
   .bar-track { flex: 1 1 auto; }
 }
+/* A section nested inside a card, for corrections under a report. */
+.sub-card { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; }
+.sub-card > summary { cursor: pointer; list-style: none; }
+.sub-card > summary::-webkit-details-marker { display: none; }
+.sub-card > summary h3 { display: inline; margin: 0; }
+.sub-card > summary::before { content: "▸ "; color: var(--muted); }
+.sub-card[open] > summary::before { content: "▾ "; }
+form.inline { display: inline; margin: 0; }
+/* -- statistics ------------------------------------------------------------
+   Charts are hand-drawn out of divs. A charting library would be a build step,
+   a CDN request and a megabyte, to draw bars. These are bars. */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+}
+.card.stat { display: flex; flex-direction: column; gap: 2px; }
+.card.stat .total-value { font-size: 24px; line-height: 1.2; }
+
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+
+.filter-row { align-items: flex-end; margin: 0; }
+.filter-row > * { flex: 0 1 200px; }
+
+.legend { margin-left: auto; color: var(--muted); font-size: 12px; }
+.legend i {
+  display: inline-block; width: 10px; height: 10px;
+  border-radius: 2px; margin: 0 4px 0 12px;
+}
+.legend i:first-child { margin-left: 0; }
+.swatch-revenue { background: var(--accent); }
+.swatch-profit { background: var(--good); }
+
+/* The chart scrolls sideways rather than squeezing bars into slivers: 90 bars
+   in 900px is a smear, and a smear is not a reading. */
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 200px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.chart-col {
+  flex: 1 0 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  min-width: 26px;
+}
+.chart-value { font-size: 10px; color: var(--muted); height: 14px; }
+.bar-stack {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.bar { position: absolute; bottom: 0; border-radius: 3px 3px 0 0; min-height: 1px; }
+/* Profit is a part of revenue, so its bar sits inside the revenue bar rather
+   than beside it -- the eye reads the ratio without a second axis. */
+.bar-revenue { width: 100%; background: var(--accent); opacity: .45; }
+.bar-profit { width: 52%; background: var(--good); }
+.chart-col:hover .bar-revenue { opacity: .7; }
+.chart-label {
+  font-size: 10px;
+  color: var(--muted);
+  height: 16px;
+  padding-top: 3px;
+  white-space: nowrap;
+}
+
+/* A bar drawn inside a table cell, for "how big is this row" comparisons. */
+.bar-cell { width: 28%; min-width: 90px; }
+.rowbar { height: 8px; border-radius: 4px; background: var(--accent); opacity: .55; }
+.rowbar.spend { background: var(--warn); }
+
+@media (max-width: 900px) {
+  .split { grid-template-columns: 1fr; }
+  .filter-row > * { flex: 1 1 140px; }
+  .legend { margin-left: 0; flex-basis: 100%; }
+  .bar-cell { display: none; }
+  .chart { height: 160px; }
+}

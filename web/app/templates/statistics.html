@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block title %}Վիճակագրություն · Store Manager{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Վիճակագրություն</h1>
+  <span class="muted small">{{ since | day }} — {{ until | day }} · {{ days }} օր</span>
+</div>
+
+<div class="card">
+  <form method="get" action="/statistics" class="form-row filter-row">
+    <div>
+      <label for="st-period">Ժամանակահատված</label>
+      <select id="st-period" name="period" onchange="this.form.submit()">
+        {% for key, label in presets.items() %}
+          <option value="{{ key }}" {% if key == preset %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="st-store">Խանութ</label>
+      <select id="st-store" name="store_id" onchange="this.form.submit()">
+        <option value="">Բոլորը</option>
+        {% for s in stores %}
+          <option value="{{ s.id }}" {% if s.id == store_id %}selected{% endif %}>{{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="actions"><button type="submit" class="secondary">Ցույց տալ</button></div>
+  </form>
+</div>
+
+{# -- the headline figures -------------------------------------------------- #}
+<div class="stat-grid">
+  <div class="card stat">
+    <span class="total-label">Հասույթ</span>
+    <span class="total-value">{{ summary.revenue | money }}</span>
+    <span class="muted small">{{ summary.receipts }} վաճառք · {{ summary.units }} հատ</span>
+  </div>
+  <div class="card stat">
+    <span class="total-label">Համախառն շահույթ</span>
+    <span class="total-value {% if gross_profit < 0 %}negative{% else %}positive{% endif %}">
+      {{ gross_profit | money }}</span>
+    <span class="muted small">
+      {% if summary.revenue > 0 %}
+        մարժան՝ {{ (gross_profit / summary.revenue * 100) | round(1) }}%
+      {% else %}վաճառք չի եղել{% endif %}
+    </span>
+  </div>
+  <div class="card stat">
+    <span class="total-label">Ծախսեր</span>
+    <span class="total-value negative">{{ (salaries + spending) | money }}</span>
+    <span class="muted small">
+      աշխատավարձ {{ salaries | money }} · այլ {{ spending | money }}</span>
+  </div>
+  <div class="card stat">
+    <span class="total-label">Զուտ շահույթ</span>
+    <span class="total-value {% if net_profit < 0 %}negative{% else %}positive{% endif %}">
+      {{ net_profit | money }}</span>
+    <span class="muted small">շահույթ − աշխատավարձ − ծախսեր</span>
+  </div>
+</div>
+
+{# -- revenue over time ----------------------------------------------------- #}
+<div class="card">
+  <div class="status-head">
+    <h2>{% if weekly %}Շաբաթական{% else %}Օրական{% endif %} հասույթ</h2>
+    <span class="legend"><i class="swatch-revenue"></i> հասույթ
+      <i class="swatch-profit"></i> շահույթ</span>
+  </div>
+
+  {% if peak > 0 %}
+  <div class="chart" role="img"
+       aria-label="Հասույթի գծապատկեր {{ since | day }} — {{ until | day }}">
+    {% for b in bars %}
+    <div class="chart-col" title="{{ b.label }} · {{ b.revenue | money }} ({{ b.receipts }} վաճառք)">
+      <span class="chart-value">{{ b.revenue | short_money }}</span>
+      <div class="bar-stack">
+        {# The profit bar sits in front of the revenue bar, not on top of it:
+           profit is a part of revenue, not something added to it. #}
+        <div class="bar bar-revenue" style="height: {{ b.revenue_pct }}%"></div>
+        <div class="bar bar-profit" style="height: {{ b.profit_pct }}%"></div>
+      </div>
+      <span class="chart-label">{{ b.label }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="muted small">
+    Ամենաբարձր սյունը՝ {{ peak | money }} ·
+    միջինը օրական՝ {{ average_day | money }} ·
+    միջին վաճառքը՝ {{ average_receipt | money }}
+  </p>
+  {% else %}
+  <p class="muted">Այս ժամանակահատվածում վաճառք չի եղել։</p>
+  {% endif %}
+</div>
+
+{# -- what sells ------------------------------------------------------------ #}
+<div class="card">
+  <h2>Ամենավաճառվող ապրանքները</h2>
+  {% if top_items %}
+  {% set best = top_items[0].revenue %}
+  <div class="table-wrap">
+    <table class="cards">
+      <thead>
+        <tr><th>Ապրանք</th><th class="num">Հատ</th><th class="num">Հասույթ</th>
+            <th class="num">Շահույթ</th><th class="bar-cell"></th></tr>
+      </thead>
+      <tbody>
+        {% for i in top_items %}
+        <tr>
+          <td class="cell-name" data-label="Ապրանք">{{ i.name }}</td>
+          <td class="num" data-label="Հատ">{{ i.units }}</td>
+          <td class="num" data-label="Հասույթ">{{ i.revenue | money }}</td>
+          <td class="num {% if i.profit < 0 %}negative{% endif %}"
+              data-label="Շահույթ">{{ i.profit | money }}</td>
+          <td class="bar-cell" data-label="">
+            <div class="rowbar" style="width: {{ (i.revenue / best * 100) | round(1) }}%"></div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">Դեռ տվյալ չկա։</p>
+  {% endif %}
+</div>
+
+{# -- who and where --------------------------------------------------------- #}
+<div class="split">
+  <div class="card">
+    <h2>Ըստ խանութների</h2>
+    {% if by_store %}
+    <div class="table-wrap">
+      <table class="cards">
+        <thead><tr><th>Խանութ</th><th class="num">Վաճառք</th>
+                   <th class="num">Հասույթ</th><th class="num">Շահույթ</th></tr></thead>
+        <tbody>
+          {% for s in by_store %}
+          <tr>
+            <td class="cell-name" data-label="Խանութ">{{ s.name }}</td>
+            <td class="num" data-label="Վաճառք">{{ s.receipts }}</td>
+            <td class="num" data-label="Հասույթ">{{ s.revenue | money }}</td>
+            <td class="num" data-label="Շահույթ">{{ s.profit | money }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted small">Խանութների համեմատությունը միշտ ցույց է տալիս բոլորը։</p>
+    {% else %}<p class="muted">Դեռ տվյալ չկա։</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Ըստ աշխատողների</h2>
+    {% if by_worker %}
+    <div class="table-wrap">
+      <table class="cards">
+        <thead><tr><th>Աշխատող</th><th class="num">Վաճառք</th>
+                   <th class="num">Հասույթ</th><th class="num">Շահույթ</th></tr></thead>
+        <tbody>
+          {% for w in by_worker %}
+          <tr>
+            <td class="cell-name" data-label="Աշխատող">{{ w.worker_name }}</td>
+            <td class="num" data-label="Վաճառք">{{ w.receipts }}</td>
+            <td class="num" data-label="Հասույթ">{{ w.revenue | money }}</td>
+            <td class="num" data-label="Շահույթ">{{ w.profit | money }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p class="muted">Դեռ տվյալ չկա։</p>{% endif %}
+  </div>
+</div>
+
+{# -- outgoings and shelves ------------------------------------------------- #}
+<div class="split">
+  <div class="card">
+    <h2>Ծախսերն ըստ ուղղության</h2>
+    {% if by_category %}
+    {% set top = by_category[0].total %}
+    <div class="table-wrap">
+      <table class="cards">
+        <thead><tr><th>Ուղղություն</th><th class="num">Գումար</th>
+                   <th class="bar-cell"></th></tr></thead>
+        <tbody>
+          {% for c in by_category %}
+          <tr>
+            <td class="cell-name" data-label="Ուղղություն">{{ c.category }}</td>
+            <td class="num" data-label="Գումար">{{ c.total | money }}</td>
+            <td class="bar-cell" data-label="">
+              <div class="rowbar spend" style="width: {{ (c.total / top * 100) | round(1) }}%"></div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted small">
+      Աշխատավարձը հաշվվում է առանձին՝ ըստ փակված հերթափոխերի։
+      <a href="/expenses">Ծախսերի էջ</a>
+    </p>
+    {% else %}
+    <p class="muted">Այս ժամանակահատվածում ծախս գրանցված չէ։
+      <a href="/expenses">Ավելացնել</a></p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Պահեստն այս պահին</h2>
+    <div class="totals">
+      <div class="total">
+        <span class="total-label">Ինքնարժեքով</span>
+        <span class="total-value">{{ stock.at_cost | money }}</span>
+      </div>
+      <div class="total">
+        <span class="total-label">Վաճառքի գնով</span>
+        <span class="total-value">{{ stock.at_retail | money }}</span>
+      </div>
+    </div>
+    <p class="muted small">
+      {{ stock.units }} հատ · հնարավոր շահույթ {{ stock.possible_profit | money }}
+    </p>
+  </div>
+</div>
+{% endblock %}

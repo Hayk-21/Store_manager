@@ -103,49 +103,160 @@
           <td class="nowrap" data-label="Ավարտ">{{ w.ended_at | clock }}</td>
           <td class="num nowrap" data-label="Տևողություն">{{ w.started_at | duration(w.ended_at) }}</td>
           <td class="num" data-label="Հեռավորություն">{{ w.start_distance_m if w.start_distance_m is not none else '—' }} մ</td>
-          <td class="num" data-label="Աշխատավարձ">{{ (w.salary_paid or 0) | money }}</td>
+          <td class="num" data-label="Աշխատավարձ">
+            {% if w.ended_at %}
+              <input form="salary-{{ w.id }}" name="salary"
+                     value="{{ (w.salary_paid or 0) | plain_money }}" inputmode="decimal"
+                     class="money-input" aria-label="Աշխատավարձ">
+              <button form="salary-{{ w.id }}" type="submit" class="secondary tiny">✓</button>
+            {% else %}
+              {{ (w.salary_paid or 0) | money }}
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  {# Salary is editable per shift: the ledger entry moves with it. #}
+  {% for w in d.shifts %}
+    <form id="salary-{{ w.id }}" method="post" action="/shifts/{{ w.id }}/salary">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    </form>
+  {% endfor %}
 
   <h3>Չեկեր</h3>
   {% if d.receipts %}
   <div class="table-wrap">
     <table class="cards">
       <thead>
-        <tr><th>Ժամ</th><th>Աշխատող</th><th>Ապրանքներ</th><th>Ձև</th><th class="num">Գումար</th></tr>
+        <tr><th>Ժամ</th><th>Աշխատող</th><th>Ապրանքներ</th><th class="num">Քանակ</th>
+            <th class="num">Գին</th><th>Ձև</th>
+            <th class="num">Գումար</th><th class="num"></th></tr>
       </thead>
       <tbody>
         {% for r in d.receipts %}
+        {# A close-out writes one sale per line, so a receipt is usually one item
+           and can be edited in place. Anything longer is void-and-re-enter. #}
+        {% set editable = not r.voided_at and r.line_count == 1 %}
         <tr class="{% if r.voided_at %}voided{% endif %}">
           <td class="nowrap" data-label="Ժամ">{{ r.sold_at | clock }}</td>
           <td data-label="Աշխատող">{{ r.worker_name }}</td>
           <td class="cell-name" data-label="Ապրանքներ">{{ r.lines }}</td>
-          <td data-label="Ձև">{{ 'Կանխիկ' if r.payment_method == 'cash' else 'Քարտ' }}</td>
+          <td class="num" data-label="Քանակ">
+            {% if editable %}
+              <input form="amend-{{ r.id }}" name="quantity" value="{{ r.quantity }}"
+                     inputmode="numeric" class="tiny-input" aria-label="Քանակ">
+            {% else %}{{ r.quantity or '' }}{% endif %}
+          </td>
+          <td class="num" data-label="Գին">
+            {% if editable %}
+              <input form="amend-{{ r.id }}" name="unit_price"
+                     value="{{ (r.unit_price or 0) | plain_money }}" inputmode="decimal"
+                     class="money-input" aria-label="Գին">
+            {% else %}{{ (r.unit_price or 0) | money }}{% endif %}
+          </td>
+          <td data-label="Ձև">
+            {% if editable %}
+              <select form="amend-{{ r.id }}" name="payment_method" aria-label="Ձև">
+                <option value="cash" {% if r.payment_method == 'cash' %}selected{% endif %}>Կանխիկ</option>
+                <option value="card" {% if r.payment_method == 'card' %}selected{% endif %}>Քարտ</option>
+              </select>
+            {% else %}{{ 'Կանխիկ' if r.payment_method == 'cash' else 'Քարտ' }}{% endif %}
+          </td>
           <td class="num" data-label="Գումար">{{ r.total | money }}</td>
+          <td class="num cell-actions" data-label="">
+            {% if editable %}
+              <button form="amend-{{ r.id }}" type="submit" class="secondary tiny"
+                      title="Պահպանել">✓</button>
+            {% endif %}
+            {% if not r.voided_at %}
+              <form method="post" action="/sales/{{ r.id }}/void" class="inline"
+                    onsubmit="return confirm('Չեղարկե՞լ այս վաճառքը։ Ապրանքը կվերադառնա պահեստ։');">
+                <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+                <input type="hidden" name="reason" value="ուղղում ղեկավարի կողմից">
+                <button type="submit" class="danger tiny">Չեղարկել</button>
+              </form>
+            {% endif %}
+          </td>
         </tr>
         {% if r.voided_at %}
-        <tr class="void-note"><td colspan="5" class="muted small" data-label="">
+        <tr class="void-note"><td colspan="8" class="muted small" data-label="">
           ↑ չեղարկվել է {{ r.voided_at | clock }}-ին
           {%- if r.voided_by_name %} · {{ r.voided_by_name }}{% endif %}
+          {%- if r.superseded_by_sale_id %} · ուղղվել է{% endif %}
         </td></tr>
         {% endif %}
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  {# The edit forms live outside the table: a <form> cannot straddle <td>s, so
+     each row's inputs point at theirs by id. #}
+  {% for r in d.receipts %}
+    {% if not r.voided_at and r.line_count == 1 %}
+    <form id="amend-{{ r.id }}" method="post" action="/sales/{{ r.id }}/amend">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+      <input type="hidden" name="item_id" value="{{ r.item_id }}">
+      <input type="hidden" name="reason" value="ուղղում ղեկավարի կողմից">
+    </form>
+    {% endif %}
+  {% endfor %}
   {% else %}
   <p class="muted">Այս հերթափոխին վաճառք չի եղել։</p>
   {% endif %}
+
+  <details class="sub-card">
+    <summary><h3>Ավելացնել մոռացված վաճառք</h3></summary>
+    <form method="post" action="/store-sessions/{{ d.session.id }}/sales">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+      <div class="form-row">
+        <div>
+          <label for="as-worker">Աշխատող</label>
+          <select id="as-worker" name="worker_id" required>
+            {% for w in d.shifts %}
+              <option value="{{ w.worker_id }}">{{ w.worker_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="as-item">Ապրանք</label>
+          <select id="as-item" name="item_id" required>
+            {% for i in d.stock %}
+              <option value="{{ i.id }}">{{ i.name }} ({{ i.count }} հատ)</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="narrow">
+          <label for="as-qty">Քանակ</label>
+          <input id="as-qty" name="quantity" inputmode="numeric" value="1" required>
+        </div>
+        <div class="narrow">
+          <label for="as-price">Գին</label>
+          <input id="as-price" name="unit_price" inputmode="decimal"
+                 placeholder="վաճառքի գին">
+        </div>
+        <div class="narrow">
+          <label for="as-method">Ձև</label>
+          <select id="as-method" name="payment_method">
+            <option value="cash">Կանխիկ</option>
+            <option value="card">Քարտ</option>
+          </select>
+        </div>
+        <div class="actions"><button type="submit" class="secondary">Ավելացնել</button></div>
+      </div>
+      <p class="muted small">Գինը դատարկ թողնելու դեպքում կվերցվի ապրանքի վաճառքի գինը։</p>
+    </form>
+  </details>
 
   <h3>Դրամարկղի շարժ</h3>
   <div class="table-wrap">
     <table class="cards">
       <thead>
         <tr><th>Ժամ</th><th>Տեսակ</th><th>Ձև</th><th>Աշխատող</th><th>Նշում</th>
-            <th class="num">Գումար</th></tr>
+            <th class="num">Գումար</th><th class="num"></th></tr>
       </thead>
       <tbody>
         {% for m in d.ledger %}
@@ -160,11 +271,75 @@
           <td data-label="Նշում">{{ m.note or '' }}</td>
           <td class="num {% if m.amount < 0 %}negative{% endif %}"
               data-label="Գումար">{{ m.amount | money }}</td>
+          <td class="num cell-actions" data-label="">
+            {# Only what the owner typed can be removed. A sale or salary row is
+               the record of something that happened; correct the sale instead. #}
+            {% if m.created_by == 'owner' and m.kind in ('withdrawal', 'deposit', 'adjustment') %}
+              <form method="post" action="/movements/{{ m.id }}/delete" class="inline"
+                    onsubmit="return confirm('Ջնջե՞լ այս գրառումը։');">
+                <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+                <button type="submit" class="danger tiny">✕</button>
+              </form>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  <details class="sub-card">
+    <summary><h3>Ավելացնել գրառում</h3></summary>
+    <form method="post" action="/store-sessions/{{ d.session.id }}/movements">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+      <div class="form-row">
+        <div>
+          <label for="mv-purpose">Նպատակ</label>
+          <input id="mv-purpose" name="purpose" required maxlength="300"
+                 placeholder="օր.՝ բլոգերին վճարված գումար">
+        </div>
+        <div class="narrow">
+          <label for="mv-amount">Գումար</label>
+          <input id="mv-amount" name="amount" inputmode="decimal" required>
+        </div>
+        <div class="narrow">
+          <label for="mv-kind">Ուղղություն</label>
+          <select id="mv-kind" name="kind">
+            <option value="withdrawal">Հանել դրամարկղից</option>
+            <option value="deposit">Ավելացնել դրամարկղին</option>
+            <option value="adjustment">Ճշգրտում</option>
+          </select>
+        </div>
+        <div class="narrow">
+          <label for="mv-method">Ձև</label>
+          <select id="mv-method" name="method">
+            <option value="cash">Կանխիկ</option>
+            <option value="card">Քարտ</option>
+          </select>
+        </div>
+        <div class="actions"><button type="submit" class="secondary">Գրանցել</button></div>
+      </div>
+      <p class="muted small">
+        Նպատակը պարտադիր է․ գումարն առանց պատճառի գրառում չէ։
+        Ամեն փոփոխություն երևում է <a href="/history">պատմության</a> մեջ և
+        կարելի է հետ շրջել։
+      </p>
+    </form>
+  </details>
+
+  {% if d.history %}
+  <h3>Այս հերթափոխի ուղղումները</h3>
+  <ul class="shift-list small">
+    {% for e in d.history %}
+    <li class="{% if e.reverted_at %}voided{% endif %}">
+      <span class="muted nowrap">{{ e.created_at | stamp }}</span> ·
+      {{ e.summary }}
+      {%- if e.by_whom %} <span class="muted">— {{ e.by_whom }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="muted small">Հետ շրջելու համար բացեք <a href="/history">Պատմություն</a> էջը։</p>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}
