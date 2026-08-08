@@ -1,0 +1,12 @@
+{# One shop's stock as <option>s, swapped into the transfer form when the source
+   shop changes. Out-of-stock rows are left out: there is nothing there to move. #}
+{% if items %}
+<option value="">— ընտրեք ապրանքը —</option>
+{% for i in items %}
+  {% if i.count > 0 %}
+    <option value="{{ i.id }}">{{ i.name }} · {{ i.count }} հատ</option>
+  {% endif %}
+{% endfor %}
+{% else %}
+<option value="">— այս խանութում ապրանք չկա —</option>
+{% endif %}

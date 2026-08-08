@@ -1,4 +1,4 @@
-﻿"""Registering a worker by @username, and paying them per shift or per month.
+"""Registering a worker by @username, and paying them per shift or per month.
 
 The owner writes a handle and a salary. The numeric id and the name both arrive
 by themselves the first time that person messages the bot. Registration stays
@@ -21,6 +21,7 @@ from tests.factories import (
     make_owner,
     make_store,
     make_worker,
+    worked_a_full_shift,
 )
 
 BASE = "/api/bot/v1"
@@ -309,6 +310,9 @@ async def test_a_per_shift_worker_is_paid_out_of_the_till(client, bot_headers):
               "lat": YEREVAN_LAT, "lng": YEREVAN_LNG, "accuracy_m": 20, "idempotency_key": "idem-key-open-01", "live_period": 900},
         headers=bot_headers,
     )
+    # A whole day, so the wage is the full figure rather than the half a short
+    # shift earns. That rule has its own tests.
+    await worked_a_full_shift()
 
     body = (await client.post(
         f"{BASE}/shift/end",

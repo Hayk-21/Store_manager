@@ -1,4 +1,4 @@
-﻿"""The trading day: takings that outlive a close and start again each morning.
+"""The trading day: takings that outlive a close and start again each morning.
 
 Two figures live side by side and mean different things. The till belongs to the
 open session and is settled when the store closes. The day's takings belong to
@@ -26,6 +26,7 @@ from tests.factories import (
     make_owner,
     make_store,
     make_worker,
+    worked_a_full_shift,
 )
 
 
@@ -36,6 +37,9 @@ async def _trade(owner_id: int, store_id: int, item_id: int, *, quantity: int, k
         id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("0.00")
     )
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, f"open-{key}", 900)
+    # A whole day, so the shift wage is the full figure: a shift under eight
+    # hours is paid half, and these numbers are not about that rule.
+    await worked_a_full_shift(worker_id)
     await shifts_service.close_out_shift(
         worker,
         [{"item_id": item_id, "quantity": quantity, "unit_price": "3500.00",
@@ -191,6 +195,7 @@ async def test_a_salary_is_not_deducted_from_what_the_shop_sold(client):
         id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("8000.00")
     )
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "open-s", 900)
+    await worked_a_full_shift(worker_id)
     await shifts_service.close_out_shift(
         worker,
         [{"item_id": item_id, "quantity": 3, "unit_price": "3500.00",

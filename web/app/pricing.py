@@ -29,20 +29,29 @@ def resolve_price(item, typed, kind: str | None) -> tuple[Decimal, str]:
     ``item`` needs ``name``, ``sell_price`` and ``wholesale_price``.
     """
     kind = kind if kind in KINDS else "retail"
+    typed_nothing = typed is None or typed == ""
 
     listed = Decimal(item["sell_price"])
     if kind == "wholesale":
         if item["wholesale_price"] is None:
-            # Refusing beats quietly charging retail: the cashier asked for a
-            # price the owner never set, and only the owner can fix that.
-            raise AppError(
-                "validation_error",
-                f"«{item['name']}»-ի մեծածախ գինը նշված չէ։ "
-                f"Նշեք այն ապրանքի էջում կամ գրեք գինը ձեռքով։",
-            )
+            if typed_nothing:
+                # Nothing to charge. Refusing beats quietly charging retail: the
+                # cashier asked for a price the owner never set, and only the
+                # owner can fix that.
+                raise AppError(
+                    "validation_error",
+                    f"«{item['name']}»-ի մեծածախ գինը նշված չէ։ "
+                    f"Նշեք այն ապրանքի էջում կամ գրեք գինը ձեռքով։",
+                )
+            # A typed amount, though, is an answer. "Sold this wholesale for
+            # 3,000" is a fact about the sale whether or not the owner ever wrote
+            # a list price down, and filing it as a haggle instead would leave
+            # every wholesale figure understated — which is exactly what the
+            # message above tells the cashier to do about it.
+            return Decimal(typed), "wholesale"
         listed = Decimal(item["wholesale_price"])
 
-    if typed is None or typed == "":
+    if typed_nothing:
         return listed, kind
 
     price = Decimal(typed)

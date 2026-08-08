@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import asyncpg
@@ -36,6 +37,30 @@ from app.services.geofence import require_store
 log = logging.getLogger("storemanager.shifts")
 
 ZERO = Decimal("0.00")
+
+# A full day behind the counter. Shorter than this and the shift wage is halved:
+# the figure is a day's pay, and somebody who left after two hours has not worked
+# a day. One step rather than pay-by-the-minute, because the wage is agreed as a
+# day rate and billing it by the second would turn every late start into an
+# argument about four minutes.
+FULL_SHIFT_HOURS = 8
+SHORT_SHIFT_FRACTION = Decimal("0.5")
+
+
+def salary_for_hours_worked(full: Decimal, started_at, ended_at=None) -> Decimal:
+    """What a shift wage actually comes to, given how long the shift ran.
+
+    ``started_at`` may be missing on rows that predate the column being selected;
+    that reads as a full shift rather than as a free one, because guessing against
+    the worker over a bookkeeping gap is the wrong way round.
+    """
+    if full <= ZERO or started_at is None:
+        return full if full > ZERO else ZERO
+    end = ended_at or datetime.now(UTC)
+    hours = (end - started_at).total_seconds() / 3600
+    if hours >= FULL_SHIFT_HOURS:
+        return full
+    return (full * SHORT_SHIFT_FRACTION).quantize(Decimal("0.01"))
 
 
 @dataclass(frozen=True)
@@ -285,7 +310,14 @@ async def _pay_and_close_shift(
     """Requirement 5: end one shift and take its salary out of the till.
 
     Returns what was actually paid.
+
+    Every way a shift can end comes through here — the worker pressing "end my
+    shift", the write-up, the last one out closing the store, the owner forcing it
+    and the auto-close — which is why the short-shift halving is applied here and
+    not at each of those call sites. Five copies of one rule is five chances for
+    them to disagree about what a day's work is.
     """
+    salary = salary_for_hours_worked(salary, shift["started_at"])
     await sessions_repo.close_work_session(
         conn, shift["id"], salary, lat, lng, idem_key, closed_by
     )
@@ -621,6 +653,15 @@ async def _end_payload(row, *, duplicate: bool, store_closed: bool = True) -> di
                 "total": f"{sales['total']:.2f}",
             },
             "salary_deducted": f"{Decimal(row['salary_paid'] or 0):.2f}",
+            # So the bot can say *why* the wage is half what the worker expects.
+            # A number that is quietly wrong is worse than a number with a reason
+            # attached, and the reason is not something the bot should re-derive.
+            "salary_halved": bool(
+                Decimal(row["salary_paid"] or 0) > ZERO
+                and ended is not None
+                and (ended - started).total_seconds() / 3600 < FULL_SHIFT_HOURS
+            ),
+            "full_shift_hours": FULL_SHIFT_HOURS,
             "store_closed": store_closed,
             "store_totals_after": {
                 "cash": f"{totals['cash']:.2f}",

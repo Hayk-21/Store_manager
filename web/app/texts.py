@@ -52,6 +52,19 @@ ERROR_MESSAGES: dict[str, str] = {
 }
 
 
+# -- pushed to a worker's chat ------------------------------------------------
+
+# A shop asking this shop for stock. Sent to whoever is on shift there, because a
+# request nobody knows about is another shop waiting for a box that is not coming.
+# No buttons: the message is a prompt, and the answering is done under
+# «Փոխանցումներ» in the bot, which is also where it can be found later.
+TRANSFER_REQUESTED = (
+    "📦 <b>Ապրանքի հարցում</b>\n\n"
+    "«{store}» խանութը խնդրում է <b>{quantity}</b> հատ «{item}»։\n\n"
+    "Բոտում սեղմեք «🔄 Փոխանցումներ»՝ հաստատելու կամ մերժելու համար։"
+)
+
+
 def insufficient_stock_message(name: str, requested: int, available: int) -> str:
     return f"«{name}» — պահեստում կա ընդամենը {available} հատ, խնդրված է {requested}։"
 

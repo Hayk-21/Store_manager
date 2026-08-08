@@ -14,12 +14,23 @@ BTN_SEND_LOCATION = "📍 Ուղարկել տեղորոշումը"
 BTN_SELL = "🧾 Վաճառել"
 BTN_DEFECT = "🗑 Խոտան"
 BTN_TAKE_CASH = "💸 Վերցնել դրամարկղից"
-BTN_ADD_ITEM = "➕ Նոր ապրանք"
+# Opens the correction screen: the whole shelf with a − and a + against each
+# product. Adding a name that has never existed here is the button below.
+BTN_ADD_ITEM = "➕ Ապրանք ավելացնել"
+BTN_BRAND_NEW_ITEM = "🆕 Բոլորովին նոր ապրանք"
 # A tickbox, not a way of paying. Tapping it sends nothing — see
 # keyboards.payment_methods.
 BTN_DELIVERY_OFF = "⬜ Առաքում"
 BTN_DELIVERY_ON = "✅ Առաքում"
+# Offered when the product has no wholesale price on it. Tapping it asks for the
+# number rather than doing nothing — see keyboards.suggested_prices.
+BTN_WHOLESALE_NO_PRICE = "📦 Մեծածախ — գրել գինը"
 BTN_SKIP = "⏭ Բաց թողնել"
+BTN_RESTOCK_SUBMIT = "✅ Հաստատել փոփոխությունները"
+BTN_TRANSFERS = "🔄 Փոխանցումներ"
+BTN_TRANSFER_ASK = "📥 Խնդրել ապրանք այլ խանութից"
+BTN_TRANSFER_APPROVE = "✅ Հաստատել"
+BTN_TRANSFER_REJECT = "❌ Մերժել"
 BTN_UNDO_SALE = "↩️ Չեղարկել վաճառքը"
 BTN_OTHER_PRICE = "✏️ Այլ գին"
 BTN_STATUS = "📊 Վիճակ"
@@ -202,6 +213,12 @@ SHIFT_ENDED = (
     "Վաճառք՝ {receipts} չեկ, {sold}\n"
     "Աշխատավարձ՝ {salary}\n"
 )
+# Appended when the wage came to half. A worker paid less than they expected
+# will ask why, and the answer should already be on the screen.
+SALARY_HALVED = (
+    "\n<i>Հերթափոխը տևել է {hours} ժամից պակաս, ուստի աշխատավարձը հաշվվել է "
+    "կիսով չափ։</i>"
+)
 STORE_STILL_OPEN = "\nԽանութը մնում է բաց՝ գործընկերները դեռ աշխատում են։"
 STORE_CLOSED = (
     "\n🔴 Խանութը փակված է։\n"
@@ -231,6 +248,12 @@ HELP = (
 # -- write-offs --------------------------------------------------------------
 
 ASK_OTHER_PRICE = "Գրեք գինը թվով, օրինակ՝ 3200։"
+# Asked when «Մեծածախ» was tapped on a product with no wholesale price set. The
+# line is still recorded as a wholesale one — that is the point of asking here
+# rather than sending the cashier to «Այլ գին».
+ASK_WHOLESALE_PRICE = (
+    "Այս ապրանքի մեծածախ գինը նշված չէ։\nԳրեք մեծածախ գինը թվով, օրինակ՝ 3000։"
+)
 UNDO_HINT = "Սխա՞լ գրանցեցիք։"
 
 DEFECT_ASK_ITEM = (
@@ -239,10 +262,12 @@ DEFECT_ASK_ITEM = (
     "բայց վաճառք չի գրանցվի։"
 )
 DEFECT_ASK_QUANTITY = "«{item}» — քանի՞ հատ է խոտան։\nՊահեստում կա {available} հատ։"
+# No cost figure. What the shop paid for the vape is the owner's business, and
+# the owner sees the loss on the report; the cashier needs to know it was recorded
+# and what is left on the shelf.
 DEFECT_DONE = (
     "🗑 Դուրս գրվեց՝ <b>{item}</b> ×{quantity}\n"
-    "Պահեստի մնացորդը՝ {remaining} հատ\n"
-    "Կորուստը՝ {cost} (ինքնարժեքով)\n\n"
+    "Պահեստի մնացորդը՝ {remaining} հատ\n\n"
     "Վաճառք չի գրանցվել։"
 )
 DEFECT_DONE_PLAINLY = "🗑 Խոտանը գրանցվեց և հանվեց պահեստից։"
@@ -273,6 +298,59 @@ CASH_DONE = (
     "Դրամարկղում մնաց՝ {cash}"
 )
 CASH_DONE_PLAINLY = "💸 Գումարի վերցնումը գրանցվեց։"
+
+# -- moving stock between shops ----------------------------------------------
+
+TRANSFER_NOTHING_PENDING = (
+    "🔄 <b>Փոխանցումներ</b>\n\n"
+    "Այս պահին ձեր խանութից ապրանք չեն խնդրում։\n"
+    "Կարող եք ինքներդ ապրանք խնդրել այլ խանութից։"
+)
+TRANSFER_INCOMING = (
+    "🔄 <b>Փոխանցումներ</b>\n\n"
+    "Ձեր խանութից խնդրում են՝\n{rows}\n\n"
+    "Հաստատելուց հետո ապրանքը կհանվի ձեր պահեստից։"
+)
+TRANSFER_INCOMING_ROW = "• <b>{quantity}</b> հատ «{item}» → {store}"
+TRANSFER_NO_OTHER_STORES = "Այլ բաց խանութ չկա, որտեղից ապրանք խնդրել։"
+TRANSFER_PICK_STORE = "📥 <b>Ո՞ր խանութից</b>\n\nԸնտրեք խանութը։"
+TRANSFER_PICK_ITEM = "«{store}» — ընտրեք ապրանքը կամ գրեք անվան մի մասը։"
+TRANSFER_STORE_EMPTY = "«{store}»-ի պահեստում այս պահին ապրանք չկա։"
+TRANSFER_ASK_QUANTITY = "«{item}» — քանի՞ հատ եք խնդրում։\nԱյդ խանութում կա {available} հատ։"
+TRANSFER_TOO_MANY = "Այդ խանութում կա ընդամենը {available} հատ։"
+TRANSFER_REQUESTED_OK = (
+    "📤 Հարցումն ուղարկվեց՝ <b>{quantity}</b> հատ «{item}»\n"
+    "Խանութը՝ {store}\n\n"
+    "Ապրանքը կավելանա ձեր պահեստին այն բանից հետո, երբ այդ խանութի "
+    "աշխատողը հաստատի։"
+)
+TRANSFER_REQUESTED_PLAINLY = "📤 Հարցումն ուղարկվեց։"
+TRANSFER_APPROVED = (
+    "✅ Հաստատվեց՝ <b>{quantity}</b> հատ «{item}» ուղարկվեց «{store}»։\n"
+    "Ձեր պահեստից այդ քանակը հանված է։"
+)
+TRANSFER_REJECTED = "❌ Մերժվեց՝ {quantity} հատ «{item}» ({store})։\nՊահեստը չի փոխվել։"
+TRANSFER_DECIDED_PLAINLY = "Հարցումը պատասխանվեց։"
+
+# -- correcting the shelf ----------------------------------------------------
+
+RESTOCK_INTRO = (
+    "📦 <b>Պահեստի ուղղում</b> — {store}\n\n"
+    "Ապրանքի կողքի ➖ և ➕ կոճակներով նշեք, թե քանիսն եք ավելացնում կամ հանում։\n"
+    "Ոչինչ չի գրանցվի, մինչև չսեղմեք «Հաստատել»։"
+)
+RESTOCK_SCREEN = "📦 <b>Պահեստի ուղղում</b>\nԷջ {page}/{pages}"
+RESTOCK_NO_CHANGES = "\n\n<i>Դեռ ոչինչ նշված չէ։</i>"
+RESTOCK_CHANGED_HEADER = "\n\n<b>Փոփոխությունները՝</b>\n"
+RESTOCK_CHANGED_ROW = "• {name}՝ {before} → <b>{after}</b> ({delta})"
+RESTOCK_AT_ZERO = "Պահեստում այլևս չկա։"
+RESTOCK_NOTHING_YET = (
+    "📦 <b>Պահեստը դատարկ է</b>\n\n"
+    "Այս խանութում դեռ ապրանք գրանցված չէ։ Ավելացրեք առաջինը։"
+)
+RESTOCK_DONE = "✅ <b>Պահեստը թարմացվեց</b>\n\n{rows}"
+RESTOCK_DONE_ROW = "• {name}՝ {delta} → {count} հատ"
+RESTOCK_DONE_PLAINLY = "✅ Պահեստը թարմացվեց։"
 
 # -- a new product, added at the counter -------------------------------------
 

@@ -93,6 +93,26 @@ async def remember_telegram_name(worker_id: int, telegram_name: str | None) -> N
     )
 
 
+async def telegram_ids_on_shift(store_id: int) -> list[int]:
+    """The chats of everybody working in this shop right now.
+
+    For nudging them about something that has just happened elsewhere. Only bound
+    workers have a chat to send to, so an unbound one is silently absent — they
+    have no way to receive a message yet.
+    """
+    rows = await db.fetch(
+        """
+        SELECT DISTINCT w.telegram_id
+          FROM work_sessions ws
+          JOIN workers w ON w.id = ws.worker_id
+         WHERE ws.store_id = $1 AND ws.ended_at IS NULL
+           AND w.telegram_id IS NOT NULL AND w.is_active
+        """,
+        store_id,
+    )
+    return [row["telegram_id"] for row in rows]
+
+
 async def list_for_owner(owner_id: int) -> list[asyncpg.Record]:
     return await db.fetch(
         f"""

@@ -528,6 +528,12 @@ form.inline { display: inline; margin: 0; }
 }
 .card.stat { display: flex; flex-direction: column; gap: 2px; }
 .card.stat .total-value { font-size: 24px; line-height: 1.2; }
+/* A tile that is a link to its own breakdown further down the page. It has to
+   read as a tile, not as a paragraph of blue text, so the anchor colour is
+   dropped and the affordance is a border that lights up on hover. */
+a.card.stat { color: inherit; }
+a.card.stat:hover { border-color: var(--accent); text-decoration: none; }
+a.card.stat:hover .total-label { color: var(--text); }
 
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
 

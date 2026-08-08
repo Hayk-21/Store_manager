@@ -1,4 +1,4 @@
-﻿"""Beat a target, earn a bonus.
+"""Beat a target, earn a bonus.
 
 The rule is three things together: how much has to be sold, over what stretch,
 and what it pays. It is judged as the shift closes — the moment the period's
@@ -23,6 +23,7 @@ from tests.factories import (
     make_owner,
     make_store,
     make_worker,
+    worked_a_full_shift,
 )
 
 
@@ -51,6 +52,9 @@ async def _shop_with_bonus(threshold="20000.00", bonus="5000.00", period="day",
 
 async def _work(worker, item_id, *, sold: int, key: str, close_store=True):
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, f"open-{key}", 900)
+    # A whole day, so the shift wage is the full figure. These tests are about the
+    # bonus, not about the halving rule for short shifts.
+    await worked_a_full_shift(worker.id)
     await shifts_service.close_out_shift(
         worker,
         [{"item_id": item_id, "quantity": sold, "unit_price": "5000.00",

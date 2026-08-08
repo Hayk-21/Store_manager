@@ -1,4 +1,4 @@
-﻿"""/statistics — what the business earned, and what that cost.
+"""/statistics — what the business earned, and what that cost.
 
 The figures come from the sale lines, so the tests care most about two things:
 that a repriced item does not rewrite history, and that "profit" means profit
@@ -23,6 +23,7 @@ from tests.factories import (
     make_owner,
     make_store,
     make_worker,
+    worked_a_full_shift,
 )
 
 TZ = "Asia/Yerevan"
@@ -43,6 +44,9 @@ async def _sold(
         id=worker_id, owner_id=owner_id, name=worker_name, salary_amount=Decimal(salary)
     )
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, f"open-{key}", 900)
+    # A whole day, so the shift wage is the full figure: a shift under eight
+    # hours is paid half, and these numbers are not about that rule.
+    await worked_a_full_shift(worker_id)
     await shifts_service.close_out_shift(
         worker, lines, f"close-{key}", close_store_too=True
     )

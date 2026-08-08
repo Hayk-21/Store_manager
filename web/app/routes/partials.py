@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
+from app import forms
 from app.deps import CurrentUser, current_user
 from app.repo import items as items_repo
 from app.repo import money as money_repo
+from app.repo import stores as stores_repo
 from app.routes.pages import _items_context, _status_context, _store_or_404
 from app.templating import render
 
@@ -31,6 +33,28 @@ async def store_status(
 ):
     await _store_or_404(user.id, store_id)
     return render(request, "_store_status.html", await _status_context(user.id, store_id))
+
+
+@router.get("/store-items")
+async def store_items_options(
+    request: Request,
+    from_store_id: str = "",
+    user: CurrentUser = Depends(current_user),
+):
+    """The ``<option>`` list for one shop's stock, for the transfer form.
+
+    Its own fragment rather than data baked into the page: an item belongs to one
+    shop, so a single list of everything would offer boxes that are not on the
+    shelf being moved from.
+
+    A blank or unknown shop renders the prompt rather than an error — the select
+    starts empty, and its first change event is what asks for this.
+    """
+    store_id = forms.optional_id(from_store_id)
+    items = []
+    if store_id is not None and await stores_repo.get(user.id, store_id) is not None:
+        items = await items_repo.list_for_store(user.id, store_id)
+    return render(request, "_item_options.html", {"items": items})
 
 
 @router.get("/stores/{store_id}/items")

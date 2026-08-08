@@ -1,4 +1,4 @@
-﻿"""Writing the day up at the end of a shift.
+"""Writing the day up at the end of a shift.
 
 The cashier serves customers without touching the bot and declares everything
 once, at the end. Either the whole declaration lands with the shift closed and
@@ -10,7 +10,15 @@ from __future__ import annotations
 from decimal import Decimal
 
 from app.db import db
-from tests.factories import YEREVAN_LAT, YEREVAN_LNG, make_item, make_owner, make_store, make_worker
+from tests.factories import (
+    YEREVAN_LAT,
+    YEREVAN_LNG,
+    make_item,
+    make_owner,
+    make_store,
+    make_worker,
+    worked_a_full_shift,
+)
 
 BASE = "/api/bot/v1"
 TG = 555000777
@@ -29,12 +37,19 @@ async def _on_shift(stock: int = 20, salary: str = "8000.00"):
 
 
 async def _open(client, headers, telegram_id):
-    return await client.post(
+    """Open a shift and treat it as a full day's work.
+
+    A shift under eight hours is paid half; nothing here is about that rule, and
+    every wage assertion below would otherwise have to know it.
+    """
+    response = await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": telegram_id, "lat": YEREVAN_LAT, "lng": YEREVAN_LNG,
               "accuracy_m": 20, "idempotency_key": "idem-key-open-01", "live_period": 900},
         headers=headers,
     )
+    await worked_a_full_shift()
+    return response
 
 
 async def _close_out(client, headers, telegram_id, lines, key="idem-key-close-01", **extra):
@@ -245,6 +260,9 @@ async def test_the_last_one_out_closing_the_store_pays_everybody(client, bot_hea
               "accuracy_m": 20, "idempotency_key": "idem-key-open-02", "live_period": 900},
         headers=bot_headers,
     )
+    # The second worker opened after _open backdated the first, so they need it
+    # too — both wages below are the full figures.
+    await worked_a_full_shift()
     await client.post(
         f"{BASE}/shift/end",
         json={"telegram_id": second_tg, "idempotency_key": "idem-key-end-02"},

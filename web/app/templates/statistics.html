@@ -68,13 +68,15 @@
       {% else %}առաքում չի եղել{% endif %}
     </span>
   </div>
-  <div class="card stat">
+  {# Clickable, because the first question about a total is always "on what?"
+     and the answer is a table further down the same page. #}
+  <a class="card stat" href="#spending">
     <span class="total-label">Ծախսեր</span>
     <span class="total-value negative">{{ (salaries + spending + breakage) | money }}</span>
     <span class="muted small">
       աշխատավարձ {{ salaries | money }} · այլ {{ spending | money }}{% if breakage %} ·
       խոտան {{ breakage | money }}{% endif %}</span>
-  </div>
+  </a>
   <div class="card stat">
     <span class="total-label">Զուտ շահույթ</span>
     <span class="total-value {% if net_profit < 0 %}negative{% else %}positive{% endif %}">
@@ -246,5 +248,74 @@
       {{ stock.units }} հատ · հնարավոր շահույթ {{ stock.possible_profit | money }}
     </p>
   </div>
+</div>
+
+{# -- every outgoing in this period, one row each ---------------------------
+   The «Ծախսեր» tile above links here. It is the same number taken apart: the
+   entries the owner typed, plus the two figures that are computed rather than
+   entered — wages, from the shifts that closed, and breakage, from what was
+   written off. Those two have no rows of their own to show, so they are named
+   as single lines instead of being left out of the reconciliation. #}
+<div class="card" id="spending">
+  <div class="status-head">
+    <h2>Ծախսերը մանրամասն</h2>
+    <span class="muted small">{{ since | day }} — {{ until | day }}</span>
+  </div>
+
+  {% if spending_rows or salaries or breakage %}
+  <div class="table-wrap">
+    <table class="cards">
+      <thead>
+        <tr><th>Ամսաթիվ</th><th>Ինչի համար</th><th>Ուղղություն</th><th>Խանութ</th>
+            <th>Ձև</th><th class="num">Գումար</th></tr>
+      </thead>
+      <tbody>
+        {% for e in spending_rows %}
+        <tr>
+          <td class="nowrap" data-label="Ամսաթիվ">{{ e.spent_on | day }}</td>
+          <td class="cell-name" data-label="Ինչի համար">{{ e.purpose }}</td>
+          <td data-label="Ուղղություն">{{ e.category_name or '—' }}</td>
+          <td data-label="Խանութ">{{ e.store_name or 'Ամբողջ բիզնեսը' }}</td>
+          <td data-label="Ձև">{{ 'Կանխիկ' if e.method == 'cash' else 'Քարտ' }}</td>
+          <td class="num negative" data-label="Գումար">{{ e.amount | money }}</td>
+        </tr>
+        {% endfor %}
+        {% if salaries %}
+        <tr>
+          <td class="nowrap muted" data-label="Ամսաթիվ">—</td>
+          <td class="cell-name" data-label="Ինչի համար">Աշխատավարձ</td>
+          <td data-label="Ուղղություն">Փակված հերթափոխեր</td>
+          <td data-label="Խանութ">—</td>
+          <td data-label="Ձև">Կանխիկ</td>
+          <td class="num negative" data-label="Գումար">{{ salaries | money }}</td>
+        </tr>
+        {% endif %}
+        {% if breakage %}
+        <tr>
+          <td class="nowrap muted" data-label="Ամսաթիվ">—</td>
+          <td class="cell-name" data-label="Ինչի համար">Խոտան</td>
+          <td data-label="Ուղղություն">Դուրս գրված ապրանք</td>
+          <td data-label="Խանութ">—</td>
+          <td class="muted" data-label="Ձև">դրամարկղին չի ազդում</td>
+          <td class="num negative" data-label="Գումար">{{ breakage | money }}</td>
+        </tr>
+        {% endif %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="5">Ընդամենը</th>
+          <th class="num negative">{{ (salaries + spending + breakage) | money }}</th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  <p class="muted small">
+    Խոտանը հաշվվում է ինքնարժեքով և դրամարկղին չի ազդում՝ փողը դուրս է եկել
+    գնելու պահին։ <a href="/expenses">Ծախսերի էջ</a>
+  </p>
+  {% else %}
+  <p class="muted">Այս ժամանակահատվածում ծախս գրանցված չէ։
+    <a href="/expenses">Ավելացնել</a></p>
+  {% endif %}
 </div>
 {% endblock %}

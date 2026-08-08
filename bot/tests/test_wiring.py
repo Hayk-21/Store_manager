@@ -337,20 +337,38 @@ def test_callback_labels_fit_telegrams_limit():
     assert len(button.callback_data.encode()) <= 64
 
 
-def test_the_price_keyboard_offers_wholesale_only_when_there_is_one():
+def test_wholesale_is_offered_even_when_the_product_has_no_wholesale_price():
+    """It used to be hidden in that case, which left a cashier selling a box at a
+    trade price with no way to say so — typing the number filed the line as a
+    haggle and every wholesale figure read low. Now the button is always there and
+    asks for the price when there is none on the product."""
     with_wholesale = keyboards.suggested_prices(
         {"sell_price": "4000.00", "wholesale_price": "2500.00"}
     )
     without = keyboards.suggested_prices({"sell_price": "4000.00", "wholesale_price": None})
 
-    def labels(markup):
-        return [b.text for row in markup.inline_keyboard for b in row]
+    def data(markup):
+        return [b.callback_data for row in markup.inline_keyboard for b in row]
 
-    assert any(texts.BTN_WHOLESALE in label for label in labels(with_wholesale))
-    assert not any(texts.BTN_WHOLESALE in label for label in labels(without))
-    # Retail, «other price» and cancel are always there; wholesale is the only
-    # row that comes and goes.
-    assert len(with_wholesale.inline_keyboard) == len(without.inline_keyboard) + 1
+    assert f"{keyboards.CB_KIND}:wholesale" in data(with_wholesale)
+    assert f"{keyboards.CB_KIND}:wholesale" in data(without)
+    # Same shape either way now; only the label on that one row differs.
+    assert len(with_wholesale.inline_keyboard) == len(without.inline_keyboard)
+
+
+def test_the_wholesale_button_says_which_kind_it_is():
+    """With a price it shows the price; without one it says it will ask."""
+    def label(wholesale):
+        markup = keyboards.suggested_prices(
+            {"sell_price": "4000.00", "wholesale_price": wholesale}
+        )
+        return next(
+            b.text for row in markup.inline_keyboard for b in row
+            if b.callback_data == f"{keyboards.CB_KIND}:wholesale"
+        )
+
+    assert "2,500" in label("2500.00")
+    assert label(None) == texts.BTN_WHOLESALE_NO_PRICE
 
 
 def test_a_price_can_always_be_typed_instead():

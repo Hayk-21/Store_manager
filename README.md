@@ -119,6 +119,15 @@ A worker with neither shows as `@justhayk`, never as a blank row.
   **nothing**; the owner pays it separately. `salary_paid` on the shift is 0 and
   no `cash_movements` row is written.
 
+**A shift under 8 hours pays half.** The figure is a day's pay, and somebody who
+left after two hours has not worked a day. One step rather than pay-by-the-minute,
+because the wage is agreed as a day rate and billing it by the second turns every
+late start into an argument about four minutes. Applied in
+`shifts._pay_and_close_shift`, which every close path goes through — the worker
+ending their own shift, the write-up, the last one out, the owner forcing it and
+the auto-close — so the five cannot disagree about what a day's work is. The bot
+tells the worker why the number is half.
+
 ---
 
 ## Tests
@@ -161,10 +170,37 @@ web/app/
     geofence.py    nearest store whose own radius covers the point
     shifts.py      open / end shift / close store / auto-close
     sales.py       record_sale, void_last_sale — the atomic ones
+    stock.py       counts corrected by hand, logged with a name against them
+    transfers.py   stock moved between two of one owner's shops
   routes/        auth · pages · partials · bot_api
   templates/     Jinja2; base.html carries the fixed footer
 migrations/      append-only, applied in filename order. Never edit a shipped one.
 ```
+
+Four things move stock, and they are deliberately different tables:
+
+| | What it means | Money | Stock |
+|---|---|---|---|
+| `sales` | somebody bought it | till up | down |
+| `write_offs` | it broke, leaked or expired | none — the money left when it was bought | down |
+| `stock_adjustments` | the count on the screen disagreed with the shelf | none | either way |
+| `transfers` | it is on a different shelf now | none | down here, up there |
+
+Folding any of them into another tells the reports a lie: a transfer recorded as a
+write-off plus a correction reads as breakage that never broke, and a correction
+recorded as a sale invents revenue. The last two are logged with a worker's name
+against them, because a count that can be changed silently can be changed to cover
+a shortfall.
+
+**A transfer needs an answer, unless the owner made it.** Two shops are two people:
+a cashier cannot reach into a shelf they are not standing at, so their request sits
+at `pending` until a worker at the *source* shop approves it, and approving is what
+moves the stock — an approval that did not move it would be a promise, and the shelf
+would disagree with the screen until somebody noticed. The owner sees both shelves
+and answers to nobody, so `/transfers` on the website applies immediately and records
+itself as decided by them. The quantity is always *added* at the far end: a transfer
+tops a shelf up, it does not replace what is on it, and the cost price travels with
+the box so moving stock cannot revalue it.
 
 Rules worth knowing before changing anything:
 
@@ -260,6 +296,12 @@ services cannot drift apart on what a failure means.
 | POST | `/store/open` | geofence, open-or-join the session, start the shift → 201 |
 | GET | `/items?telegram_id=&q=` | stock of the store of the open shift |
 | POST | `/items` | put a new product on the shelf of that store → 201. `wholesale_price` is optional — absent means "not sold wholesale", never 0 |
+| POST | `/items/adjust` | correct several counts at once → 201. Signed deltas; logged against the worker |
+| GET | `/transfers/stores` | the owner's other shops, to ask one of them for stock |
+| GET | `/transfers/items?store_id=` | another shop's shelf — names and counts, no prices |
+| POST | `/transfers` | ask that shop for a box → 201. Moves nothing yet |
+| GET | `/transfers/pending` | requests waiting for an answer at this shop |
+| POST | `/transfers/{id}/decide` | approve (moves the stock) or reject |
 | POST | `/sale` | the atomic sale → 201. `is_delivery` marks it as delivered |
 | POST | `/sale/void` | undo the worker's last receipt in this shift |
 | POST | `/write-off` | stock that broke or expired, off the shelf without a sale → 201 |

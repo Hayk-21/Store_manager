@@ -52,8 +52,25 @@ def _money(raw: str) -> Decimal | None:
 
 
 async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Reached from the correction screen, whose «Բոլորովին նոր ապրանք» button is
+    this flow's entry point.
+
+    That screen's draft is dropped on the way in. The two share one journey — the
+    cashier went looking for a product on the shelf list and it was not there — and
+    leaving half-finished nudges behind would apply them the next time the list was
+    opened, long after anybody remembered making them.
+    """
     _clear(context)
-    await update.effective_message.reply_text(
+    for key in ("rs_items", "rs_deltas", "rs_page", "rs_key"):
+        context.user_data.pop(key, None)
+
+    message = update.effective_message
+    if update.callback_query is not None:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_reply_markup(reply_markup=None)
+        message = update.callback_query.message
+
+    await message.reply_text(
         texts.NEW_ITEM_ASK_NAME, parse_mode=ParseMode.HTML,
         reply_markup=keyboards.selling(),
     )

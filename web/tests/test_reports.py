@@ -1,4 +1,4 @@
-﻿"""/reports — organised by store session, because that is the accounting period."""
+"""/reports — organised by store session, because that is the accounting period."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from tests.factories import (
     make_owner,
     make_store,
     make_worker,
+    worked_a_full_shift,
 )
 
 
@@ -27,6 +28,9 @@ async def _a_completed_shift():
     )
     item_id = await make_item(owner_id, store_id, "HQD Cuvie", count=10, sell_price="3500.00")
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1", 900)
+    # A whole day, so the shift wage is the full figure: a shift under eight
+    # hours is paid half, and these numbers are not about that rule.
+    await worked_a_full_shift(worker_id)
     await sales_service.record_sale(
         worker, [{"item_id": item_id, "quantity": 3}], "cash", "idem-key-sale-1"
     )

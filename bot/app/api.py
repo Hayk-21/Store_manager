@@ -261,6 +261,73 @@ class Api:
             payload["wholesale_price"] = wholesale_price
         return await self._call("POST", "/items", json=payload)
 
+    async def transfer_sources(self, telegram_id: int) -> dict:
+        """The owner's other shops — the ones a box could be asked for from."""
+        return await self._call(
+            "GET", "/transfers/stores", params={"telegram_id": telegram_id}
+        )
+
+    async def transfer_items(
+        self, telegram_id: int, store_id: int, q: str = "", limit: int = 25
+    ) -> dict:
+        """What another shop has on its shelf. Names and counts, no prices."""
+        return await self._call(
+            "GET",
+            "/transfers/items",
+            params={"telegram_id": telegram_id, "store_id": store_id,
+                    "q": q, "limit": limit},
+        )
+
+    async def request_transfer(
+        self, telegram_id: int, from_store_id: int, item_id: int, quantity: int, key: str
+    ) -> dict:
+        """Ask for stock. Nothing moves until the other shop agrees."""
+        return await self._call(
+            "POST",
+            "/transfers",
+            json={
+                "telegram_id": telegram_id,
+                "from_store_id": from_store_id,
+                "item_id": item_id,
+                "quantity": quantity,
+                "idempotency_key": key,
+            },
+        )
+
+    async def pending_transfers(self, telegram_id: int) -> dict:
+        return await self._call(
+            "GET", "/transfers/pending", params={"telegram_id": telegram_id}
+        )
+
+    async def decide_transfer(
+        self, telegram_id: int, transfer_id: int, approve: bool
+    ) -> dict:
+        """Approve or reject. No idempotency key: the row's own status is the
+        guard — a second tap finds it already answered and is told so."""
+        return await self._call(
+            "POST",
+            f"/transfers/{transfer_id}/decide",
+            json={"telegram_id": telegram_id, "approve": approve},
+        )
+
+    async def adjust_stock(
+        self, telegram_id: int, lines: list[dict], key: str, note: str | None = None
+    ) -> dict:
+        """Correct several counts at once — one tap of "confirm", one request.
+
+        A request per product would let half a correction land, and the half that
+        failed is invisible: the screen would show numbers the cashier believes
+        they already fixed.
+        """
+        payload: dict[str, Any] = {
+            "telegram_id": telegram_id,
+            "lines": lines,
+            "idempotency_key": key,
+        }
+        if note:
+            payload["note"] = note
+        return await self._call("POST", "/items/adjust", json=payload)
+
     async def withdraw(
         self, telegram_id: int, amount: str, purpose: str, key: str
     ) -> dict:

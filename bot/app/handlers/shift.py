@@ -272,6 +272,10 @@ async def report_end(update: Update, summary: dict) -> None:
         sold=format.sold_summary(summary["sales"]),
         salary=format.money(summary["salary_deducted"]),
     )
+    if summary.get("salary_halved"):
+        message += texts.SALARY_HALVED.format(
+            hours=summary.get("full_shift_hours", 8)
+        )
     if summary.get("store_closed"):
         message += texts.STORE_CLOSED.format(
             cash=format.money(summary["store_totals_after"]["cash"]),

@@ -15,6 +15,7 @@ from app.config import settings
 from app.db import db
 from app.deps import CurrentUser, current_user, require_csrf
 from app.errors import AppError
+from app.repo import adjustments as adjustments_repo
 from app.repo import audit as audit_repo
 from app.repo import expenses as expenses_repo
 from app.repo import items as items_repo
@@ -22,12 +23,14 @@ from app.repo import money as money_repo
 from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
 from app.repo import stores as stores_repo
+from app.repo import transfers as transfers_repo
 from app.repo import workers as workers_repo
 from app.repo import write_offs as write_offs_repo
 from app.schemas import PRICE_KINDS
 from app.services import corrections, statistics
 from app.services import money as money_service
 from app.services import shifts as shifts_service
+from app.services import transfers as transfers_service
 from app.templating import render
 
 log = logging.getLogger("storemanager.pages")
@@ -582,6 +585,9 @@ async def reports_page(
             "stock": await items_repo.list_for_store(user.id, session["store_id"]),
             "history": await audit_repo.for_session(user.id, store_session_id),
             "write_offs": await write_offs_repo.for_session(store_session_id),
+            # Counts a cashier corrected by hand. Shown because a stock number
+            # that can be changed silently is one that can hide a shortfall.
+            "adjustments": await adjustments_repo.for_session(store_session_id),
         }
     return render(
         request,
@@ -599,11 +605,16 @@ async def reports_page(
 async def statistics_page(
     request: Request,
     period: str | None = None,
-    store_id: int | None = None,
+    store_id: str | None = None,
     user: CurrentUser = Depends(current_user),
 ):
-    """What the business earned, and what that cost."""
+    """What the business earned, and what that cost.
+
+    ``store_id`` arrives as a string because the filter's «Բոլորը» option submits
+    an empty one. See forms.optional_id.
+    """
     since, until, preset = statistics.range_for(period)
+    store_id = forms.optional_id(store_id)
     if store_id is not None:
         await _store_or_404(user.id, store_id)
     return render(
@@ -801,6 +812,106 @@ async def _session_of_sale(owner_id: int, sale_id: int) -> int | None:
 def _back_to_report(store_session_id: int | None):
     target = f"/reports?store_session_id={store_session_id}" if store_session_id else "/reports"
     return RedirectResponse(target, status_code=303)
+
+
+@router.get("/transfers")
+async def transfers_page(request: Request, user: CurrentUser = Depends(current_user)):
+    """Move stock between shops, and the history of it having been moved."""
+    return render(
+        request,
+        "transfers.html",
+        {
+            "user": user,
+            "active": "transfers",
+            "stores": await stores_repo.list_for_owner(user.id),
+            "transfers": await transfers_repo.recent_for_owner(user.id),
+        },
+    )
+
+
+@router.post("/transfers")
+async def create_transfer(
+    from_store_id: str = Form(""),
+    to_store_id: str = Form(""),
+    item_id: str = Form(""),
+    quantity: str = Form(""),
+    note: str = Form(""),
+    user: CurrentUser = Depends(require_csrf),
+):
+    """The owner's own transfer. Applies immediately — there is nobody to ask."""
+    await transfers_service.move_as_owner(
+        owner_id=user.id,
+        item_id=forms.whole(item_id, "Ապրանք", minimum=1),
+        from_store_id=forms.whole(from_store_id, "Որտեղից", minimum=1),
+        to_store_id=forms.whole(to_store_id, "Ուր", minimum=1),
+        quantity=forms.whole(quantity, "Քանակ", minimum=1),
+        note=forms.text(note, "Նշում", max_length=300, required=False),
+    )
+    return RedirectResponse("/transfers", status_code=303)
+
+
+@router.post("/reports/{store_session_id}/delete")
+async def delete_report(
+    store_session_id: int, user: CurrentUser = Depends(require_csrf)
+):
+    """Erase one shift's report: its sales, its ledger and its breakage.
+
+    Stock is deliberately left alone. Deleting a report says "this record should
+    not exist", which is not the same as "these goods came back" — putting the
+    counts up would invent stock the shop does not have on its shelves. Reversing
+    a sale is what the void button on each receipt is for, and it is still there.
+
+    Only a closed session. Deleting one that is still running would take the
+    ground out from under the workers standing in it: their open shifts, and every
+    sale they are about to make, point at this row.
+    """
+    session = await sessions_repo.get_store_session(user.id, store_session_id)
+    if session is None:
+        raise AppError("not_found", "Հերթափոխը չի գտնվել։")
+    if session["closed_at"] is None:
+        raise AppError(
+            "validation_error",
+            "Բաց հերթափոխը հնարավոր չէ ջնջել։ Սկզբում փակեք խանութը։",
+        )
+
+    async with db.transaction() as conn:
+        await write_offs_repo.delete_for_session(conn, user.id, store_session_id)
+        await adjustments_repo.delete_for_session(conn, user.id, store_session_id)
+        await sessions_repo.delete_store_session(conn, user.id, store_session_id)
+    log.info("owner %s deleted store session %s", user.id, store_session_id)
+    return RedirectResponse("/reports", status_code=303)
+
+
+@router.post("/write-offs/{write_off_id}/delete")
+async def delete_write_off(
+    write_off_id: int, user: CurrentUser = Depends(require_csrf)
+):
+    """Remove a write-off and put the stock back.
+
+    Unlike deleting a report, this *does* restore the count, because the two
+    deletions mean different things. A write-off is a claim that goods were
+    destroyed; deleting it says the claim was wrong, and if the vape did not break
+    then it is still on the shelf. Leaving the count down would keep the error and
+    lose the record of it.
+
+    Nothing to undo on the money side — breakage never touched the till.
+    """
+    write_off = await write_offs_repo.get(user.id, write_off_id)
+    if write_off is None:
+        raise AppError("not_found", "Խոտանի գրառումը չի գտնվել։")
+
+    async with db.transaction() as conn:
+        await conn.execute(
+            "UPDATE items SET count = count + $2, updated_at = now() WHERE id = $1",
+            write_off["item_id"],
+            write_off["quantity"],
+        )
+        await write_offs_repo.delete(conn, user.id, write_off_id)
+    log.info(
+        "owner %s deleted write-off %s and restored %s of item %s",
+        user.id, write_off_id, write_off["quantity"], write_off["item_id"],
+    )
+    return _back_to_report(write_off["store_session_id"])
 
 
 @router.post("/workers/{worker_id}")

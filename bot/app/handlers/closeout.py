@@ -36,7 +36,7 @@ def _basket(context) -> list[dict]:
 
 def _clear(context) -> None:
     for key in (BASKET, "co_item", "co_qty", "co_price", "co_key", "co_candidates",
-                "co_delivery"):
+                "co_delivery", "co_price_kind", "co_kind_pending"):
         context.user_data.pop(key, None)
 
 
@@ -204,18 +204,26 @@ async def choose_suggested_price(update: Update, context: ContextTypes.DEFAULT_T
     if item is None:  # pragma: no cover
         return ConversationHandler.END
 
-    if kind == "other":
+    price = item.get("wholesale_price") if kind == "wholesale" else item.get("sell_price")
+
+    # «Այլ գին», or «Մեծածախ» on a product whose wholesale price was never set.
+    # Both wait for a number; which price list it belongs to has to survive the
+    # wait, or a trade price is written up as a haggle.
+    if kind == "other" or price is None:
+        context.user_data["co_kind_pending"] = (
+            "wholesale" if kind == "wholesale" else "custom"
+        )
         await query.edit_message_reply_markup(reply_markup=None)
-        await query.message.reply_text(texts.ASK_OTHER_PRICE)
+        await query.message.reply_text(
+            texts.ASK_WHOLESALE_PRICE if kind == "wholesale" else texts.ASK_OTHER_PRICE
+        )
         return ASK_PRICE
 
-    price = item.get("wholesale_price") if kind == "wholesale" else item.get("sell_price")
-    if price is None:  # pragma: no cover - the button is only offered when set
-        price = item["sell_price"]
     context.user_data["co_price"] = Decimal(price)
     # Which list it came from, kept beside the amount. The server records it, so
     # "how much do we sell wholesale" stops being a guess about low prices.
     context.user_data["co_price_kind"] = kind
+    context.user_data.pop("co_kind_pending", None)
     await query.edit_message_reply_markup(reply_markup=None)
     return await _ask_method(query.message, context)
 
@@ -233,10 +241,13 @@ async def type_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ASK_PRICE
 
     context.user_data["co_price"] = price
-    # Typed by hand. The server downgrades this to the list price's own kind if
-    # the number turns out to match it exactly, so leaving a prefilled wholesale
-    # price alone is not filed as a haggle.
-    context.user_data["co_price_kind"] = "custom"
+    # Typed by hand, so 'custom' — unless the cashier got here by asking for a
+    # wholesale price the product does not have. The server downgrades a 'custom'
+    # to the list price's own kind if the number turns out to match it exactly, so
+    # leaving a prefilled wholesale price alone is not filed as a haggle.
+    context.user_data["co_price_kind"] = context.user_data.pop(
+        "co_kind_pending", "custom"
+    )
     return await _ask_method(update.effective_message, context)
 
 
@@ -298,7 +309,7 @@ async def choose_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     # The tickbox belongs to the line just added, not to the next one, so it is
     # cleared with everything else about that line.
     for key in ("co_item", "co_qty", "co_price", "co_price_kind", "co_candidates",
-                "co_delivery"):
+                "co_delivery", "co_kind_pending"):
         context.user_data.pop(key, None)
 
     await query.edit_message_reply_markup(reply_markup=None)

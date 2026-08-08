@@ -156,6 +156,45 @@ class NewItemRequest(BotRequest):
         return value
 
 
+class AdjustLine(BaseModel):
+    """One product's correction. Signed: up for stock found, down for stock gone."""
+
+    item_id: int = Field(gt=0)
+    delta: int = Field(ge=-1_000_000, le=1_000_000)
+
+
+class AdjustStockRequest(IdempotentRequest):
+    """A batch of stock corrections from one tap of "confirm".
+
+    One request rather than one per product, because the cashier counted the shelf
+    once. Half a batch landing would be worse than none of it: the screen would
+    show numbers they believe they have already fixed.
+    """
+
+    lines: list[AdjustLine] = Field(min_length=1, max_length=100)
+    note: str | None = Field(default=None, max_length=300)
+
+
+class TransferRequest(IdempotentRequest):
+    """A cashier asking another of the owner's shops for stock.
+
+    ``item_id`` is the *source* shop's row: the cashier is pointing at a product on
+    somebody else's shelf, which is why they had to be shown that shelf to pick
+    from. The destination is never sent — it is the shop their shift is open in, so
+    nobody can route a box to a third place.
+    """
+
+    from_store_id: int = Field(gt=0)
+    item_id: int = Field(gt=0)
+    quantity: int = Field(gt=0, le=100_000)
+
+
+class TransferDecision(BotRequest):
+    """Approving or rejecting one request, from the shop being asked."""
+
+    approve: bool
+
+
 class WithdrawRequest(IdempotentRequest):
     """A cashier taking cash out of the till, with the reason they took it."""
 

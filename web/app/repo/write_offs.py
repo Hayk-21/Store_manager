@@ -81,6 +81,30 @@ async def for_session(store_session_id: int) -> list[asyncpg.Record]:
     )
 
 
+async def delete(conn, owner_id: int, write_off_id: int) -> bool:
+    """Remove one write-off row. Takes a connection because the caller is putting
+    the stock back in the same transaction."""
+    result = await conn.execute(
+        "DELETE FROM write_offs WHERE id = $1 AND owner_id = $2", write_off_id, owner_id
+    )
+    return result.endswith(" 1")
+
+
+async def delete_for_session(conn, owner_id: int, store_session_id: int) -> None:
+    """Every write-off of one store session.
+
+    The foreign key sets ``store_session_id`` to null when a session goes, which
+    would leave the rows behind as breakage belonging to no shift — still counted
+    in the statistics, no longer visible in any report. Deleting the report means
+    deleting them.
+    """
+    await conn.execute(
+        "DELETE FROM write_offs WHERE store_session_id = $1 AND owner_id = $2",
+        store_session_id,
+        owner_id,
+    )
+
+
 async def cost_between(owner_id: int, since, until, store_id: int | None = None) -> Decimal:
     """What breakage cost over a period — a real expense, just not a till one."""
     return await db.fetchval(

@@ -26,6 +26,9 @@ ZERO = Decimal("0.00")
 # rest are rolling windows ending today, which is what "last 30 days" means to
 # somebody looking at a shop.
 PRESETS = {
+    # "1" is a rolling window of one day, which is today — the same arithmetic as
+    # the others rather than a case of its own.
+    "1": "Այսօր",
     "7": "Վերջին 7 օրը",
     "30": "Վերջին 30 օրը",
     "90": "Վերջին 90 օրը",
@@ -138,6 +141,12 @@ async def overview(
         "by_store": await stats_repo.by_store(owner_id, since, until, tz),
         "by_worker": await stats_repo.by_worker(owner_id, since, until, tz, store_id),
         "by_category": await expenses_repo.by_category_between(owner_id, since, until),
+        # The individual entries behind the «Ծախսեր» figure. A total that cannot
+        # be broken back down into the things it is made of is a number the owner
+        # has to take on trust, and the first question about it is always "on
+        # what?". Wages and breakage are the other two parts of that figure and
+        # are shown beside these on the page — they are aggregates, not entries.
+        "spending_rows": await expenses_repo.list_between(owner_id, since, until),
         "stock": await stats_repo.stock_value(owner_id, store_id),
         "salaries": salaries,
         "spending": spending,

@@ -1,4 +1,4 @@
-﻿"""The HTTP contract the bot speaks.
+"""The HTTP contract the bot speaks.
 
 The services are tested directly elsewhere; what is checked here is the envelope,
 the status codes, and the fact that a worker's telegram_id is the only thing
@@ -10,7 +10,15 @@ from __future__ import annotations
 from decimal import Decimal
 
 from app.db import db
-from tests.factories import YEREVAN_LAT, YEREVAN_LNG, make_item, make_owner, make_store, make_worker
+from tests.factories import (
+    YEREVAN_LAT,
+    YEREVAN_LNG,
+    make_item,
+    make_owner,
+    make_store,
+    make_worker,
+    worked_a_full_shift,
+)
 
 FAR_LAT = YEREVAN_LAT + 0.0072
 BASE = "/api/bot/v1"
@@ -27,13 +35,20 @@ async def _world(salary: str = "8000.00", stock: int = 10):
 
 
 async def _open(client, headers, telegram_id, key="idem-key-open-01", live_period=900):
-    """Opening a shift needs a live location; 900s is Telegram's shortest span."""
-    return await client.post(
+    """Opening a shift needs a live location; 900s is Telegram's shortest span.
+
+    The shift is then backdated to a full day, so a wage in a later assertion is the
+    whole figure. A shift under eight hours is paid half, and nothing in this file is
+    about that rule.
+    """
+    response = await client.post(
         f"{BASE}/store/open",
         json={"telegram_id": telegram_id, "lat": YEREVAN_LAT, "lng": YEREVAN_LNG,
               "accuracy_m": 20, "idempotency_key": key, "live_period": live_period},
         headers=headers,
     )
+    await worked_a_full_shift()
+    return response
 
 
 # -- authentication ----------------------------------------------------------

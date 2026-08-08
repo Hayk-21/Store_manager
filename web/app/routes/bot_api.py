@@ -23,9 +23,12 @@ from app.repo import items as items_repo
 from app.repo import money as money_repo
 from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
+from app.repo import stores as stores_repo
+from app.repo import transfers as transfers_repo
 from app.repo import users as users_repo
 from app.repo import workers as workers_repo
 from app.schemas import (
+    AdjustStockRequest,
     CheckinRequest,
     CloseoutRequest,
     CloseStoreRequest,
@@ -34,6 +37,8 @@ from app.schemas import (
     NewItemRequest,
     OpenStoreRequest,
     SaleRequest,
+    TransferDecision,
+    TransferRequest,
     VoidRequest,
     WithdrawRequest,
     WriteOffRequest,
@@ -41,6 +46,8 @@ from app.schemas import (
 from app.services import money as money_service
 from app.services import sales as sales_service
 from app.services import shifts as shifts_service
+from app.services import stock as stock_service
+from app.services import transfers as transfers_service
 from app.services import write_offs as write_offs_service
 from app.services.geofence import match_store
 
@@ -272,6 +279,115 @@ async def items(
     }
 
 
+@router.get("/transfers/stores")
+async def transfer_sources(telegram_id: int = Query(gt=0)) -> dict:
+    """The owner's other shops — the ones stock could be asked for from.
+
+    The worker's own shop is left out: you cannot ask yourself for a box.
+    """
+    worker = await _worker(telegram_id)
+    shift = await sessions_repo.open_for_worker(worker.id)
+    if shift is None:
+        raise BotError("no_open_session")
+
+    return {
+        "ok": True,
+        # list_for_owner already leaves out deactivated shops.
+        "stores": [
+            {"id": row["id"], "name": row["name"]}
+            for row in await stores_repo.list_for_owner(worker.owner_id)
+            if row["id"] != shift["store_id"]
+        ],
+    }
+
+
+@router.get("/transfers/items")
+async def transfer_items(
+    telegram_id: int = Query(gt=0),
+    store_id: int = Query(gt=0),
+    q: str = Query(default="", max_length=200),
+    limit: int = Query(default=25, ge=1, le=100),
+) -> dict:
+    """What another of the owner's shops has on its shelf.
+
+    Names and counts only — no prices. The cashier is choosing a box to ask for,
+    not selling it, and what a sister shop charges is not part of that job.
+
+    Reachable only while on shift, and only for a shop belonging to the same owner,
+    so this is not a way to read somebody else's stock.
+    """
+    worker = await _worker(telegram_id)
+    shift = await sessions_repo.open_for_worker(worker.id)
+    if shift is None:
+        raise BotError("no_open_session")
+    if store_id == shift["store_id"]:
+        raise BotError("validation_error", "Ընտրեք այլ խանութ։")
+    store = await stores_repo.get(worker.owner_id, store_id)
+    if store is None:
+        raise BotError("unknown_item")
+
+    rows = (
+        await items_repo.search_in_store(store_id, q, limit)
+        if q.strip()
+        else await items_repo.list_in_store_for_bot(store_id, limit, 0)
+    )
+    return {
+        "ok": True,
+        "store_id": store_id,
+        "store_name": store["name"],
+        "items": [
+            {"id": row["id"], "name": row["name"], "count": row["count"]}
+            for row in rows
+            if row["count"] > 0
+        ],
+    }
+
+
+@router.post("/transfers", status_code=201)
+async def request_transfer(body: TransferRequest) -> dict:
+    """Ask another shop for stock. Moves nothing until somebody there agrees."""
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
+    return await transfers_service.request_by_worker(
+        worker, body.from_store_id, body.item_id, body.quantity, body.idempotency_key
+    )
+
+
+@router.get("/transfers/pending")
+async def pending_transfers(telegram_id: int = Query(gt=0)) -> dict:
+    """Both sides of the worker's shop: what it is being asked for, and what it has
+    asked for and is still waiting on."""
+    worker = await _worker(telegram_id)
+    shift = await sessions_repo.open_for_worker(worker.id)
+    if shift is None:
+        raise BotError("no_open_session")
+
+    incoming = await transfers_repo.pending_for_store(worker.owner_id, shift["store_id"])
+    return {
+        "ok": True,
+        "store_name": shift["store_name"],
+        "incoming": [
+            {
+                "id": row["id"],
+                "item_name": row["item_name"],
+                "quantity": row["quantity"],
+                "to_store": row["to_store_name"],
+            }
+            for row in incoming
+        ],
+    }
+
+
+@router.post("/transfers/{transfer_id}/decide")
+async def decide_transfer(transfer_id: int, body: TransferDecision) -> dict:
+    """Approve or reject a request, as somebody standing in the shop being asked.
+
+    Approving moves the stock in the same transaction. An approval that did not
+    move it would be a promise, and the shelf would disagree with the screen.
+    """
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
+    return await transfers_service.decide_by_worker(worker, transfer_id, body.approve)
+
+
 @router.post("/sale", status_code=201)
 async def sale(body: SaleRequest) -> JSONResponse:
     """Requirement 6: stock down, money up, in one transaction."""
@@ -348,6 +464,23 @@ async def add_item(body: NewItemRequest) -> dict:
             ),
         },
     }
+
+
+@router.post("/items/adjust", status_code=201)
+async def adjust_stock(body: AdjustStockRequest) -> dict:
+    """Correct what the shelf says, from the counter.
+
+    Neither a sale nor breakage — the count on the screen had drifted from the
+    count on the shelf. Every correction is logged against the worker who made it,
+    because a number that changes silently is a number that can hide a shortfall.
+    """
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
+    return await stock_service.adjust_by_worker(
+        worker,
+        [{"item_id": line.item_id, "delta": line.delta} for line in body.lines],
+        body.idempotency_key,
+        body.note,
+    )
 
 
 @router.post("/cash/withdraw", status_code=201)

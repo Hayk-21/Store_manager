@@ -80,6 +80,27 @@ def whole(
     return number
 
 
+def optional_id(value: str | None) -> int | None:
+    """A row id from a filter dropdown whose "all" option has no value.
+
+    Declaring such a query parameter as ``int | None`` looks right and is not: a
+    ``<select>`` whose blank option is chosen still submits ``?store_id=``, and an
+    empty string is not an integer, so the whole page answers 422 — which is what
+    the owner saw when they changed the period with «Բոլորը» selected. Blank means
+    "no filter", so it is parsed here rather than being rejected.
+
+    A non-numeric value is also read as no filter. There is nothing to tell the
+    owner about a URL they did not type, and refusing it only hides the page.
+    """
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
 def day(value: str | None, field: str) -> date:
     """A ``YYYY-MM-DD`` from a date input, defaulting to today when blank."""
     raw = (value or "").strip()

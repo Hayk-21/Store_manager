@@ -6,6 +6,7 @@ runs in from the few lines at the top of it.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 
 from app.db import db
@@ -120,6 +121,35 @@ async def make_worker(
         is_active,
     )
     return worker_id, tg
+
+
+async def worked_a_full_shift(worker_id: int | None = None, hours: float = 9) -> None:
+    """Backdate an open shift so it counts as a full day's work.
+
+    A shift under eight hours is paid half, and a test that opens a shift and
+    closes it on the next line has worked none. Most tests are not about the wage
+    at all — they are about stock, or the till, or what a report renders — and
+    every one of them would otherwise have to know the halving rule to write down
+    a number. Calling this says "assume they did the day", which is what those
+    tests always meant.
+
+    Without a ``worker_id`` it applies to every open shift, which is what a test
+    with two people in one shop wants — and what a test holding only a telegram_id
+    can reach.
+
+    The tests that *are* about short shifts are in test_short_shifts.py, and they
+    backdate deliberately in the other direction.
+    """
+    await db.execute(
+        """
+        UPDATE work_sessions SET started_at = now() - $2::interval
+         WHERE ended_at IS NULL AND ($1::bigint IS NULL OR worker_id = $1)
+        """,
+        worker_id,
+        # A timedelta, not a string: asyncpg maps an interval parameter from
+        # datetime.timedelta and refuses '9 hours' outright.
+        timedelta(hours=hours),
+    )
 
 
 async def login(client, handle: str):

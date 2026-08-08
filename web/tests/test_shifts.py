@@ -20,6 +20,7 @@ from tests.factories import (
     make_owner,
     make_store,
     make_worker,
+    worked_a_full_shift,
 )
 
 FAR_LAT = YEREVAN_LAT + 0.0072
@@ -108,6 +109,7 @@ async def test_ending_a_shift_takes_the_salary_out_of_cash(client):
     """Requirement 5."""
     _, _, worker, _ = await _setup(salary="8000.00")
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
+    await worked_a_full_shift(worker.id)
 
     result = await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
 
@@ -123,6 +125,7 @@ async def test_the_salary_is_snapshotted_and_survives_a_later_rate_change(client
     """What a past shift cost must not change when the rate does."""
     owner_id, _, worker, _ = await _setup(salary="8000.00")
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
+    await worked_a_full_shift(worker.id)
     await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
 
     await db.execute("UPDATE workers SET salary_amount = 99999.00 WHERE id = $1", worker.id)
@@ -220,6 +223,8 @@ async def test_the_last_one_out_closes_the_store_and_every_salary_is_paid(client
     second = await _worker_of(owner_id, second_id, "6000.00")
     await shifts_service.open_store(first, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa", 900)
     await shifts_service.open_store(second, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-bbbb", 900)
+    await worked_a_full_shift(first.id)
+    await worked_a_full_shift(second.id)
 
     await shifts_service.end_shift(first, None, None, "idem-key-end-1")
     await shifts_service.close_store(second, "idem-key-close-1")
@@ -235,6 +240,7 @@ async def test_closing_snapshots_the_till_and_resets_the_visible_total(client):
 
     _, store_id, worker, _ = await _setup(salary="3000.00")
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
+    await worked_a_full_shift(worker.id)
     session_id = await db.fetchval("SELECT id FROM store_sessions")
     # Pretend a sale happened.
     await db.execute(
@@ -289,6 +295,7 @@ async def test_cash_is_allowed_to_go_negative(client):
     """A store can genuinely owe wages it has not taken in. Clamping would hide it."""
     _, _, worker, _ = await _setup(salary="8000.00")
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
+    await worked_a_full_shift(worker.id)
 
     await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
 
@@ -315,6 +322,7 @@ async def test_a_forgotten_store_is_auto_closed_and_the_salary_still_paid(client
     """Without this, a worker who never pressed "close" could not start tomorrow."""
     _, _, worker, _ = await _setup(salary="8000.00")
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
+    await worked_a_full_shift(worker.id, hours=17)
     await db.execute("UPDATE store_sessions SET opened_at = now() - interval '17 hours'")
 
     closed = await shifts_service.auto_close_stale()

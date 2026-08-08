@@ -119,7 +119,13 @@ async def recent_store_sessions(
                coalesce((SELECT sum(m.amount) FILTER (WHERE m.method = 'cash')
                            FROM cash_movements m WHERE m.store_session_id = ss.id), 0) AS cash_now,
                coalesce((SELECT sum(m.amount) FILTER (WHERE m.method = 'card')
-                           FROM cash_movements m WHERE m.store_session_id = ss.id), 0) AS card_now
+                           FROM cash_movements m WHERE m.store_session_id = ss.id), 0) AS card_now,
+               -- What the shop took in, which is not cash + card: those two are
+               -- till balances, and a wage paid or money taken out has already
+               -- come off them. Sales and voids only, and a void row is negative,
+               -- so a reversed receipt nets itself out without a second term.
+               coalesce((SELECT sum(m.amount) FILTER (WHERE m.kind IN ('sale', 'void'))
+                           FROM cash_movements m WHERE m.store_session_id = ss.id), 0) AS income
           FROM store_sessions ss
           JOIN stores s ON s.id = ss.store_id
          WHERE ss.owner_id = $1
@@ -130,6 +136,31 @@ async def recent_store_sessions(
         limit,
         offset,
     )
+
+
+async def delete_store_session(conn, owner_id: int, store_session_id: int) -> bool:
+    """Erase one store session and everything filed under it.
+
+    Two deletes rather than one, because of how the keys are drawn. Sales, the
+    ledger and the audit trail all cascade from the session row, but
+    ``work_sessions`` does not — it is the one child that would block the delete —
+    so the shifts go first, taking their own sales, ledger rows and location pings
+    with them. What is left cascades.
+
+    Write-offs are handled by the caller: their key sets null rather than
+    cascading, which would strand them.
+    """
+    await conn.execute(
+        "DELETE FROM work_sessions WHERE store_session_id = $1 AND owner_id = $2",
+        store_session_id,
+        owner_id,
+    )
+    result = await conn.execute(
+        "DELETE FROM store_sessions WHERE id = $1 AND owner_id = $2",
+        store_session_id,
+        owner_id,
+    )
+    return result.endswith(" 1")
 
 
 async def get_store_session(owner_id: int, store_session_id: int) -> asyncpg.Record | None:
@@ -252,11 +283,15 @@ async def close_work_session(
 
 
 async def open_shifts_in_session(conn, store_session_id: int) -> list[asyncpg.Record]:
-    """Every shift still open in a store session, locked — used when closing."""
+    """Every shift still open in a store session, locked — used when closing.
+
+    ``started_at`` comes along because the wage depends on it: a shift under eight
+    hours is paid half, and this is one of the paths that pays one.
+    """
     return await conn.fetch(
         """
         SELECT ws.id, ws.worker_id, ws.store_id, ws.owner_id, ws.store_session_id,
-               w.salary_amount, w.salary_period
+               ws.started_at, w.salary_amount, w.salary_period
           FROM work_sessions ws
           JOIN workers w ON w.id = ws.worker_id
          WHERE ws.store_session_id = $1 AND ws.ended_at IS NULL

@@ -79,7 +79,9 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     context.user_data["def_candidates"] = {str(i["id"]): i for i in items}
     await update.effective_message.reply_text(
-        texts.CHOOSE_ITEM, reply_markup=keyboards.item_choices(items)
+        # No prices. Writing off a broken vape needs its name and how many; what
+        # the shop charges for it is not part of the job.
+        texts.CHOOSE_ITEM, reply_markup=keyboards.item_choices(items, show_price=False)
     )
     return PICK_ITEM
 
@@ -158,7 +160,6 @@ async def _submit(message, telegram_id: int, context) -> int:
         body = texts.DEFECT_DONE.format(
             item=format.esc(written["name"]),
             quantity=written["quantity"],
-            cost=format.money(written["total_cost"]),
             remaining=written["remaining_count"],
         )
     except (KeyError, TypeError):

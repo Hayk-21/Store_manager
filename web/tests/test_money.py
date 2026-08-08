@@ -1,4 +1,4 @@
-﻿"""The ledger: the owner's own movements, and the invariants the schema enforces."""
+"""The ledger: the owner's own movements, and the invariants the schema enforces."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from tests.factories import (
     make_owner,
     make_store,
     make_worker,
+    worked_a_full_shift,
 )
 
 
@@ -30,6 +31,9 @@ async def _open_store(salary: str = "0.00"):
         id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal(salary)
     )
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-1", 900)
+    # A whole day, so the shift wage is the full figure: a shift under eight hours
+    # is paid half, and these tests are about the till rather than that rule.
+    await worked_a_full_shift(worker_id)
     session_id = await db.fetchval("SELECT id FROM store_sessions WHERE closed_at IS NULL")
     return owner_id, store_id, worker, session_id
 

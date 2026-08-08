@@ -24,7 +24,18 @@ from telegram.ext import (
 from app import keyboards, texts
 from app.api import api
 from app.config import settings
-from app.handlers import cash, closeout, common, defect, newitem, sell, shift, stock
+from app.handlers import (
+    cash,
+    closeout,
+    common,
+    defect,
+    newitem,
+    restock,
+    sell,
+    shift,
+    stock,
+    transfer,
+)
 
 log = logging.getLogger("storemanager.bot")
 
@@ -237,10 +248,88 @@ def build() -> Application:
     application.add_handler(defect_flow)
     application.add_handler(cash_flow)
 
-    # Adding a product at the counter. Four short answers, all free text, so it
+    # Correcting the shelf: the whole list with a − and a + against each product,
+    # nothing written until "confirm". Registered before newitem_flow, because the
+    # «Բոլորովին նոր ապրանք» button on its screen is that flow's entry point and
+    # this one must not swallow the tap.
+    restock_flow = ConversationHandler(
+        entry_points=[MessageHandler(_exact(texts.BTN_ADD_ITEM), restock.begin)],
+        states={
+            restock.PICK: [
+                CallbackQueryHandler(restock.nudge, pattern=f"^{keyboards.CB_NUDGE}:"),
+                CallbackQueryHandler(restock.turn_page, pattern=f"^{keyboards.CB_PAGE}:"),
+                CallbackQueryHandler(restock.submit, pattern=f"^{keyboards.CB_APPLY}$"),
+                # The count in the middle of each row is a button because Telegram
+                # has no other way to put text there. Answered and ignored, so it
+                # does not fall through to something else.
+                CallbackQueryHandler(restock.noop, pattern=f"^{keyboards.CB_NOOP}$"),
+            ],
+        },
+        fallbacks=[
+            MessageHandler(_exact(texts.BTN_CANCEL), restock.cancel),
+            CallbackQueryHandler(restock.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
+            CommandHandler("cancel", restock.cancel),
+            CommandHandler("start", restock.escape(shift.start)),
+            MessageHandler(_exact(texts.BTN_SELL), restock.escape(sell.begin)),
+            MessageHandler(_exact(texts.BTN_DEFECT), restock.escape(defect.begin)),
+            MessageHandler(_exact(texts.BTN_TAKE_CASH), restock.escape(cash.begin)),
+            MessageHandler(_exact(texts.BTN_STOCK), restock.escape(stock.show)),
+            MessageHandler(_exact(texts.BTN_STATUS), restock.escape(shift.status)),
+            MessageHandler(_exact(texts.BTN_END_SHIFT), restock.cancel),
+        ],
+        conversation_timeout=900,
+        per_message=False,
+    )
+    application.add_handler(restock_flow)
+
+    # Asking another shop for stock. The item list belongs to the *other* shop, so
+    # PICK_ITEM takes free text for searching it — hence the usual escapes.
+    transfer_flow = ConversationHandler(
+        entry_points=[MessageHandler(_exact(texts.BTN_TRANSFERS), transfer.show)],
+        states={
+            transfer.PICK_STORE: [
+                CallbackQueryHandler(
+                    transfer.begin_request, pattern=f"^{keyboards.CB_TRANSFER_NEW}$"
+                ),
+                CallbackQueryHandler(
+                    transfer.choose_store, pattern=f"^{keyboards.CB_TRANSFER_STORE}:"
+                ),
+                CallbackQueryHandler(transfer.noop, pattern=f"^{keyboards.CB_NOOP}$"),
+            ],
+            transfer.PICK_ITEM: [
+                CallbackQueryHandler(transfer.choose_item, pattern=f"^{keyboards.CB_ITEM}:"),
+                MessageHandler(_free_text, transfer.search_item),
+            ],
+            transfer.ASK_QUANTITY: [
+                MessageHandler(_free_text, transfer.choose_quantity)
+            ],
+        },
+        fallbacks=[
+            MessageHandler(_exact(texts.BTN_CANCEL), transfer.cancel),
+            CallbackQueryHandler(transfer.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
+            CommandHandler("cancel", transfer.cancel),
+            CommandHandler("start", transfer.escape(shift.start)),
+            MessageHandler(_exact(texts.BTN_SELL), transfer.escape(sell.begin)),
+            MessageHandler(_exact(texts.BTN_DEFECT), transfer.escape(defect.begin)),
+            MessageHandler(_exact(texts.BTN_TAKE_CASH), transfer.escape(cash.begin)),
+            MessageHandler(_exact(texts.BTN_ADD_ITEM), transfer.escape(restock.begin)),
+            MessageHandler(_exact(texts.BTN_STOCK), transfer.escape(stock.show)),
+            MessageHandler(_exact(texts.BTN_STATUS), transfer.escape(shift.status)),
+            MessageHandler(_exact(texts.BTN_END_SHIFT), transfer.cancel),
+        ],
+        conversation_timeout=900,
+        per_message=False,
+    )
+    application.add_handler(transfer_flow)
+
+    # Adding a product at the counter. Five short answers, all free text, so it
     # needs the same escapes: a button pressed mid-way must not become a name.
     newitem_flow = ConversationHandler(
-        entry_points=[MessageHandler(_exact(texts.BTN_ADD_ITEM), newitem.begin)],
+        entry_points=[
+            # Reached from the correction screen: the cashier looked for the
+            # product, it was not there, and this is the other door.
+            CallbackQueryHandler(newitem.begin, pattern=f"^{keyboards.CB_NEW_ITEM}$"),
+        ],
         states={
             newitem.ASK_NAME: [MessageHandler(_free_text, newitem.type_name)],
             newitem.ASK_COUNT: [MessageHandler(_free_text, newitem.type_count)],
@@ -279,7 +368,13 @@ def build() -> Application:
     )
     application.add_handler(MessageHandler(_exact(texts.BTN_DEFECT), defect.begin))
     application.add_handler(MessageHandler(_exact(texts.BTN_TAKE_CASH), cash.begin))
-    application.add_handler(MessageHandler(_exact(texts.BTN_ADD_ITEM), newitem.begin))
+    application.add_handler(MessageHandler(_exact(texts.BTN_ADD_ITEM), restock.begin))
+    application.add_handler(MessageHandler(_exact(texts.BTN_TRANSFERS), transfer.show))
+    # Approving or rejecting a request, outside any conversation: the buttons sit on
+    # a message that may well be tapped an hour after it arrived.
+    application.add_handler(
+        CallbackQueryHandler(transfer.decide, pattern=f"^{keyboards.CB_TRANSFER}:")
+    )
 
     application.add_handler(MessageHandler(_exact(texts.BTN_OPEN), shift.ask_location))
     application.add_handler(MessageHandler(_shared_location, shift.handle_location))

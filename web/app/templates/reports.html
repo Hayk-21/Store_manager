@@ -18,6 +18,7 @@
           <th class="num">Տևողություն</th>
           <th class="num">Աշխատողներ</th>
           <th class="num">Չեկեր</th>
+          <th class="num">Հասույթ</th>
           <th class="num">Կանխիկ</th>
           <th class="num">Քարտ</th>
           <th class="num">Աշխատավարձ</th>
@@ -43,11 +44,24 @@
           <td class="num nowrap" data-label="Տևողություն">{{ s.opened_at | duration(s.closed_at) }}</td>
           <td class="num" data-label="Աշխատողներ">{{ s.shift_count }}</td>
           <td class="num" data-label="Չեկեր">{{ s.receipt_count }}</td>
+          {# Not cash + card: those are till balances with wages and withdrawals
+             already taken off them. This is what the shop took in. #}
+          <td class="num" data-label="Հասույթ"><b>{{ s.income | money }}</b></td>
           <td class="num {% if cash < 0 %}negative{% endif %}" data-label="Կանխիկ">{{ cash | money }}</td>
           <td class="num" data-label="Քարտ">{{ card | money }}</td>
           <td class="num" data-label="Աշխատավարձ">{{ (s.salaries_at_close or 0) | money }}</td>
           <td class="num cell-actions" data-label="">
             <a href="/reports?store_session_id={{ s.id }}" class="small">Մանրամասն</a>
+            {# A closed session only. Deleting one that is still open would pull
+               the ground out from under the workers standing in it — their shifts
+               and their sales point at this row. #}
+            {% if s.closed_at %}
+              <form method="post" action="/reports/{{ s.id }}/delete" class="inline"
+                    onsubmit="return confirm('Ջնջե՞լ այս հերթափոխը ամբողջությամբ՝ վաճառքները, դրամարկղի շարժը և խոտանը։ Պահեստը չի վերականգնվի։');">
+                <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+                <button type="submit" class="danger tiny" title="Ջնջել">✕</button>
+              </form>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -295,7 +309,8 @@
     <table class="cards">
       <thead>
         <tr><th>Ժամ</th><th>Ապրանք</th><th class="num">Քանակ</th>
-            <th>Պատճառ</th><th>Աշխատող</th><th class="num">Կորուստ</th></tr>
+            <th>Պատճառ</th><th>Աշխատող</th><th class="num">Կորուստ</th>
+            <th class="num"></th></tr>
       </thead>
       <tbody>
         {% for w in d.write_offs %}
@@ -306,6 +321,15 @@
           <td data-label="Պատճառ">{{ w.reason or '—' }}</td>
           <td data-label="Աշխատող">{{ w.worker_name or '—' }}</td>
           <td class="num negative" data-label="Կորուստ">{{ w.total_cost | money }}</td>
+          <td class="num cell-actions" data-label="">
+            {# Deleting this one *does* put the stock back: if the vape did not
+               break, it is still on the shelf. See delete_write_off. #}
+            <form method="post" action="/write-offs/{{ w.id }}/delete" class="inline"
+                  onsubmit="return confirm('Ջնջե՞լ այս խոտանը։ {{ w.quantity }} հատը կվերադարձվի պահեստ։');">
+              <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+              <button type="submit" class="danger tiny" title="Ջնջել">✕</button>
+            </form>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -314,6 +338,37 @@
   <p class="muted small">
     Կորուստը հաշվվում է ինքնարժեքով՝ այն, ինչ վճարել ենք ապրանքի համար։
     Դրամարկղին չի ազդում՝ փողը դուրս է եկել գնելու պահին։
+  </p>
+  {% endif %}
+
+  {% if d.adjustments %}
+  {# Counts a cashier corrected by hand: a delivery nobody entered, a return, a
+     miscount. Neither a sale nor breakage, and shown because a number that can be
+     changed silently is a number that can hide a shortfall. #}
+  <h3>Պահեստի ուղղումներ</h3>
+  <div class="table-wrap">
+    <table class="cards">
+      <thead>
+        <tr><th>Ժամ</th><th>Ապրանք</th><th class="num">Փոփոխություն</th>
+            <th class="num">Մնացորդ</th><th>Աշխատող</th></tr>
+      </thead>
+      <tbody>
+        {% for a in d.adjustments %}
+        <tr>
+          <td class="nowrap" data-label="Ժամ">{{ a.created_at | clock }}</td>
+          <td class="cell-name" data-label="Ապրանք">{{ a.name }}</td>
+          <td class="num {% if a.delta < 0 %}negative{% else %}positive{% endif %}"
+              data-label="Փոփոխություն">{{ '+' if a.delta > 0 }}{{ a.delta }}</td>
+          <td class="num" data-label="Մնացորդ">{{ a.count_after }}</td>
+          <td data-label="Աշխատող">{{ a.worker_name or 'ղեկավար' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small">
+    Ուղղումը վաճառք չէ և խոտան չէ՝ դրամարկղին չի ազդում։ Այն միայն ուղղում է
+    պահեստի թիվը, երբ դարակի վրայի քանակը չի համապատասխանում էկրանին։
   </p>
   {% endif %}
 

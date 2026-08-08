@@ -37,7 +37,7 @@ PICK_ITEM, ASK_QUANTITY, ASK_PRICE, ASK_METHOD = range(20, 24)
 MAX_QUANTITY = 10_000
 
 _KEYS = ("sell_item", "sell_qty", "sell_price", "sell_kind", "sell_key",
-         "sell_candidates", "sell_delivery")
+         "sell_candidates", "sell_delivery", "sell_kind_pending")
 
 
 def _clear(context) -> None:
@@ -160,17 +160,25 @@ async def choose_suggested_price(update: Update, context: ContextTypes.DEFAULT_T
     if item is None:  # pragma: no cover
         return ConversationHandler.END
 
-    if kind == "other":
-        # Stay on this step and wait for a number. Nothing is decided yet.
+    price = item.get("wholesale_price") if kind == "wholesale" else item.get("sell_price")
+
+    # Two ways to reach the keyboard: «Այլ գին», or «Մեծածախ» on a product whose
+    # wholesale price was never set. Both wait for a number — the difference is
+    # which price list the number belongs to, and that has to survive the wait or
+    # a trade price gets filed as a haggle.
+    if kind == "other" or price is None:
+        context.user_data["sell_kind_pending"] = (
+            "wholesale" if kind == "wholesale" else "custom"
+        )
         await query.edit_message_reply_markup(reply_markup=None)
-        await query.message.reply_text(texts.ASK_OTHER_PRICE)
+        await query.message.reply_text(
+            texts.ASK_WHOLESALE_PRICE if kind == "wholesale" else texts.ASK_OTHER_PRICE
+        )
         return ASK_PRICE
 
-    price = item.get("wholesale_price") if kind == "wholesale" else item.get("sell_price")
-    if price is None:  # pragma: no cover - the button is only offered when set
-        price = item["sell_price"]
     context.user_data["sell_price"] = Decimal(price)
     context.user_data["sell_kind"] = kind
+    context.user_data.pop("sell_kind_pending", None)
     await query.edit_message_reply_markup(reply_markup=None)
     return await _ask_method(query.message, context)
 
@@ -187,9 +195,11 @@ async def type_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ASK_PRICE
 
     context.user_data["sell_price"] = price
-    # The server files this as 'custom' only if it differs from the list price
-    # it was offered as, so leaving a prefilled number alone is not a haggle.
-    context.user_data["sell_kind"] = "custom"
+    # 'custom' unless the cashier got here by asking for a wholesale price the
+    # product does not have. The server files a 'custom' as such only if it
+    # differs from the list price it was offered as, so leaving a prefilled
+    # number alone is not a haggle.
+    context.user_data["sell_kind"] = context.user_data.pop("sell_kind_pending", "custom")
     return await _ask_method(update.effective_message, context)
 
 

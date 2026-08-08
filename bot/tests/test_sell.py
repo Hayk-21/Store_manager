@@ -125,14 +125,15 @@ def test_an_item_with_a_wholesale_price_offers_it():
     assert any("3,000" in label for label in labels), "the actual wholesale price"
 
 
-def test_an_item_without_one_does_not_offer_it():
-    """Blank means "not sold wholesale", which is an answer, not a gap."""
+def test_an_item_without_one_still_offers_wholesale_and_asks_the_price():
+    """A missing wholesale price is not a reason the cashier cannot sell a box at
+    a trade price — only a reason nobody wrote the price down yet."""
     from app import keyboards
 
     markup = keyboards.suggested_prices({"sell_price": "3500.00", "wholesale_price": None})
 
     labels = [b.text for row in markup.inline_keyboard for b in row]
-    assert not any(texts.BTN_WHOLESALE in label for label in labels)
+    assert texts.BTN_WHOLESALE_NO_PRICE in labels
 
 
 async def test_tapping_wholesale_takes_the_wholesale_price():

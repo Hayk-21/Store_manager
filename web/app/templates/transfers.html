@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Փոխանցումներ · Store Manager{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Փոխանցումներ</h1>
+  <span class="muted small">Ապրանքի տեղափոխում մի խանութից մյուսը</span>
+</div>
+
+{# The owner needs no approval: they can see both shelves at once, and there is
+   nobody for them to ask. A cashier's request waits for somebody at the source
+   shop, which is what the «սպասում է» rows below are. #}
+<div class="card">
+  <h2>Տեղափոխել հիմա</h2>
+  <form method="post" action="/transfers" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    <div>
+      <label for="tr-from">Որտեղից</label>
+      <select id="tr-from" name="from_store_id" required
+              hx-get="/partials/store-items" hx-target="#tr-item" hx-swap="innerHTML"
+              hx-trigger="change">
+        <option value="">— ընտրեք —</option>
+        {% for s in stores %}
+          <option value="{{ s.id }}">{{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="tr-item">Ապրանք</label>
+      {# Filled in once a source shop is chosen: an item belongs to one shop, so
+         offering the whole catalogue here would offer boxes that are not there. #}
+      <select id="tr-item" name="item_id" required>
+        <option value="">— նախ ընտրեք խանութը —</option>
+      </select>
+    </div>
+    <div>
+      <label for="tr-qty">Քանակ</label>
+      <input id="tr-qty" name="quantity" type="number" min="1" step="1" required
+             inputmode="numeric">
+    </div>
+    <div>
+      <label for="tr-to">Ուր</label>
+      <select id="tr-to" name="to_store_id" required>
+        <option value="">— ընտրեք —</option>
+        {% for s in stores %}
+          <option value="{{ s.id }}">{{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="tr-note">Նշում</label>
+      <input id="tr-note" name="note" type="text" maxlength="300" placeholder="ըստ ցանկության">
+    </div>
+    <div class="actions"><button type="submit">Տեղափոխել</button></div>
+  </form>
+  <p class="muted small">
+    Ապրանքը հանվում է առաջին խանութի պահեստից և ավելանում երկրորդին։ Եթե այդ
+    ապրանքն արդեն կա երկրորդ խանութում, քանակը գումարվում է։ Դրամարկղին չի ազդում՝
+    նույն ապրանքն է, այլ դարակի վրա։
+  </p>
+</div>
+
+<div class="card">
+  <h2>Պատմություն</h2>
+  {% if transfers %}
+  <div class="table-wrap">
+    <table class="cards">
+      <thead>
+        <tr><th>Ամսաթիվ</th><th>Ապրանք</th><th class="num">Քանակ</th>
+            <th>Որտեղից</th><th>Ուր</th><th>Վիճակ</th><th>Ով</th></tr>
+      </thead>
+      <tbody>
+        {% for t in transfers %}
+        {% set labels = {'pending': 'սպասում է', 'approved': 'հաստատված',
+                         'rejected': 'մերժված'} %}
+        <tr>
+          <td class="nowrap" data-label="Ամսաթիվ">{{ t.created_at | stamp }}</td>
+          <td class="cell-name" data-label="Ապրանք">{{ t.item_name }}</td>
+          <td class="num" data-label="Քանակ">{{ t.quantity }}</td>
+          <td data-label="Որտեղից">{{ t.from_store_name }}</td>
+          <td data-label="Ուր">{{ t.to_store_name }}</td>
+          <td data-label="Վիճակ">
+            <span class="badge {% if t.status == 'pending' %}open{% endif %}">
+              {{ labels.get(t.status, t.status) }}</span>
+          </td>
+          <td data-label="Ով">
+            {% if t.decided_by_owner %}ղեկավար
+            {% elif t.status == 'pending' %}<span class="muted">—</span>
+            {% else %}աշխատող{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">Դեռ ոչ մի փոխանցում չի եղել։</p>
+  {% endif %}
+</div>
+{% endblock %}
