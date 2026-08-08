@@ -61,15 +61,15 @@ async def test_a_typed_amount_moves_on_to_the_purpose():
 
 
 async def test_a_comma_and_spaces_are_still_a_number():
-    """People type «1 500,50» because that is how the amount is written."""
+    """People type «1 000,50» because that is how the amount is written."""
     async def fake_reply(self, *args, **kwargs):
         return None
 
     context = _Context()
     with mock.patch.object(Message, "reply_text", fake_reply):
-        await cash.type_amount(_typed("1 500,50"), context)
+        await cash.type_amount(_typed("1 000,00"), context)
 
-    assert context.user_data["cash_amount"] == Decimal("1500.50")
+    assert context.user_data["cash_amount"] == Decimal("1000.00")
 
 
 async def test_something_that_is_not_a_number_asks_again():
@@ -99,6 +99,46 @@ async def test_zero_is_not_an_amount():
 
     assert state == cash.ASK_AMOUNT
     assert replies == [texts.CASH_BAD_AMOUNT]
+
+
+async def test_more_than_the_limit_is_refused_before_the_reason_is_asked():
+    """The bug from the field: 6,000 was accepted, the cashier typed a reason,
+    and only then was it refused. Say no at the number."""
+    replies = []
+
+    async def fake_reply(self, text, *args, **kwargs):
+        replies.append(text)
+
+    context = _Context()
+    with mock.patch.object(Message, "reply_text", fake_reply):
+        state = await cash.type_amount(_typed("6000"), context)
+
+    assert state == cash.ASK_AMOUNT, "not moved on to the purpose"
+    assert "cash_amount" not in context.user_data
+    assert len(replies) == 1
+    assert "1,000" in replies[0], "and it says what the limit is"
+
+
+async def test_exactly_the_limit_is_accepted():
+    async def fake_reply(self, *args, **kwargs):
+        return None
+
+    context = _Context()
+    with mock.patch.object(Message, "reply_text", fake_reply):
+        state = await cash.type_amount(_typed("1000"), context)
+
+    assert state == cash.ASK_PURPOSE
+    assert context.user_data["cash_amount"] == Decimal("1000.00")
+
+
+def test_the_bots_limit_matches_the_servers():
+    """Two copies of one number. The server is still the arbiter — it also knows
+    what has already been taken this shift — but they must not disagree about the
+    ceiling, or the bot refuses what the server would allow."""
+    # WORKER_WITHDRAWAL_LIMIT in web/app/services/money.py
+    on_the_server = Decimal("1000.00")
+
+    assert on_the_server == cash.LIMIT
 
 
 # -- the purpose, and the commit ----------------------------------------------

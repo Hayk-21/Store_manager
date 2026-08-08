@@ -36,7 +36,8 @@ PICK_ITEM, ASK_QUANTITY, ASK_PRICE, ASK_METHOD = range(20, 24)
 
 MAX_QUANTITY = 10_000
 
-_KEYS = ("sell_item", "sell_qty", "sell_price", "sell_kind", "sell_key", "sell_candidates")
+_KEYS = ("sell_item", "sell_qty", "sell_price", "sell_kind", "sell_key",
+         "sell_candidates", "sell_delivery")
 
 
 def _clear(context) -> None:
@@ -202,7 +203,26 @@ async def _ask_method(message, context) -> int:
             total=format.money(total),
         ),
         parse_mode=ParseMode.HTML,
-        reply_markup=keyboards.payment_methods(),
+        reply_markup=keyboards.payment_methods(
+            context.user_data.get("sell_delivery", False)
+        ),
+    )
+    return ASK_METHOD
+
+
+async def toggle_delivery(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Tick or untick "delivery". Commits nothing and stays on this step.
+
+    Only the keyboard changes, so the cashier can see the box is ticked before
+    they decide how it was paid — and can untick it if they mistapped, which a
+    button that sent the sale would not have allowed.
+    """
+    query = update.callback_query
+    await query.answer()
+    is_delivery = not context.user_data.get("sell_delivery", False)
+    context.user_data["sell_delivery"] = is_delivery
+    await query.edit_message_reply_markup(
+        reply_markup=keyboards.payment_methods(is_delivery)
     )
     return ASK_METHOD
 
@@ -211,10 +231,8 @@ async def choose_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     """The commit. One key for this sale, reused by every retry of it."""
     query = update.callback_query
     await query.answer()
-    # "p:cash" or "p:cash:d" -- the marker rides along with the method rather
-    # than needing a toggle with a state of its own.
-    parts = query.data.split(":")
-    method, is_delivery = parts[1], len(parts) > 2 and parts[2] == "d"
+    method = query.data.split(":", 1)[1]
+    is_delivery = context.user_data.get("sell_delivery", False)
     item = context.user_data.get("sell_item")
     if item is None:  # pragma: no cover
         return ConversationHandler.END

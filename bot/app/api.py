@@ -243,19 +243,23 @@ class Api:
         count: int,
         self_price: str,
         sell_price: str,
+        wholesale_price: str | None = None,
     ) -> dict:
-        """Put a new product on the shelf of the store this shift belongs to."""
-        return await self._call(
-            "POST",
-            "/items",
-            json={
-                "telegram_id": telegram_id,
-                "name": name,
-                "count": count,
-                "self_price": self_price,
-                "sell_price": sell_price,
-            },
-        )
+        """Put a new product on the shelf of the store this shift belongs to.
+
+        ``wholesale_price`` is omitted rather than sent as "0" when the item is
+        not sold wholesale: a zero there would read as free.
+        """
+        payload: dict[str, Any] = {
+            "telegram_id": telegram_id,
+            "name": name,
+            "count": count,
+            "self_price": self_price,
+            "sell_price": sell_price,
+        }
+        if wholesale_price is not None:
+            payload["wholesale_price"] = wholesale_price
+        return await self._call("POST", "/items", json=payload)
 
     async def withdraw(
         self, telegram_id: int, amount: str, purpose: str, key: str

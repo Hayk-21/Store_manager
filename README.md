@@ -259,7 +259,7 @@ services cannot drift apart on what a failure means.
 | POST | `/checkin` | read-only geofence probe; 200 even when out of range |
 | POST | `/store/open` | geofence, open-or-join the session, start the shift → 201 |
 | GET | `/items?telegram_id=&q=` | stock of the store of the open shift |
-| POST | `/items` | put a new product on the shelf of that store → 201 |
+| POST | `/items` | put a new product on the shelf of that store → 201. `wholesale_price` is optional — absent means "not sold wholesale", never 0 |
 | POST | `/sale` | the atomic sale → 201. `is_delivery` marks it as delivered |
 | POST | `/sale/void` | undo the worker's last receipt in this shift |
 | POST | `/write-off` | stock that broke or expired, off the shelf without a sale → 201 |

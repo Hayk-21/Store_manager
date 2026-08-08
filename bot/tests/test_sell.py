@@ -278,9 +278,53 @@ async def test_the_price_and_its_kind_reach_the_server():
 
 # -- delivery -----------------------------------------------------------------
 
-async def test_tapping_a_delivery_button_marks_the_sale_as_one():
-    """Same price, same method, one extra fact. It rides along with the payment
-    method because a toggle would need a state of its own for no gain."""
+async def test_ticking_delivery_sends_nothing():
+    """The whole point of it being a tickbox. It only redraws the keyboard, so
+    the cashier sees the box filled in and then decides how it was paid."""
+    sent = []
+
+    async def fake_sell(**kwargs):
+        sent.append(kwargs)
+        return _server_answer()
+
+    async def noop(*args, **kwargs):
+        return None
+
+    context = _Context(sell_item={"id": 3, "name": "HQD Cuvie"}, sell_qty=1,
+                       sell_price=Decimal("3500.00"))
+
+    with (
+        mock.patch.object(sell.api, "sell", fake_sell),
+        mock.patch.object(CallbackQuery, "answer", noop),
+        mock.patch.object(CallbackQuery, "edit_message_reply_markup", noop),
+    ):
+        state = await sell.toggle_delivery(_tap("dl"), context)
+
+    assert sent == [], "no sale was recorded by ticking the box"
+    assert state == sell.ASK_METHOD, "and the cashier is still choosing how it was paid"
+    assert context.user_data["sell_delivery"] is True
+
+
+async def test_ticking_it_twice_unticks_it():
+    """A mistap has to be undoable, which a button that sent the sale would not
+    have allowed."""
+    async def noop(*args, **kwargs):
+        return None
+
+    context = _Context(sell_item={"id": 3, "name": "HQD Cuvie"}, sell_qty=1,
+                       sell_price=Decimal("3500.00"))
+
+    with (
+        mock.patch.object(CallbackQuery, "answer", noop),
+        mock.patch.object(CallbackQuery, "edit_message_reply_markup", noop),
+    ):
+        await sell.toggle_delivery(_tap("dl"), context)
+        await sell.toggle_delivery(_tap("dl"), context)
+
+    assert context.user_data["sell_delivery"] is False
+
+
+async def test_the_ticked_box_reaches_the_server_when_cash_is_tapped():
     sent = {}
 
     async def fake_sell(**kwargs):
@@ -302,11 +346,12 @@ async def test_tapping_a_delivery_button_marks_the_sale_as_one():
         mock.patch.object(CallbackQuery, "edit_message_reply_markup", noop),
         mock.patch.object(Message, "reply_text", fake_reply),
     ):
-        await sell.choose_method(_tap("p:cash:d"), context)
+        await sell.toggle_delivery(_tap("dl"), context)
+        await sell.choose_method(_tap("p:cash"), context)
 
     assert sent["is_delivery"] is True
-    assert sent["payment_method"] == "cash", "the marker does not replace the method"
-    assert sent["unit_price"] == "3500.00", "and it does not change the money"
+    assert sent["payment_method"] == "cash", "ticking it did not replace the method"
+    assert sent["unit_price"] == "3500.00", "and it did not change the money"
 
 
 async def test_an_ordinary_sale_is_not_a_delivery():
@@ -336,16 +381,28 @@ async def test_an_ordinary_sale_is_not_a_delivery():
     assert sent["is_delivery"] is False
 
 
-def test_every_way_of_paying_can_be_a_delivery():
-    """Cash at the door and card in advance are both deliveries, which is why it
-    is a marker on the sale rather than a third payment method."""
+def test_there_is_one_delivery_tickbox_and_two_ways_to_pay():
+    """Not four buttons saying two things. Cash at the door and card in advance
+    are both deliveries, so the box is separate from the method."""
     from app import keyboards
 
-    data = [b.callback_data for row in keyboards.payment_methods().inline_keyboard
-            for b in row]
+    rows = keyboards.payment_methods().inline_keyboard
+    data = [b.callback_data for row in rows for b in row]
 
-    assert "p:cash:d" in data
-    assert "p:card:d" in data
+    assert data.count("dl") == 1
+    assert [d for d in data if d.startswith("p:")] == ["p:cash", "p:card"]
+
+
+def test_the_tickbox_shows_whether_it_is_ticked():
+    """It is the only feedback there is — the message text does not change."""
+    from app import keyboards
+
+    def label(is_delivery):
+        return keyboards.payment_methods(is_delivery).inline_keyboard[0][0].text
+
+    assert label(False) == texts.BTN_DELIVERY_OFF
+    assert label(True) == texts.BTN_DELIVERY_ON
+    assert label(False) != label(True)
 
 
 async def test_one_sale_keeps_one_key_across_retries():

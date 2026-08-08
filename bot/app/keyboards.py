@@ -23,6 +23,11 @@ CB_ITEM = "i"
 CB_PAY = "p"
 CB_KIND = "k"
 CB_SUBMIT = "s"
+# Ticking "delivery". Sends nothing — it flips a flag and redraws the keyboard,
+# and the sale still goes when cash or card is tapped.
+CB_DELIVERY = "dl"
+# Leaving the wholesale price blank, which means "not sold wholesale".
+CB_SKIP = "sk"
 # Belongs to the sell conversation alone, so its fallback is the only thing that
 # handles it and the conversation actually ends when it fires.
 CB_CANCEL = "x"
@@ -178,28 +183,43 @@ def undo_sale(sale_id: int) -> InlineKeyboardMarkup:
     )
 
 
-def payment_methods() -> InlineKeyboardMarkup:
-    """How it was paid, and whether it went out for delivery.
+def skip() -> InlineKeyboardMarkup:
+    """For a question whose blank answer means something.
 
-    Delivery is a second row rather than a toggle: a toggle needs a state to
-    live in and a redraw to show, and this is one tap either way. It changes no
-    money -- same price, same method -- it only records that the goods left the
-    shop rather than the counter, which nothing else in the row would tell the
-    owner afterwards.
+    «Բաց թողնել» rather than expecting a 0 or a dash: "we do not sell this one
+    wholesale" is an answer, and a typed 0 would read as "free".
     """
     return InlineKeyboardMarkup(
         [
+            [InlineKeyboardButton(texts.BTN_SKIP, callback_data=CB_SKIP)],
+            [InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)],
+        ]
+    )
+
+
+def payment_methods(is_delivery: bool = False) -> InlineKeyboardMarkup:
+    """How it was paid, with delivery as a tickbox above it.
+
+    The tickbox commits nothing. Tapping it only redraws this keyboard with the
+    box filled in; the sale is sent when cash or card is tapped, whichever way
+    the box is set. That is the point of separating them: delivery is not a way
+    of paying, it is a fact about the same sale — paid in cash at the door or by
+    card in advance — so pairing it with each method gave four buttons that said
+    two things.
+
+    It changes no money either way. It records that the goods left the shop
+    rather than the counter, which nothing else in the row would tell the owner
+    afterwards.
+    """
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(
+                texts.BTN_DELIVERY_ON if is_delivery else texts.BTN_DELIVERY_OFF,
+                callback_data=CB_DELIVERY,
+            )],
             [
                 InlineKeyboardButton(texts.BTN_CASH, callback_data=f"{CB_PAY}:cash"),
                 InlineKeyboardButton(texts.BTN_CARD, callback_data=f"{CB_PAY}:card"),
-            ],
-            [
-                InlineKeyboardButton(
-                    texts.BTN_CASH_DELIVERY, callback_data=f"{CB_PAY}:cash:d"
-                ),
-                InlineKeyboardButton(
-                    texts.BTN_CARD_DELIVERY, callback_data=f"{CB_PAY}:card:d"
-                ),
             ],
             [InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)],
         ]

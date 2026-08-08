@@ -144,8 +144,11 @@ class NewItemRequest(BotRequest):
     count: int = Field(ge=0, le=1_000_000)
     self_price: Decimal = Field(ge=0)
     sell_price: Decimal = Field(ge=0)
+    # Absent means "not sold wholesale", which is an answer. Zero would read as
+    # free, so the bot omits the field rather than sending one.
+    wholesale_price: Decimal | None = Field(default=None, ge=0)
 
-    @field_validator("self_price", "sell_price", mode="before")
+    @field_validator("self_price", "sell_price", "wholesale_price", mode="before")
     @classmethod
     def _string_money(cls, value):
         if isinstance(value, float):

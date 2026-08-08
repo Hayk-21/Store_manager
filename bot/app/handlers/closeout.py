@@ -35,7 +35,8 @@ def _basket(context) -> list[dict]:
 
 
 def _clear(context) -> None:
-    for key in (BASKET, "co_item", "co_qty", "co_price", "co_key", "co_candidates"):
+    for key in (BASKET, "co_item", "co_qty", "co_price", "co_key", "co_candidates",
+                "co_delivery"):
         context.user_data.pop(key, None)
 
 
@@ -249,7 +250,22 @@ async def _ask_method(message, context) -> int:
             total=format.money(total),
         ),
         parse_mode=ParseMode.HTML,
-        reply_markup=keyboards.payment_methods(),
+        reply_markup=keyboards.payment_methods(
+            context.user_data.get("co_delivery", False)
+        ),
+    )
+    return ASK_METHOD
+
+
+async def toggle_delivery(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Tick or untick "delivery" for the line being written up. Adds nothing to
+    the list; only cash or card does that."""
+    query = update.callback_query
+    await query.answer()
+    is_delivery = not context.user_data.get("co_delivery", False)
+    context.user_data["co_delivery"] = is_delivery
+    await query.edit_message_reply_markup(
+        reply_markup=keyboards.payment_methods(is_delivery)
     )
     return ASK_METHOD
 
@@ -257,10 +273,8 @@ async def _ask_method(message, context) -> int:
 async def choose_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    # "p:cash" or "p:cash:d" -- the marker rides along with the method rather
-    # than needing a toggle with a state of its own.
-    parts = query.data.split(":")
-    method, is_delivery = parts[1], len(parts) > 2 and parts[2] == "d"
+    method = query.data.split(":", 1)[1]
+    is_delivery = context.user_data.get("co_delivery", False)
     item = context.user_data.get("co_item")
     if item is None:  # pragma: no cover
         return ConversationHandler.END
@@ -275,13 +289,16 @@ async def choose_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             "item_id": item["id"],
             "name": item["name"],
             "quantity": context.user_data["co_qty"],
-"unit_price": str(context.user_data["co_price"]),
+            "unit_price": str(context.user_data["co_price"]),
             "price_kind": context.user_data.get("co_price_kind", "retail"),
             "payment_method": method,
             "is_delivery": is_delivery,
         }
     )
-    for key in ("co_item", "co_qty", "co_price", "co_price_kind", "co_candidates"):
+    # The tickbox belongs to the line just added, not to the next one, so it is
+    # cleared with everything else about that line.
+    for key in ("co_item", "co_qty", "co_price", "co_price_kind", "co_candidates",
+                "co_delivery"):
         context.user_data.pop(key, None)
 
     await query.edit_message_reply_markup(reply_markup=None)

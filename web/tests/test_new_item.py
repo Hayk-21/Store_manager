@@ -73,9 +73,79 @@ async def test_the_reply_is_what_the_bot_reads(client, bot_headers):
         f"{BASE}/items", json=_body(telegram_id), headers=bot_headers
     )).json()
 
-    assert set(body["item"]) >= {"id", "name", "count", "sell_price"}
+    assert set(body["item"]) >= {"id", "name", "count", "sell_price", "wholesale_price"}
     assert body["item"]["sell_price"] == "3500.00"
     assert isinstance(body["item"]["sell_price"], str), "money is never a float"
+
+
+# -- the two selling prices ---------------------------------------------------
+
+async def test_a_wholesale_price_can_be_given_with_it(client, bot_headers):
+    """Without one the «Մեծածախ» button never appears when selling the item, and
+    the cashier who just added it is the one who would need it."""
+    _, _, _, telegram_id = await _on_shift()
+
+    body = (await client.post(
+        f"{BASE}/items",
+        json=_body(telegram_id, wholesale_price="3000.00"),
+        headers=bot_headers,
+    )).json()
+
+    assert body["item"]["wholesale_price"] == "3000.00"
+    assert await db.fetchval("SELECT wholesale_price FROM items") == Decimal("3000.00")
+
+
+async def test_leaving_it_out_means_not_sold_wholesale_not_sold_free(client, bot_headers):
+    """The owner's price sheet has a dash there. Storing 0 would read as free,
+    and the sell flow would offer it as a price."""
+    _, _, _, telegram_id = await _on_shift()
+
+    body = (await client.post(
+        f"{BASE}/items", json=_body(telegram_id), headers=bot_headers
+    )).json()
+
+    assert body["item"]["wholesale_price"] is None
+    assert await db.fetchval("SELECT wholesale_price FROM items") is None
+
+
+async def test_the_retail_price_is_the_one_a_sale_uses(client, bot_headers):
+    """Both prices are stored, and an ordinary sale takes the retail one."""
+    _, _, worker, telegram_id = await _on_shift()
+    item_id = (await client.post(
+        f"{BASE}/items",
+        json=_body(telegram_id, wholesale_price="3000.00"),
+        headers=bot_headers,
+    )).json()["item"]["id"]
+
+    result = await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "cash", "idem-sale-1"
+    )
+
+    assert result["sale"]["total"] == "3500.00"
+
+
+async def test_a_wholesale_price_never_arrives_as_a_float(client, bot_headers):
+    _, _, _, telegram_id = await _on_shift()
+
+    response = await client.post(
+        f"{BASE}/items",
+        json=_body(telegram_id, wholesale_price=3000.0),
+        headers=bot_headers,
+    )
+
+    assert response.status_code == 422
+
+
+async def test_a_negative_wholesale_price_is_refused(client, bot_headers):
+    _, _, _, telegram_id = await _on_shift()
+
+    response = await client.post(
+        f"{BASE}/items",
+        json=_body(telegram_id, wholesale_price="-1.00"),
+        headers=bot_headers,
+    )
+
+    assert response.status_code == 422
 
 
 async def test_it_can_be_sold_straight_away(client, bot_headers):

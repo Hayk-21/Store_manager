@@ -15,8 +15,11 @@ BTN_SELL = "🧾 Վաճառել"
 BTN_DEFECT = "🗑 Խոտան"
 BTN_TAKE_CASH = "💸 Վերցնել դրամարկղից"
 BTN_ADD_ITEM = "➕ Նոր ապրանք"
-BTN_CASH_DELIVERY = "🚚 Կանխիկ · առաքում"
-BTN_CARD_DELIVERY = "🚚 Քարտ · առաքում"
+# A tickbox, not a way of paying. Tapping it sends nothing — see
+# keyboards.payment_methods.
+BTN_DELIVERY_OFF = "⬜ Առաքում"
+BTN_DELIVERY_ON = "✅ Առաքում"
+BTN_SKIP = "⏭ Բաց թողնել"
 BTN_UNDO_SALE = "↩️ Չեղարկել վաճառքը"
 BTN_OTHER_PRICE = "✏️ Այլ գին"
 BTN_STATUS = "📊 Վիճակ"
@@ -254,6 +257,11 @@ CASH_ASK_AMOUNT = (
     "Մեկ հերթափոխի ընթացքում՝ առավելագույնը 1,000 ֏։"
 )
 CASH_BAD_AMOUNT = "Գրեք գումարը թվով, օրինակ՝ 500։"
+CASH_OVER_LIMIT = (
+    "❌ Շատ է։ Մեկ հերթափոխի ընթացքում կարելի է վերցնել առավելագույնը "
+    "<b>{limit}</b>։\n\n"
+    "Գրեք ավելի փոքր գումար, կամ ավելիի համար դիմեք ղեկավարին։"
+)
 CASH_ASK_PURPOSE = (
     "{amount}\n\n"
     "Ինչի՞ համար։ Գրեք կարճ՝ օրինակ «առաքիչին», «տոպրակներ», «մանրադրամ»։"
@@ -274,11 +282,23 @@ NEW_ITEM_ASK_NAME = (
 )
 NEW_ITEM_ASK_NAME_AGAIN = "Գրեք ապրանքի անունը։"
 NEW_ITEM_ASK_COUNT = "«{item}» — քանի՞ հատ եք ավելացնում պահեստին։"
-NEW_ITEM_ASK_COST = "Ի՞նչ գնով եք գնել մեկ հատը (ինքնարժեք)։"
-NEW_ITEM_ASK_PRICE = "Ի՞նչ գնով եք վաճառելու մեկ հատը։"
+NEW_ITEM_ASK_COST = "💰 <b>Ինքնարժեք</b>\n\nԻ՞նչ գնով եք գնել մեկ հատը։"
+NEW_ITEM_ASK_PRICE = (
+    "🏷 <b>Մանրածախ գին</b>\n\n"
+    "Ի՞նչ գնով եք վաճառելու մեկ հատը սովորական գնորդին։"
+)
+# Blank is a real answer, not a gap: the owner's price sheet has a dash where a
+# model is not sold wholesale, and storing 0 for it would read as "free".
+NEW_ITEM_ASK_WHOLESALE = (
+    "📦 <b>Մեծածախ գին</b>\n\n"
+    "Ի՞նչ գնով եք վաճառելու մեծածախ։\n"
+    "Եթե այս ապրանքը մեծածախ չեք վաճառում, սեղմեք «Բաց թողնել»։"
+)
 NEW_ITEM_DONE = (
     "✅ Ավելացվեց՝ <b>{item}</b>\n"
-    "Պահեստում՝ {count} հատ · գինը՝ {price}\n\n"
+    "Պահեստում՝ {count} հատ · մանրածախ՝ {price}{wholesale}\n\n"
     "Այժմ կարող եք վաճառել այն։"
 )
+# Appended to the line above only when there is one.
+NEW_ITEM_DONE_WHOLESALE = " · մեծածախ՝ {price}"
 NEW_ITEM_DONE_PLAINLY = "✅ Ապրանքն ավելացվեց պահեստին։"

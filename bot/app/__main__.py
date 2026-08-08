@@ -90,6 +90,11 @@ def build() -> Application:
                 MessageHandler(_free_text, closeout.type_price),
             ],
             closeout.ASK_METHOD: [
+                # The tickbox first, and it stays on this step: it redraws the
+                # keyboard and adds nothing to the list.
+                CallbackQueryHandler(
+                    closeout.toggle_delivery, pattern=f"^{keyboards.CB_DELIVERY}$"
+                ),
                 CallbackQueryHandler(closeout.choose_method, pattern=f"^{keyboards.CB_PAY}:"),
             ],
             closeout.CONFIRM: [
@@ -147,6 +152,11 @@ def build() -> Application:
                 MessageHandler(_free_text, sell.type_price),
             ],
             sell.ASK_METHOD: [
+                # The tickbox first, and it stays on this step: it redraws the
+                # keyboard and sends nothing. Cash or card is the commit.
+                CallbackQueryHandler(
+                    sell.toggle_delivery, pattern=f"^{keyboards.CB_DELIVERY}$"
+                ),
                 CallbackQueryHandler(sell.choose_method, pattern=f"^{keyboards.CB_PAY}:"),
             ],
         },
@@ -236,9 +246,17 @@ def build() -> Application:
             newitem.ASK_COUNT: [MessageHandler(_free_text, newitem.type_count)],
             newitem.ASK_COST: [MessageHandler(_free_text, newitem.type_cost)],
             newitem.ASK_PRICE: [MessageHandler(_free_text, newitem.type_price)],
+            newitem.ASK_WHOLESALE: [
+                # "Not sold wholesale" is an answer, so there is a button for it.
+                CallbackQueryHandler(
+                    newitem.skip_wholesale, pattern=f"^{keyboards.CB_SKIP}$"
+                ),
+                MessageHandler(_free_text, newitem.type_wholesale),
+            ],
         },
         fallbacks=[
             MessageHandler(_exact(texts.BTN_CANCEL), newitem.cancel),
+            CallbackQueryHandler(newitem.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
             CommandHandler("cancel", newitem.cancel),
             CommandHandler("start", newitem.escape(shift.start)),
             MessageHandler(_exact(texts.BTN_SELL), newitem.escape(sell.begin)),

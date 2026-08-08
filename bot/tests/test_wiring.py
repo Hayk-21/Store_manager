@@ -72,7 +72,8 @@ def test_every_button_can_escape_the_write_up():
         texts.BTN_CO_ABANDON, texts.BTN_CO_SUBMIT,
         texts.BTN_CANCEL, texts.BTN_CASH, texts.BTN_CARD,
         texts.BTN_RETAIL, texts.BTN_WHOLESALE, texts.BTN_OTHER_PRICE,
-        texts.BTN_CASH_DELIVERY, texts.BTN_CARD_DELIVERY, texts.BTN_END_SHIFT,
+        texts.BTN_DELIVERY_OFF, texts.BTN_DELIVERY_ON, texts.BTN_SKIP,
+        texts.BTN_END_SHIFT,
     }
 
     for state, handlers in flow.states.items():
@@ -127,8 +128,8 @@ def test_neither_flow_eats_the_others_buttons_as_free_text():
         texts.BTN_CO_ADD, texts.BTN_CO_REMOVE, texts.BTN_CO_DONE, texts.BTN_CO_ABANDON,
         texts.BTN_CO_SUBMIT, texts.BTN_CANCEL,
         texts.BTN_CASH, texts.BTN_CARD, texts.BTN_RETAIL, texts.BTN_WHOLESALE,
-        texts.BTN_OTHER_PRICE, texts.BTN_CASH_DELIVERY, texts.BTN_CARD_DELIVERY,
-        texts.BTN_END_SHIFT, texts.BTN_SELL,
+        texts.BTN_OTHER_PRICE, texts.BTN_DELIVERY_OFF, texts.BTN_DELIVERY_ON,
+        texts.BTN_SKIP, texts.BTN_END_SHIFT, texts.BTN_SELL,
     }
 
     for entry in (texts.BTN_SELL, texts.BTN_END_SHIFT):

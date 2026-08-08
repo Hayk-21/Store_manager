@@ -320,6 +320,7 @@ async def add_item(body: NewItemRequest) -> dict:
         count=body.count,
         self_price=body.self_price,
         sell_price=body.sell_price,
+        wholesale_price=body.wholesale_price,
     )
     if item_id is None:
         # The name belongs to something already on the list. Saying so beats
@@ -338,6 +339,13 @@ async def add_item(body: NewItemRequest) -> dict:
             "name": item["name"],
             "count": item["count"],
             "sell_price": f"{Decimal(item['sell_price']):.2f}",
+            # Null, not "0.00", when the item is not sold wholesale — the bot
+            # prints this line only when there is one.
+            "wholesale_price": (
+                f"{Decimal(item['wholesale_price']):.2f}"
+                if item["wholesale_price"] is not None
+                else None
+            ),
         },
     }
 

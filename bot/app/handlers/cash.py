@@ -25,6 +25,13 @@ log = logging.getLogger("storemanager.bot.cash")
 
 ASK_AMOUNT, ASK_PURPOSE = range(40, 42)
 
+# Mirrors WORKER_WITHDRAWAL_LIMIT in web/app/services/money.py. Duplicated on
+# purpose: the server is still the arbiter — it also knows what has already been
+# taken this shift, which the bot does not — but being told "no" only after
+# typing a reason is a wasted question. This catches the obvious refusal at the
+# step where the number was typed.
+LIMIT = Decimal("1000.00")
+
 _KEYS = ("cash_amount", "cash_key")
 
 
@@ -51,6 +58,12 @@ async def type_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         return ASK_AMOUNT
     if amount <= 0:
         await update.effective_message.reply_text(texts.CASH_BAD_AMOUNT)
+        return ASK_AMOUNT
+    if amount > LIMIT:
+        await update.effective_message.reply_text(
+            texts.CASH_OVER_LIMIT.format(limit=format.money(LIMIT)),
+            parse_mode=ParseMode.HTML,
+        )
         return ASK_AMOUNT
 
     context.user_data["cash_amount"] = amount
