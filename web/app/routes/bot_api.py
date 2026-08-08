@@ -251,6 +251,16 @@ async def items(
                 "name": row["name"],
                 "count": row["count"],
                 "sell_price": f"{Decimal(row['sell_price']):.2f}",
+                # Null when this product is not sold wholesale, which is a real
+                # answer and not a missing one. Its absence from this payload is
+                # what made the bot's «Մեծածախ» button unreachable: the keyboard
+                # only offers it when there is a price to offer, and there never
+                # was one here to see.
+                "wholesale_price": (
+                    f"{Decimal(row['wholesale_price']):.2f}"
+                    if row["wholesale_price"] is not None
+                    else None
+                ),
             }
             for row in rows
         ],

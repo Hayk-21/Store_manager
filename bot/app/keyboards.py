@@ -96,6 +96,11 @@ def suggested_prices(item: dict) -> InlineKeyboardMarkup:
     Most lines go at one of these, so making the cashier type the usual number
     every time would be the wrong default — but the price is a free field, and
     that is the point of the step.
+
+    «Մեծածախ» appears only for products that have a wholesale price. That is
+    also how it went missing once: the item search did not send the field, so
+    every item looked like one nobody sells wholesale and the button was
+    unreachable for everybody.
     """
     rows = [[InlineKeyboardButton(
         f"{texts.BTN_RETAIL} — {Decimal(item['sell_price']):,.0f} ֏",

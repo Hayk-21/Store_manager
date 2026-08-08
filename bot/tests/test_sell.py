@@ -109,6 +109,80 @@ def test_a_confirmation_it_cannot_build_still_reads_as_success(broken):
     assert "սխալ" not in body.lower()
 
 
+# -- the wholesale button -----------------------------------------------------
+
+def test_an_item_with_a_wholesale_price_offers_it():
+    """It went missing once by being absent from the item search payload, so
+    every product looked like one nobody sells wholesale."""
+    from app import keyboards
+
+    markup = keyboards.suggested_prices(
+        {"sell_price": "3500.00", "wholesale_price": "3000.00"}
+    )
+
+    labels = [b.text for row in markup.inline_keyboard for b in row]
+    assert any(texts.BTN_WHOLESALE in label for label in labels)
+    assert any("3,000" in label for label in labels), "the actual wholesale price"
+
+
+def test_an_item_without_one_does_not_offer_it():
+    """Blank means "not sold wholesale", which is an answer, not a gap."""
+    from app import keyboards
+
+    markup = keyboards.suggested_prices({"sell_price": "3500.00", "wholesale_price": None})
+
+    labels = [b.text for row in markup.inline_keyboard for b in row]
+    assert not any(texts.BTN_WHOLESALE in label for label in labels)
+
+
+async def test_tapping_wholesale_takes_the_wholesale_price():
+    async def noop(*args, **kwargs):
+        return None
+
+    async def fake_reply(self, *args, **kwargs):
+        return None
+
+    context = _Context(
+        sell_item={"id": 3, "name": "HQD Cuvie", "count": 9,
+                   "sell_price": "3500.00", "wholesale_price": "3000.00"},
+        sell_qty=2,
+    )
+
+    with (
+        mock.patch.object(CallbackQuery, "answer", noop),
+        mock.patch.object(CallbackQuery, "edit_message_reply_markup", noop),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await sell.choose_suggested_price(_tap("k:wholesale"), context)
+
+    assert context.user_data["sell_price"] == Decimal("3000.00")
+    assert context.user_data["sell_kind"] == "wholesale"
+
+
+async def test_tapping_retail_takes_the_shelf_price():
+    async def noop(*args, **kwargs):
+        return None
+
+    async def fake_reply(self, *args, **kwargs):
+        return None
+
+    context = _Context(
+        sell_item={"id": 3, "name": "HQD Cuvie", "count": 9,
+                   "sell_price": "3500.00", "wholesale_price": "3000.00"},
+        sell_qty=1,
+    )
+
+    with (
+        mock.patch.object(CallbackQuery, "answer", noop),
+        mock.patch.object(CallbackQuery, "edit_message_reply_markup", noop),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await sell.choose_suggested_price(_tap("k:retail"), context)
+
+    assert context.user_data["sell_price"] == Decimal("3500.00")
+    assert context.user_data["sell_kind"] == "retail"
+
+
 # -- committing ---------------------------------------------------------------
 
 async def test_a_recorded_sale_is_never_reported_as_a_failure():

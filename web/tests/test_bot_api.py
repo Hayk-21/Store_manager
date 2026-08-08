@@ -224,6 +224,27 @@ async def test_a_sale_returns_what_changed(client, bot_headers):
     assert body["store_totals"]["cash"] == "7000.00"
 
 
+async def test_item_search_sends_the_wholesale_price(client, bot_headers):
+    """Without it the bot's «Մեծածախ» button is unreachable for every product.
+
+    The keyboard only offers wholesale when there is a price to offer, so
+    leaving this out of the payload did not break anything visibly — it just
+    meant no cashier could ever sell wholesale, and nothing said so.
+    """
+    owner_id, store_id, _, telegram_id, item_id = await _world()
+    await db.execute("UPDATE items SET wholesale_price = 2500 WHERE id = $1", item_id)
+    plain = await make_item(owner_id, store_id, "Elf Bar", count=5, sell_price="4000.00")
+    await _open(client, bot_headers, telegram_id)
+
+    body = (await client.get(
+        f"{BASE}/items", params={"telegram_id": telegram_id}, headers=bot_headers
+    )).json()
+
+    by_id = {row["id"]: row for row in body["items"]}
+    assert by_id[item_id]["wholesale_price"] == "2500.00"
+    assert by_id[plain]["wholesale_price"] is None, "not sold wholesale is an answer"
+
+
 async def test_the_sale_response_keeps_the_shape_the_bot_reads(client, bot_headers):
     """A contract test, written after breaking it.
 

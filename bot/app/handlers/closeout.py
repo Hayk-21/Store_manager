@@ -202,7 +202,9 @@ async def choose_suggested_price(update: Update, context: ContextTypes.DEFAULT_T
     if item is None:  # pragma: no cover
         return ConversationHandler.END
 
-    price = item["wholesale_price"] if kind == "wholesale" else item["sell_price"]
+    price = item.get("wholesale_price") if kind == "wholesale" else item.get("sell_price")
+    if price is None:  # pragma: no cover - the button is only offered when set
+        price = item["sell_price"]
     context.user_data["co_price"] = Decimal(price)
     # Which list it came from, kept beside the amount. The server records it, so
     # "how much do we sell wholesale" stops being a guess about low prices.
