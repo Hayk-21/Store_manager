@@ -307,6 +307,48 @@ def test_taking_cash_and_adding_a_product_are_both_on_the_keyboard():
     assert texts.BTN_ADD_ITEM in labels
 
 
+def test_a_worker_whose_conversation_vanished_always_gets_an_answer():
+    """From the field, and it looked exactly like the bot being down.
+
+    A deploy left two containers polling one token for a few seconds. Conversation
+    state lives in the process, so the one that asked "what is the money for?" and
+    the one that received the answer were not the same container. The second had no
+    conversation, nothing claimed the text, and the cashier got silence — then
+    tapped «Չեղարկել», which only exists inside a flow's fallbacks, and got silence
+    again. There was no way back to the menu but /start.
+
+    Anything typed, and that button, must land somewhere.
+    """
+    plain = [h for h in build().handlers[0] if not isinstance(h, ConversationHandler)]
+
+    for probe, what in (
+        (_message("Hh"), "a typed word"),
+        (_message("777"), "a typed number"),
+        (_message(texts.BTN_CANCEL), "the cancel button"),
+        (_message("/nonsense"), "an unknown command"),
+    ):
+        assert any(
+            getattr(h, "filters", None) is not None and h.check_update(probe)
+            for h in plain
+        ), f"{what} goes unanswered when no conversation is open"
+
+
+def test_the_recovery_handlers_are_last_so_the_flows_get_first_refusal():
+    """They are a safety net, not a competitor. Registered before the flows they
+    would answer over the top of them and the write-up could never take a product
+    name."""
+    handlers = build().handlers[0]
+    catch_all = next(
+        i for i, h in enumerate(handlers)
+        if getattr(h, "callback", None) is common.stray_text
+    )
+    last_flow = max(
+        i for i, h in enumerate(handlers) if isinstance(h, ConversationHandler)
+    )
+
+    assert catch_all > last_flow
+
+
 def test_the_location_label_has_its_own_handler():
     """Telegram Desktop cannot attach a location and sends the label as text."""
     handlers = build().handlers[0]

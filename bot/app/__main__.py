@@ -385,7 +385,15 @@ def build() -> Application:
         CallbackQueryHandler(common.dismiss, pattern=f"^{keyboards.CB_DISMISS}$")
     )
 
+    # Last of all, and only reached when every flow above has declined. Both of
+    # these answer a worker whose conversation is gone — its state lives in this
+    # process's memory, so a restart, or a deploy with two containers polling the
+    # same token for a few seconds, loses it mid-task. Without these the bot said
+    # nothing at all: the cashier had typed exactly what was asked of them and got
+    # silence, which is indistinguishable from the bot being down.
+    application.add_handler(MessageHandler(_exact(texts.BTN_CANCEL), common.stray_cancel))
     application.add_handler(MessageHandler(filters.COMMAND, common.unknown))
+    application.add_handler(MessageHandler(_free_text, common.stray_text))
     application.add_error_handler(common.on_error)
 
     return application

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import logging
 
-from telegram import Update
+from telegram import ReplyKeyboardRemove, Update
 from telegram.constants import ParseMode
 from telegram.error import Conflict
 from telegram.ext import ContextTypes
 
 from app import keyboards, texts
-from app.api import ApiError, ApiUnavailable
+from app.api import ApiError, ApiUnavailable, api
 
 log = logging.getLogger("storemanager.bot")
 
@@ -28,6 +28,52 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(texts.UNKNOWN_COMMAND)
+
+
+async def stray_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Something typed while no flow is waiting for it.
+
+    Registered last, so it only ever sees text that every conversation declined.
+    That happens for a reason worth catering to: conversation state lives in this
+    process's memory, so a restart — or a deploy leaving two containers polling the
+    same token for a few seconds — drops it. The worker is then mid-task as far as
+    they know, and the bot had nothing at all to say back. Silence and a broken bot
+    look identical from behind a counter.
+    """
+    await update.effective_message.reply_text(texts.LOST_THE_THREAD)
+
+
+async def stray_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """«Չեղարկել» tapped with nothing to cancel.
+
+    The button belongs to the flows, and each of them handles its own — so this
+    only runs when the flow that drew it is gone. It was the worst of the dead ends
+    to hit: a keyboard showing one button that did nothing, and no way back to the
+    menu but /start.
+    """
+    context.user_data.clear()
+    await update.effective_message.reply_text(
+        texts.CANCELLED, reply_markup=await _keyboard_for(update)
+    )
+
+
+async def _keyboard_for(update: Update):
+    """The menu this worker should be looking at.
+
+    Asked rather than assumed: showing the on-shift menu to somebody who is not on
+    shift offers six buttons that all answer "you are not on shift", and showing
+    the off-shift one to somebody who is invites them to open a store twice. If the
+    question cannot be reached, the on-shift menu is the better guess — they were
+    part-way through something, which means they were working.
+    """
+    user = update.effective_user
+    try:
+        me = await api.me(user.id)
+    except (ApiError, ApiUnavailable):
+        return keyboards.on_shift()
+    if me.get("worker") is None:
+        return ReplyKeyboardRemove()
+    return keyboards.on_shift() if me.get("session") else keyboards.off_shift()
 
 
 async def dismiss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

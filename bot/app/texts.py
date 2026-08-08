@@ -233,6 +233,13 @@ NETWORK_TROUBLE = (
 )
 UNEXPECTED = "⚠️ Անսպասելի սխալ։ Փորձեք կրկին։"
 UNKNOWN_COMMAND = "Չհասկացա։ Օգտվեք ներքևի կոճակներից։"
+# Said when a flow's state has gone — a restart, or a deploy — and the worker is
+# still answering its questions. Names the cause, because "I don't understand"
+# after they typed exactly what was asked reads as the bot calling them wrong.
+LOST_THE_THREAD = (
+    "Չհասկացա։ Հնարավոր է՝ գործողությունը ընդհատվել է։\n"
+    "Սկսեք նորից ներքևի կոճակներից։"
+)
 
 HELP = (
     "<b>Ինչպես օգտվել</b>\n\n"
