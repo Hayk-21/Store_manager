@@ -11,6 +11,7 @@ from __future__ import annotations
 
 BTN_OPEN = "🟢 Բացել խանութը"
 BTN_SEND_LOCATION = "📍 Ուղարկել տեղորոշումը"
+BTN_SELL = "🧾 Վաճառել"
 BTN_STATUS = "📊 Վիճակ"
 BTN_STOCK = "📦 Պահեստ"
 BTN_END_SHIFT = "🚪 Ավարտել իմ հերթափոխը"
@@ -119,6 +120,10 @@ SALE_DONE = (
     "Կանխիկ՝ {cash} · Քարտ՝ {card}"
 )
 SALE_ALREADY_RECORDED = "Այս վաճառքն արդեն գրանցված էր։"
+SELL_INTERRUPTED = (
+    "Սկսած վաճառքը չեղարկվեց՝ ոչինչ չի գրանցվել։\n"
+    "Սեղմեք կոճակը կրկին։"
+)
 CANCELLED = "Չեղարկվեց։"
 
 # -- end-of-shift write-up ---------------------------------------------------

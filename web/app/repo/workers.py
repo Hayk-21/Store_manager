@@ -1,4 +1,4 @@
-"""Workers.
+﻿"""Workers.
 
 The owner registers a ``@username`` because that is what they know. Telegram's
 Bot API cannot turn a username into a numeric id, so the binding happens on first
@@ -98,7 +98,7 @@ async def list_for_owner(owner_id: int) -> list[asyncpg.Record]:
         f"""
         SELECT w.id, {DISPLAY_NAME} AS name, w.name AS own_name, w.telegram_name,
                w.telegram_id, w.telegram_username, w.salary_amount, w.salary_period,
-               w.is_active,
+               w.is_active, w.bonus_threshold, w.bonus_amount, w.bonus_period,
                ws.id AS open_shift_id, ws.started_at, s.name AS store_name
           FROM workers w
           LEFT JOIN work_sessions ws ON ws.worker_id = w.id AND ws.ended_at IS NULL
@@ -129,12 +129,14 @@ async def create(
     salary_amount: Decimal,
     salary_period: str,
     name: str | None = None,
+    bonus: tuple[Decimal, Decimal, str] | None = None,
 ) -> int:
     """Register a @username. telegram_id fills in on first contact."""
     return await db.fetchval(
         """
-        INSERT INTO workers (owner_id, name, telegram_username, salary_amount, salary_period)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO workers (owner_id, name, telegram_username, salary_amount, salary_period,
+                             bonus_threshold, bonus_amount, bonus_period)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id
         """,
         owner_id,
@@ -142,6 +144,7 @@ async def create(
         telegram_username,
         salary_amount,
         salary_period,
+        *(bonus or (None, None, None)),
     )
 
 
@@ -153,6 +156,7 @@ async def update(
     salary_amount: Decimal,
     salary_period: str,
     is_active: bool,
+    bonus: tuple[Decimal, Decimal, str] | None = None,
 ) -> bool:
     """Edit a registration.
 
@@ -165,7 +169,9 @@ async def update(
         """
         UPDATE workers
            SET name = $3, telegram_username = $4, salary_amount = $5,
-               salary_period = $6, is_active = $7, updated_at = now()
+               salary_period = $6, is_active = $7,
+               bonus_threshold = $8, bonus_amount = $9, bonus_period = $10,
+               updated_at = now()
          WHERE id = $1 AND owner_id = $2
         """,
         worker_id,
@@ -175,6 +181,7 @@ async def update(
         salary_amount,
         salary_period,
         is_active,
+        *(bonus or (None, None, None)),
     )
     return result.endswith(" 1")
 

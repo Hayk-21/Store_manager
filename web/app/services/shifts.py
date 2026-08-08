@@ -289,6 +289,12 @@ async def _pay_and_close_shift(
     await sessions_repo.close_work_session(
         conn, shift["id"], salary, lat, lng, idem_key, closed_by
     )
+
+    # The bonus is judged whatever the wage is. A worker paid monthly costs the
+    # till nothing when their shift ends, but they can still have beaten their
+    # target today, and that is money they have earned.
+    await pay_bonus_if_earned(conn, shift)
+
     if salary <= ZERO:
         return ZERO
     try:
@@ -309,6 +315,80 @@ async def _pay_and_close_shift(
         log.warning("shift %s was already paid; skipping duplicate salary", shift["id"])
         return ZERO
     return salary
+
+
+async def pay_bonus_if_earned(conn, shift) -> Decimal:
+    """Pay the worker's bonus if they have beaten their target this period.
+
+    Evaluated as the shift closes, because that is when the period's sales are
+    finally known and when money already leaves the till — so a bonus is one
+    more row in the same ledger rather than a second scheme running beside it.
+
+    Once per period, not per shift: somebody who crosses the target in the
+    morning and works again in the evening has earned it once. The evening shift
+    finds it already paid and adds nothing.
+    """
+    worker = await conn.fetchrow(
+        """
+        SELECT w.bonus_threshold, w.bonus_amount, w.bonus_period,
+               s.day_start_hour
+          FROM workers w
+          JOIN stores s ON s.id = $2
+         WHERE w.id = $1
+        """,
+        shift["worker_id"], shift["store_id"],
+    )
+    if worker is None or worker["bonus_threshold"] is None:
+        return ZERO
+
+    since = _period_start(worker["bonus_period"], worker["day_start_hour"])
+    if await tracking_repo.bonus_paid_since(conn, shift["worker_id"], since):
+        return ZERO
+
+    sold = Decimal(await tracking_repo.sold_by_worker_since(conn, shift["worker_id"], since))
+    if sold < Decimal(worker["bonus_threshold"]):
+        return ZERO
+
+    bonus = Decimal(worker["bonus_amount"])
+    try:
+        await money_repo.insert_movement(
+            conn,
+            owner_id=shift["owner_id"],
+            store_id=shift["store_id"],
+            store_session_id=shift["store_session_id"],
+            method="cash",
+            kind="bonus",
+            amount=-bonus,
+            work_session_id=shift["id"],
+            worker_id=shift["worker_id"],
+            note=f"{worker['bonus_period']}: {sold:,.0f} ≥ {worker['bonus_threshold']:,.0f}",
+        )
+    except asyncpg.exceptions.UniqueViolationError:
+        # A concurrent close already paid this shift's bonus.
+        return ZERO
+
+    await conn.execute(
+        "UPDATE work_sessions SET bonus_paid = $2 WHERE id = $1", shift["id"], bonus
+    )
+    log.info(
+        "worker %s earned a %s bonus of %s (sold %s)",
+        shift["worker_id"], worker["bonus_period"], bonus, sold,
+    )
+    return bonus
+
+
+def _period_start(period: str, day_start_hour: int):
+    """When the stretch a bonus is measured over began.
+
+    A day means the store's own trading day, the same boundary the takings use —
+    a shop open past midnight would otherwise have its evening split across two
+    bonus days. A month is the calendar month, starting at that same hour so the
+    two never disagree about which day a late night belonged to.
+    """
+    start_of_day = settings.trading_day_start(day_start_hour)
+    if period == "month":
+        return start_of_day.replace(day=1)
+    return start_of_day
 
 
 async def _close_store_session(conn, store_session_id: int, closed_by: str) -> dict:

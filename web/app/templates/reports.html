@@ -112,6 +112,11 @@
             {% else %}
               {{ (w.salary_paid or 0) | money }}
             {% endif %}
+            {# Earned by beating a target, so it is shown beside the wage rather
+               than folded into it — the two are different kinds of money. #}
+            {% if w.bonus_paid %}
+              <span class="badge positive" title="Բոնուս">+{{ w.bonus_paid | short_money }}</span>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -289,6 +294,7 @@
       <tbody>
         {% for m in d.ledger %}
         {% set labels = {'sale': 'Վաճառք', 'void': 'Չեղարկում', 'salary': 'Աշխատավարձ',
+                         'bonus': 'Բոնուս',
                          'withdrawal': 'Հանված', 'deposit': 'Ավելացված',
                          'adjustment': 'Ճշգրտում'} %}
         <tr>

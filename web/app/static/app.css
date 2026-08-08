@@ -304,15 +304,27 @@ td select { width: auto; padding: 5px 8px; }
    cell, whatever that turns out to be. */
 table.items { table-layout: fixed; }
 table.items td { vertical-align: middle; }
-table.items th:first-child, table.items td:first-child { width: auto; }
-table.items .cell-name input { width: 100%; min-width: 0; }
+/* Headers must be allowed to wrap. `th.num` inherits `white-space: nowrap`
+   from the money rule, and an Armenian column name that cannot wrap is wider
+   than any share of the width we give it -- so the header row pushed the whole
+   table past the page and put a scrollbar under it, hiding the profit column
+   that the owner opened the page for. */
+table.items th { white-space: normal; word-break: break-word; hyphens: auto; }
+table.items th a { display: inline-block; }
+/* Percentages, not character widths: they always add to the page, whatever the
+   font does with Armenian. */
+table.items th:nth-child(1), table.items td:nth-child(1) { width: 27%; }
+table.items th:nth-child(2), table.items td:nth-child(2) { width: 9%; }
+table.items th:nth-child(3), table.items td:nth-child(3),
+table.items th:nth-child(4), table.items td:nth-child(4),
+table.items th:nth-child(5), table.items td:nth-child(5) { width: 13%; }
+table.items th:nth-child(6), table.items td:nth-child(6) { width: 16%; }
+table.items th:nth-child(7), table.items td:nth-child(7) { width: 9%; }
+table.items .cell-name input,
 table.items td.num input { width: 100%; min-width: 0; }
-table.items th.num:nth-child(2), table.items td.num:nth-child(2) { width: 8ch; }
-table.items th.num:nth-child(3), table.items td.num:nth-child(3),
-table.items th.num:nth-child(4), table.items td.num:nth-child(4),
-table.items th.num:nth-child(5), table.items td.num:nth-child(5) { width: 11ch; }
-table.items th.num:nth-child(6), table.items td.num:nth-child(6) { width: 15ch; }
-table.items th:last-child, table.items td:last-child { width: 11ch; }
+/* The actions column is two small buttons; let them stack rather than widen it. */
+table.items td.cell-actions { white-space: normal; }
+table.items td.cell-actions button { margin: 1px 0; }
 /* Counted off the shelf, so it reads as a figure rather than a text box. */
 .count-input { text-align: right; font-variant-numeric: tabular-nums; padding: 5px 8px; }
 .count-input.negative { color: var(--bad); }
@@ -600,3 +612,9 @@ form.inline { display: inline; margin: 0; }
   table.items td.num input, table.items .cell-name input { width: auto; }
   .count-input { width: 6ch; }
 }
+
+/* Three fields describing one rule: "beat X in a day, get Y". They stay on one
+   line so the sentence reads as a sentence. */
+.bonus-cell { white-space: nowrap; }
+.bonus-cell input { width: 8ch; }
+.bonus-cell select { width: auto; display: inline-block; }

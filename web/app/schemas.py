@@ -89,6 +89,9 @@ class SaleLine(BaseModel):
     quantity: int = Field(gt=0, le=10_000)
     # Optional per-line override, for a discount. Absent means the shelf price.
     unit_price: Decimal | None = Field(default=None, ge=0)
+    # Which price list it came from, so a wholesale run recorded as it happens
+    # is told apart from a haggle -- exactly as in the end-of-shift write-up.
+    price_kind: str = "retail"
 
     @field_validator("unit_price", mode="before")
     @classmethod
@@ -96,6 +99,13 @@ class SaleLine(BaseModel):
         """Accept "3500.00" but refuse 3500.0 — a float has already lost digits."""
         if isinstance(value, float):
             raise ValueError("send money as a decimal string, not a float")
+        return value
+
+    @field_validator("price_kind")
+    @classmethod
+    def _known_kind(cls, value: str) -> str:
+        if value not in PRICE_KINDS:
+            raise ValueError("unknown price_kind")
         return value
 
 

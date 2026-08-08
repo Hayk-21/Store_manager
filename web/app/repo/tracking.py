@@ -86,6 +86,38 @@ async def set_live_window(
     )
 
 
+async def sold_by_worker_since(conn, worker_id: int, since) -> object:
+    """What one worker has sold since a moment, voids excluded.
+
+    Used to decide a bonus, so it runs on the caller's connection: the sale that
+    just tipped them over the target was written in this same transaction and a
+    pooled read would not see it.
+    """
+    return await conn.fetchval(
+        """
+        SELECT coalesce(sum(total), 0) FROM sales
+         WHERE worker_id = $1 AND voided_at IS NULL AND sold_at >= $2
+        """,
+        worker_id,
+        since,
+    )
+
+
+async def bonus_paid_since(conn, worker_id: int, since) -> bool:
+    """Whether this worker has already had their bonus for the period."""
+    return bool(
+        await conn.fetchval(
+            """
+            SELECT 1 FROM cash_movements
+             WHERE worker_id = $1 AND kind = 'bonus' AND created_at >= $2
+             LIMIT 1
+            """,
+            worker_id,
+            since,
+        )
+    )
+
+
 async def track_for_session(work_session_id: int, limit: int = 500) -> list[asyncpg.Record]:
     """One shift's trail, oldest first — the shape a map would draw."""
     return await db.fetch(

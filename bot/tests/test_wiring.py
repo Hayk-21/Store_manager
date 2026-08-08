@@ -12,7 +12,7 @@ from telegram.ext import ApplicationHandlerStop, ConversationHandler, MessageHan
 from app import format, keyboards, texts
 from app.__main__ import BUTTON_LABELS, build
 from app.api import ApiError
-from app.handlers import common, shift, stock
+from app.handlers import common, sell, shift, stock
 
 
 def _message(text: str) -> Update:
@@ -27,8 +27,17 @@ def _message(text: str) -> Update:
     )
 
 
-def _flow() -> ConversationHandler:
-    return next(h for h in build().handlers[0] if isinstance(h, ConversationHandler))
+def _flow(entry: str = texts.BTN_END_SHIFT) -> ConversationHandler:
+    """The conversation a given button starts. There are two now — selling as it
+    happens, and writing the day up — so they have to be told apart by name."""
+    return next(
+        h for h in build().handlers[0]
+        if isinstance(h, ConversationHandler)
+        and any(
+            getattr(e, "filters", None) is not None and e.filters.check_update(_message(entry))
+            for e in h.entry_points
+        )
+    )
 
 
 def test_the_application_builds_with_every_handler_registered():
@@ -84,16 +93,52 @@ def test_every_button_can_escape_the_write_up():
         ), f"no way out of the write-up when {label!r} is pressed"
 
 
-def test_the_write_up_is_the_only_way_a_sale_is_recorded():
-    """Sales are declared at the end of the shift, not as they happen. A live
-    sell flow left registered would be a second, contradictory path."""
+def test_there_are_two_ways_to_record_a_sale_and_both_are_reachable():
+    """Selling as it happens, and writing the day up at the end.
+
+    They do not overlap: the first commits one line immediately, the second
+    commits whatever was not entered that way. A shop that wants its stock count
+    to be right *now* uses the button; one that would rather not touch the bot
+    while serving uses the write-up.
+    """
     handlers = build().handlers[0]
 
-    assert not any(
-        getattr(h, "callback", None) is not None
-        and "sell" in getattr(h.callback, "__module__", "")
-        for h in handlers
-    ), "a live sell handler is still registered"
+    assert any(
+        getattr(h, "callback", None) is sell.begin for h in handlers
+    ), "selling is unreachable outside the flow"
+    assert _flow(texts.BTN_SELL) is not _flow(texts.BTN_END_SHIFT)
+
+
+def test_starting_a_sale_and_then_ending_the_shift_does_not_strand_the_cashier():
+    """The trap this closes: the sell conversation keeps its state when another
+    flow takes over, and the next number typed would be read as a quantity for a
+    sale that no longer exists."""
+    flow = _flow(texts.BTN_SELL)
+
+    for label in (texts.BTN_END_SHIFT, texts.BTN_CLOSE_STORE):
+        assert any(
+            getattr(h, "filters", None) is not None and h.filters.check_update(_message(label))
+            for h in flow.fallbacks
+        ), f"{label!r} would leave a sale half-entered"
+
+
+def test_neither_flow_eats_the_others_buttons_as_free_text():
+    own = {
+        texts.BTN_CO_ADD, texts.BTN_CO_REMOVE, texts.BTN_CO_DONE, texts.BTN_CO_ABANDON,
+        texts.BTN_CO_SUBMIT, texts.BTN_CO_SUBMIT_CLOSE, texts.BTN_CANCEL,
+        texts.BTN_CASH, texts.BTN_CARD, texts.BTN_RETAIL, texts.BTN_WHOLESALE,
+        texts.BTN_CONFIRM_CLOSE, texts.BTN_END_SHIFT, texts.BTN_CLOSE_STORE, texts.BTN_SELL,
+    }
+
+    for entry in (texts.BTN_SELL, texts.BTN_END_SHIFT):
+        for state, handlers in _flow(entry).states.items():
+            for handler in handlers:
+                filt = getattr(handler, "filters", None)
+                if filt is None:
+                    continue
+                for label in BUTTON_LABELS:
+                    if filt.check_update(_message(label)) and label not in own:
+                        raise AssertionError(f"{entry}: state {state} would consume {label!r}")
 
 
 def test_pressing_end_shift_starts_the_write_up_rather_than_ending_anything():

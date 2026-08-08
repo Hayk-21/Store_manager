@@ -1,4 +1,4 @@
-"""Entrypoint: build the application, register handlers, poll.
+﻿"""Entrypoint: build the application, register handlers, poll.
 
 Long polling rather than a webhook, because it needs no public URL and no TLS
 plumbing. It does mean **exactly one replica**: two processes calling getUpdates
@@ -24,7 +24,7 @@ from telegram.ext import (
 from app import keyboards, texts
 from app.api import api
 from app.config import settings
-from app.handlers import closeout, common, shift, stock
+from app.handlers import closeout, common, sell, shift, stock
 
 log = logging.getLogger("storemanager.bot")
 
@@ -107,6 +107,7 @@ def build() -> Application:
             CallbackQueryHandler(closeout.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
             CommandHandler("cancel", closeout.cancel),
             CommandHandler("start", closeout.escape(shift.start)),
+            MessageHandler(_exact(texts.BTN_SELL), closeout.escape(sell.begin)),
             MessageHandler(_exact(texts.BTN_STOCK), closeout.escape(stock.show)),
             MessageHandler(_exact(texts.BTN_STATUS), closeout.escape(shift.status)),
             MessageHandler(_exact(texts.BTN_OPEN), closeout.escape(shift.ask_location)),
@@ -127,8 +128,51 @@ def build() -> Application:
     # treats it as a way out of the flow.
     application.add_handler(MessageHandler(_moved, shift.handle_live_update), group=-1)
 
+    # Selling as it happens. Registered before the write-up so that while a sale
+    # is being entered its states get the text first; each flow's fallbacks hand
+    # over cleanly if the cashier taps the other one's button mid-way.
+    sell_flow = ConversationHandler(
+        entry_points=[MessageHandler(_exact(texts.BTN_SELL), sell.begin)],
+        states={
+            sell.PICK_ITEM: [
+                CallbackQueryHandler(sell.choose_item, pattern=f"^{keyboards.CB_ITEM}:"),
+                MessageHandler(_free_text, sell.search),
+            ],
+            sell.ASK_QUANTITY: [MessageHandler(_free_text, sell.choose_quantity)],
+            sell.ASK_PRICE: [
+                CallbackQueryHandler(
+                    sell.choose_suggested_price, pattern=f"^{keyboards.CB_KIND}:"
+                ),
+                MessageHandler(_free_text, sell.type_price),
+            ],
+            sell.ASK_METHOD: [
+                CallbackQueryHandler(sell.choose_method, pattern=f"^{keyboards.CB_PAY}:"),
+            ],
+        },
+        fallbacks=[
+            MessageHandler(_exact(texts.BTN_CANCEL), sell.cancel),
+            CallbackQueryHandler(sell.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
+            CommandHandler("cancel", sell.cancel),
+            CommandHandler("start", sell.escape(shift.start)),
+# Ending the shift mid-sale: drop the sale rather than leave this
+            # conversation holding a state that would swallow the write-up''s
+            # next answer.
+            MessageHandler(_exact(texts.BTN_END_SHIFT), sell.interrupted),
+            MessageHandler(_exact(texts.BTN_CLOSE_STORE), sell.interrupted),
+            MessageHandler(_exact(texts.BTN_STOCK), sell.escape(stock.show)),
+            MessageHandler(_exact(texts.BTN_STATUS), sell.escape(shift.status)),
+            MessageHandler(_exact(texts.BTN_OPEN), sell.escape(shift.ask_location)),
+            MessageHandler(_shared_location, sell.escape(shift.handle_location)),
+        ],
+        # Shorter than the write-up's: one sale is entered while the customer is
+        # standing there, so an abandoned flow is abandoned.
+        conversation_timeout=600,
+        per_message=False,
+    )
+
     application.add_handler(CommandHandler("start", shift.start))
     application.add_handler(CommandHandler("help", common.help_command))
+    application.add_handler(sell_flow)
     application.add_handler(closeout_flow)
 
     application.add_handler(MessageHandler(_exact(texts.BTN_OPEN), shift.ask_location))
@@ -138,6 +182,7 @@ def build() -> Application:
     application.add_handler(
         MessageHandler(_exact(texts.BTN_SEND_LOCATION), common.location_from_desktop)
     )
+    application.add_handler(MessageHandler(_exact(texts.BTN_SELL), sell.begin))
     application.add_handler(MessageHandler(_exact(texts.BTN_STOCK), stock.show))
     application.add_handler(MessageHandler(_exact(texts.BTN_STATUS), shift.status))
     # Dismissing a confirmation, which happens outside any conversation.

@@ -300,7 +300,7 @@ async def shifts_in_session(store_session_id: int) -> list[asyncpg.Record]:
         f"""
         SELECT ws.id, ws.worker_id, {DISPLAY_NAME} AS worker_name,
                ws.started_at, ws.ended_at,
-               ws.salary_paid, ws.start_distance_m, ws.closed_by
+               ws.salary_paid, ws.bonus_paid, ws.start_distance_m, ws.closed_by
           FROM work_sessions ws
           JOIN workers w ON w.id = ws.worker_id
          WHERE ws.store_session_id = $1

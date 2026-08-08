@@ -341,12 +341,35 @@ def _salary_period(raw: str) -> str:
     return raw
 
 
+def _bonus(threshold: str, amount: str, period: str) -> tuple[Decimal, Decimal, str] | None:
+    """The bonus rule, or None when the owner has not set one.
+
+    All three parts move together. A threshold with no amount would never pay
+    and a bonus with no threshold would pay every shift, so a half-filled rule
+    is refused at the form rather than stored as something nobody meant.
+    """
+    target = forms.optional_money(threshold, "Բոնուսի շեմ")
+    reward = forms.optional_money(amount, "Բոնուսի գումար")
+    if target is None and reward is None:
+        return None
+    if target is None or reward is None or target <= 0 or reward <= 0:
+        raise AppError(
+            "validation_error",
+            "Բոնուսի համար լրացրեք և՛ շեմը, և՛ գումարը՝ երկուսն էլ զրոյից մեծ։",
+        )
+    if period not in {"day", "month"}:
+        raise AppError("validation_error", "Բոնուսի ժամանակահատվածն անհայտ է։")
+    return target, reward, period
+
 @router.post("/workers")
 async def create_worker(
     name: str = Form(""),
     telegram_username: str = Form(""),
     salary_amount: str = Form(""),
     salary_period: str = Form("shift"),
+    bonus_threshold: str = Form(""),
+    bonus_amount: str = Form(""),
+    bonus_period: str = Form("day"),
     user: CurrentUser = Depends(require_csrf),
 ):
     """Register a @username. The name arrives from Telegram on first contact."""
@@ -357,6 +380,7 @@ async def create_worker(
             salary_amount=forms.money(salary_amount, "Աշխատավարձ", default=Decimal("0.00")),
             salary_period=_salary_period(salary_period),
             name=forms.text(name, "Անուն", max_length=120, required=False),
+            bonus=_bonus(bonus_threshold, bonus_amount, bonus_period),
         )
     except asyncpg.exceptions.UniqueViolationError:
         # Globally unique: it is what resolves an unbound worker to one owner.
@@ -785,6 +809,9 @@ async def edit_worker(
     salary_amount: str = Form(""),
     salary_period: str = Form("shift"),
     is_active: str = Form(""),
+    bonus_threshold: str = Form(""),
+    bonus_amount: str = Form(""),
+    bonus_period: str = Form("day"),
     user: CurrentUser = Depends(require_csrf),
 ):
     """Salary and its period are editable at any time, as are the name and handle."""
@@ -799,6 +826,7 @@ async def edit_worker(
             salary_amount=forms.money(salary_amount, "Աշխատավարձ"),
             salary_period=_salary_period(salary_period),
             is_active=is_active in {"1", "on", "true"},
+            bonus=_bonus(bonus_threshold, bonus_amount, bonus_period),
         )
     except asyncpg.exceptions.UniqueViolationError:
         raise AppError("validation_error", _USERNAME_TAKEN) from None

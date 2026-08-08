@@ -1,4 +1,4 @@
-"""The HTTP client for the web service.
+﻿"""The HTTP client for the web service.
 
 Two things here are load-bearing:
 
@@ -179,8 +179,10 @@ class Api:
         payment_method: str,
         key: str,
         unit_price: str | None = None,
+        price_kind: str = "retail",
     ) -> dict:
-        line: dict[str, Any] = {"item_id": item_id, "quantity": quantity}
+        line: dict[str, Any] = {"item_id": item_id, "quantity": quantity,
+                                "price_kind": price_kind}
         # A decimal string, never a float: the server refuses floats outright
         # because they have already lost digits by the time it sees them.
         if unit_price is not None:

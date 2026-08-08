@@ -38,12 +38,25 @@ def off_shift() -> ReplyKeyboardMarkup:
 
 
 def on_shift() -> ReplyKeyboardMarkup:
+    """Selling comes first because it is what the shift is for.
+
+    It records one line immediately. The write-up under «end my shift» is still
+    there for whatever was not entered as it happened.
+    """
     return ReplyKeyboardMarkup(
         [
+            [KeyboardButton(texts.BTN_SELL)],
             [KeyboardButton(texts.BTN_STOCK), KeyboardButton(texts.BTN_STATUS)],
             [KeyboardButton(texts.BTN_END_SHIFT), KeyboardButton(texts.BTN_CLOSE_STORE)],
         ],
         resize_keyboard=True,
+    )
+
+
+def selling() -> ReplyKeyboardMarkup:
+    """While a sale is being entered: one way out, never more than one tap."""
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton(texts.BTN_CANCEL)]], resize_keyboard=True
     )
 
 

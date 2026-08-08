@@ -34,6 +34,38 @@
         <button type="submit">Ավելացնել</button>
       </div>
     </div>
+
+    {# Optional, and all three parts move together — a threshold with no amount
+       would never pay, a bonus with no threshold would pay every shift. #}
+    <details class="sub-card">
+      <summary><h3>Բոնուս (ըստ ցանկության)</h3></summary>
+      <div class="form-row">
+        <div class="narrow">
+          <label for="w-bonus-threshold">Եթե վաճառքը գերազանցի</label>
+          <input id="w-bonus-threshold" name="bonus_threshold" inputmode="decimal"
+                 placeholder="օր.՝ 200000">
+        </div>
+        <div class="narrow">
+          <label for="w-bonus-period">Ժամանակահատված</label>
+          <select id="w-bonus-period" name="bonus_period">
+            <option value="day">Օրվա ընթացքում</option>
+            <option value="month">Ամսվա ընթացքում</option>
+          </select>
+        </div>
+        <div class="narrow">
+          <label for="w-bonus-amount">Բոնուսը կլինի</label>
+          <input id="w-bonus-amount" name="bonus_amount" inputmode="decimal"
+                 placeholder="օր.՝ 10000">
+        </div>
+      </div>
+      <p class="muted small">
+        Բոնուսը հաշվվում է հերթափոխն ավարտելիս և հանվում է կանխիկից՝ ինչպես
+        աշխատավարձը։ Վճարվում է <b>մեկ անգամ</b> ընտրված ժամանակահատվածում․
+        առավոտյան շեմն անցնողը երեկոյան կրկին չի ստանա։
+        Դատարկ թողեք, եթե բոնուս չեք տալիս։
+      </p>
+    </details>
+
     <p class="muted small">
       {# The owner is often behind the counter too. Prefill their own handle so
          registering themselves is one click rather than typing it out. #}
@@ -77,6 +109,7 @@
           <th>Անուն</th>
           <th class="num">Աշխատավարձ</th>
           <th>Վճարվում է</th>
+          <th class="num">Բոնուս</th>
           <th>Հիմա</th>
           <th>Ակտիվ</th>
           <th class="num"></th>
@@ -110,6 +143,23 @@
             <select form="worker-{{ w.id }}" name="salary_period" aria-label="Վճարվում է">
               {{ period_options(w.salary_period) }}
             </select>
+          </td>
+          {# "Beat X in a day/month, get Y." Left blank means no bonus, so the
+             two boxes are empty rather than showing a zero that would read as
+             a rule that pays nothing. #}
+          <td class="num bonus-cell" data-label="Բոնուս">
+            <input form="worker-{{ w.id }}" name="bonus_threshold"
+                   value="{{ w.bonus_threshold | plain_money if w.bonus_threshold else '' }}"
+                   inputmode="decimal" class="money-input" placeholder="շեմ"
+                   aria-label="Բոնուսի շեմ">
+            <select form="worker-{{ w.id }}" name="bonus_period" aria-label="Բոնուսի ժամկետ">
+              <option value="day" {% if w.bonus_period != 'month' %}selected{% endif %}>օրական</option>
+              <option value="month" {% if w.bonus_period == 'month' %}selected{% endif %}>ամսական</option>
+            </select>
+            <input form="worker-{{ w.id }}" name="bonus_amount"
+                   value="{{ w.bonus_amount | plain_money if w.bonus_amount else '' }}"
+                   inputmode="decimal" class="money-input" placeholder="բոնուս"
+                   aria-label="Բոնուսի գումար">
           </td>
           <td data-label="Հիմա">
             {% if w.open_shift_id %}
