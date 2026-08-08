@@ -59,7 +59,11 @@ async def summary(
                coalesce(sum(si.line_total) FILTER (WHERE si.price_kind = 'custom'), 0)
                    AS custom_priced,
                coalesce(sum(si.quantity) FILTER (WHERE si.price_kind = 'wholesale'), 0)
-                   AS wholesale_units
+                   AS wholesale_units,
+               -- Same money, different door. Worth its own figure because the
+               -- split is not recoverable from anything else in the row.
+               coalesce(sum(si.line_total) FILTER (WHERE sa.is_delivery), 0) AS delivered,
+               count(DISTINCT sa.id) FILTER (WHERE sa.is_delivery)           AS deliveries
           FROM sale_items si
           JOIN sales sa ON sa.id = si.sale_id
         {_WHERE}

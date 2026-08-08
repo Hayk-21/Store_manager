@@ -1,0 +1,234 @@
+"""A sale that went out for delivery.
+
+It changes nothing about the money — same price, same payment method, same stock
+movement — so every test here is really the same assertion twice: that the flag
+is carried all the way to the owner's screen, and that carrying it moved nothing
+it should not have.
+
+A flag rather than a third payment method, because it is orthogonal to one. A
+delivery can be paid in cash at the door or by card in advance, and folding the
+two together would make "how much did we take in cash" unanswerable.
+"""
+
+from __future__ import annotations
+
+from datetime import timedelta
+from decimal import Decimal
+
+from app.config import settings
+from app.db import db
+from app.repo import sales as sales_repo
+from app.services import sales as sales_service
+from app.services import shifts as shifts_service
+from app.services import statistics
+from tests.factories import (
+    YEREVAN_LAT,
+    YEREVAN_LNG,
+    login,
+    make_item,
+    make_owner,
+    make_store,
+    make_worker,
+)
+
+BASE = "/api/bot/v1"
+
+
+async def _open_shift():
+    """An owner with a store, a worker on shift, and something to sell."""
+    owner_id = await make_owner("@ownerhandle")
+    store_id = await make_store(owner_id, "Խանութ 1", lat=YEREVAN_LAT, lng=YEREVAN_LNG)
+    worker_id, telegram_id = await make_worker(owner_id, "Անի", salary_amount="0.00")
+    worker = shifts_service.Worker(
+        id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("0.00")
+    )
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-1", 900)
+    item_id = await make_item(owner_id, store_id, "HQD Cuvie", count=50,
+                              self_price="1500.00", sell_price="3500.00")
+    return owner_id, store_id, worker, item_id, telegram_id
+
+
+# -- recording it -------------------------------------------------------------
+
+async def test_a_sale_can_be_marked_as_a_delivery(client):
+    _, _, worker, item_id, _ = await _open_shift()
+
+    result = await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "cash", "idem-sale-1",
+        is_delivery=True,
+    )
+
+    assert result["sale"]["is_delivery"] is True
+    assert await db.fetchval("SELECT is_delivery FROM sales") is True
+
+
+async def test_an_ordinary_sale_is_not_one(client):
+    """The default has to be false, or every shop that never delivers would
+    report that all of its trade went out of the door."""
+    _, _, worker, item_id, _ = await _open_shift()
+
+    result = await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "cash", "idem-sale-1"
+    )
+
+    assert result["sale"]["is_delivery"] is False
+    assert await db.fetchval("SELECT is_delivery FROM sales") is False
+
+
+async def test_it_changes_no_money_and_no_stock(client):
+    """The whole point: the flag records where the goods went, nothing else."""
+    _, _, worker, item_id, _ = await _open_shift()
+
+    plain = await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    delivered = await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-2",
+        is_delivery=True,
+    )
+
+    assert delivered["sale"]["total"] == plain["sale"]["total"]
+    assert delivered["sale"]["payment_method"] == plain["sale"]["payment_method"]
+    assert await db.fetchval("SELECT count FROM items WHERE id = $1", item_id) == 46
+    assert (await db.fetchval(
+        "SELECT coalesce(sum(amount), 0) FROM cash_movements WHERE kind = 'sale'"
+    )) == Decimal("14000.00")
+
+
+async def test_a_delivery_can_be_paid_either_way(client):
+    """Which is why it is a flag and not a payment method of its own."""
+    _, _, worker, item_id, _ = await _open_shift()
+
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "cash", "idem-sale-1",
+        is_delivery=True,
+    )
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "card", "idem-sale-2",
+        is_delivery=True,
+    )
+
+    rows = await db.fetch("SELECT payment_method FROM sales WHERE is_delivery ORDER BY id")
+    assert [row["payment_method"] for row in rows] == ["cash", "card"]
+
+
+async def test_voiding_a_delivery_still_works(client):
+    """It was a sale like any other, so undoing it is too. The regression: the
+    void payload read a column the locking query had not selected."""
+    _, _, worker, item_id, _ = await _open_shift()
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1",
+        is_delivery=True,
+    )
+
+    result = await sales_service.void_last_sale(worker)
+
+    assert result["voided"]["is_delivery"] is True
+    assert await db.fetchval("SELECT count FROM items WHERE id = $1", item_id) == 50
+
+
+# -- through the bot API ------------------------------------------------------
+
+async def test_the_endpoint_takes_the_flag(client, bot_headers):
+    _, _, _, item_id, telegram_id = await _open_shift()
+
+    response = await client.post(
+        f"{BASE}/sale",
+        json={"telegram_id": telegram_id,
+              "items": [{"item_id": item_id, "quantity": 1}],
+              "payment_method": "cash", "is_delivery": True,
+              "idempotency_key": "idem-key-sale-01"},
+        headers=bot_headers,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["sale"]["is_delivery"] is True
+
+
+async def test_the_endpoint_defaults_it_to_false(client, bot_headers):
+    """An older bot build that does not send the field must still sell."""
+    _, _, _, item_id, telegram_id = await _open_shift()
+
+    response = await client.post(
+        f"{BASE}/sale",
+        json={"telegram_id": telegram_id,
+              "items": [{"item_id": item_id, "quantity": 1}],
+              "payment_method": "cash", "idempotency_key": "idem-key-sale-01"},
+        headers=bot_headers,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["sale"]["is_delivery"] is False
+
+
+async def test_a_write_up_line_can_be_a_delivery(client, bot_headers):
+    """The end-of-shift write-up records the day one line at a time, and a
+    delivery entered that way is the same fact as one entered live."""
+    _, _, _, item_id, telegram_id = await _open_shift()
+
+    response = await client.post(
+        f"{BASE}/shift/close-out",
+        json={"telegram_id": telegram_id, "idempotency_key": "idem-key-close-01",
+              "lines": [
+                  {"item_id": item_id, "quantity": 1, "unit_price": "3500.00",
+                   "payment_method": "cash", "is_delivery": True},
+                  {"item_id": item_id, "quantity": 1, "unit_price": "3500.00",
+                   "payment_method": "cash"},
+              ]},
+        headers=bot_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    flags = await db.fetch("SELECT is_delivery FROM sales ORDER BY id")
+    assert [row["is_delivery"] for row in flags] == [True, False]
+
+
+# -- what the owner sees ------------------------------------------------------
+
+async def test_the_receipt_carries_it_to_the_report(client):
+    _, _, worker, item_id, _ = await _open_shift()
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "cash", "idem-sale-1",
+        is_delivery=True,
+    )
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+
+    receipts = await sales_repo.receipts_in_store_session(session_id)
+
+    assert [row["is_delivery"] for row in receipts] == [True]
+
+
+async def test_the_report_page_shows_it(client):
+    owner_id, _, worker, item_id, _ = await _open_shift()
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "cash", "idem-sale-1",
+        is_delivery=True,
+    )
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "առաքում" in page.text
+
+
+async def test_the_statistics_split_deliveries_out(client):
+    """Same money, different door. The split is not recoverable from anything
+    else in the row, which is the reason it has a figure of its own."""
+    owner_id, _, worker, item_id, _ = await _open_shift()
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "cash", "idem-sale-1",
+        is_delivery=True,
+    )
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-2"
+    )
+    today = settings.local_day()
+
+    overview = await statistics.overview(owner_id, today - timedelta(days=6), today)
+
+    assert Decimal(overview["summary"]["delivered"]) == Decimal("3500.00")
+    assert overview["summary"]["deliveries"] == 1
+    assert Decimal(overview["summary"]["revenue"]) == Decimal("10500.00"), (
+        "the delivery is part of the takings, not instead of them"
+    )

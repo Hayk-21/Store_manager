@@ -171,6 +171,7 @@ async def insert_movement(
     worker_id: int | None = None,
     note: str | None = None,
     created_by: str = "system",
+    external_id: str | None = None,
 ) -> int:
     """Append one row. Takes an explicit connection because every caller is
     already inside a transaction that must include this write.
@@ -182,8 +183,8 @@ async def insert_movement(
         """
         INSERT INTO cash_movements
             (owner_id, store_id, store_session_id, method, kind, amount,
-             sale_id, work_session_id, worker_id, note, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+             sale_id, work_session_id, worker_id, note, created_by, external_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING id
         """,
         owner_id,
@@ -197,6 +198,7 @@ async def insert_movement(
         worker_id,
         note,
         created_by,
+        external_id,
     )
 
 
@@ -212,4 +214,42 @@ async def ledger_for_session(store_session_id: int) -> list[asyncpg.Record]:
          ORDER BY m.created_at DESC, m.id DESC
         """,
         store_session_id,
+    )
+
+
+async def withdrawn_by_worker_on(conn, work_session_id: int) -> Decimal:
+    """What this worker has already taken out during this shift, as a positive
+    number. Read on the caller's connection because it decides whether the write
+    about to happen is allowed, and the shift row is locked around both.
+    """
+    return await conn.fetchval(
+        """
+        SELECT coalesce(-sum(amount), 0)
+          FROM cash_movements
+         WHERE work_session_id = $1 AND kind = 'withdrawal' AND created_by = 'worker'
+        """,
+        work_session_id,
+    )
+
+
+async def by_external_id(owner_id: int, external_id: str) -> asyncpg.Record | None:
+    """The idempotency lookup for a movement the bot wrote.
+
+    Carries the session's totals with it, because the caller is rebuilding a
+    reply that quotes them and a second query could see a different moment.
+    """
+    return await db.fetchrow(
+        """
+        SELECT m.id, m.amount, m.note, m.store_session_id,
+               coalesce((SELECT sum(x.amount) FILTER (WHERE x.method = 'cash')
+                           FROM cash_movements x
+                          WHERE x.store_session_id = m.store_session_id), 0) AS cash,
+               coalesce((SELECT sum(x.amount) FILTER (WHERE x.method = 'card')
+                           FROM cash_movements x
+                          WHERE x.store_session_id = m.store_session_id), 0) AS card
+          FROM cash_movements m
+         WHERE m.owner_id = $1 AND m.external_id = $2
+        """,
+        owner_id,
+        external_id,
     )

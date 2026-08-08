@@ -264,27 +264,6 @@ async def end_shift(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await report_end(update, result["summary"])
 
 
-async def confirm_close_store(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Closing affects everybody in the shop, so it asks first."""
-    await update.effective_message.reply_text(
-        texts.CONFIRM_CLOSE_STORE, reply_markup=keyboards.confirm_close_store()
-    )
-
-
-async def close_store(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    await query.answer()
-    key = context.user_data.get("close_key") or new_idempotency_key()
-    context.user_data["close_key"] = key
-    try:
-        result = await api.close_store(query.from_user.id, key)
-    except Exception as exc:  # noqa: BLE001
-        await _reply_error(update, exc)
-        return
-    context.user_data.pop("close_key", None)
-    await query.edit_message_reply_markup(reply_markup=None)
-    await report_end(update, result["summary"])
-
 
 async def report_end(update: Update, summary: dict) -> None:
     message = texts.SHIFT_ENDED.format(

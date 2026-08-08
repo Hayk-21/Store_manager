@@ -13,12 +13,15 @@ BTN_OPEN = "🟢 Բացել խանութը"
 BTN_SEND_LOCATION = "📍 Ուղարկել տեղորոշումը"
 BTN_SELL = "🧾 Վաճառել"
 BTN_DEFECT = "🗑 Խոտան"
+BTN_TAKE_CASH = "💸 Վերցնել դրամարկղից"
+BTN_ADD_ITEM = "➕ Նոր ապրանք"
+BTN_CASH_DELIVERY = "🚚 Կանխիկ · առաքում"
+BTN_CARD_DELIVERY = "🚚 Քարտ · առաքում"
 BTN_UNDO_SALE = "↩️ Չեղարկել վաճառքը"
 BTN_OTHER_PRICE = "✏️ Այլ գին"
 BTN_STATUS = "📊 Վիճակ"
 BTN_STOCK = "📦 Պահեստ"
 BTN_END_SHIFT = "🚪 Ավարտել իմ հերթափոխը"
-BTN_CLOSE_STORE = "🔴 Փակել խանութը"
 BTN_CANCEL = "✖️ Չեղարկել"
 BTN_CASH = "💵 Կանխիկ"
 BTN_CARD = "💳 Քարտ"
@@ -29,7 +32,6 @@ BTN_CO_REMOVE = "↩️ Ջնջել վերջինը"
 BTN_CO_DONE = "✅ Ավարտել ցուցակը"
 BTN_CO_ABANDON = "✖️ Չեղարկել ամբողջը"
 BTN_CO_SUBMIT = "✅ Հաստատել և ավարտել հերթափոխը"
-BTN_CO_SUBMIT_CLOSE = "🔴 Հաստատել և փակել խանութը"
 
 # -- greetings and prompts --------------------------------------------------
 
@@ -153,6 +155,7 @@ CLOSEOUT_ROW = "{index}. {name} ×{quantity} × {price} = <b>{total}</b> ({metho
 # Appended to a write-up row when the line did not go out at the shelf price.
 KIND_WHOLESALE = ", մեծածախ"
 KIND_CUSTOM = ", փոփոխված գին"
+KIND_DELIVERY = ", առաքում"
 CLOSEOUT_SUMMARY = (
     "🧾 <b>Ցուցակ</b>\n\n{rows}\n\n"
     "Կանխիկ՝ <b>{cash}</b>\nՔարտ՝ <b>{card}</b>\nԸնդամենը՝ <b>{total}</b>"
@@ -201,13 +204,6 @@ STORE_CLOSED = (
     "\n🔴 Խանութը փակված է։\n"
     "Կանխիկ՝ {cash} · Քարտ՝ {card}"
 )
-CONFIRM_CLOSE_STORE = (
-    "Փակե՞լ խանութը։\n\n"
-    "Ձեր հերթափոխը կավարտվի, աշխատավարձը կհանվի կանխիկից։\n\n"
-    "Եթե գործընկերները դեռ աշխատում են, խանութը չի փակվի՝ այն փակում է "
-    "վերջինը դուրս եկողը։"
-)
-BTN_CONFIRM_CLOSE = "Այո, փակել"
 
 # -- failures ---------------------------------------------------------------
 
@@ -240,14 +236,6 @@ DEFECT_ASK_ITEM = (
     "բայց վաճառք չի գրանցվի։"
 )
 DEFECT_ASK_QUANTITY = "«{item}» — քանի՞ հատ է խոտան։\nՊահեստում կա {available} հատ։"
-DEFECT_ASK_REASON = "Ի՞նչ է պատահել։ Ընտրեք կամ գրեք ձեր բառերով։"
-DEFECT_REASONS = {
-    "broken": "Կոտրված",
-    "leaking": "Հոսում է",
-    "expired": "Ժամկետանց",
-    "lost": "Կորած",
-    "other": "Այլ",
-}
 DEFECT_DONE = (
     "🗑 Դուրս գրվեց՝ <b>{item}</b> ×{quantity}\n"
     "Պահեստի մնացորդը՝ {remaining} հատ\n"
@@ -255,3 +243,42 @@ DEFECT_DONE = (
     "Վաճառք չի գրանցվել։"
 )
 DEFECT_DONE_PLAINLY = "🗑 Խոտանը գրանցվեց և հանվեց պահեստից։"
+
+# -- taking money out of the till --------------------------------------------
+
+# The example is deliberately below the limit: an amount the server is about to
+# refuse is a bad thing to suggest.
+CASH_ASK_AMOUNT = (
+    "💸 <b>Վերցնել դրամարկղից</b>\n\n"
+    "Որքա՞ն եք վերցնում։ Գրեք գումարը թվով, օրինակ՝ 500։\n"
+    "Մեկ հերթափոխի ընթացքում՝ առավելագույնը 1,000 ֏։"
+)
+CASH_BAD_AMOUNT = "Գրեք գումարը թվով, օրինակ՝ 500։"
+CASH_ASK_PURPOSE = (
+    "{amount}\n\n"
+    "Ինչի՞ համար։ Գրեք կարճ՝ օրինակ «առաքիչին», «տոպրակներ», «մանրադրամ»։"
+)
+CASH_ASK_PURPOSE_AGAIN = "Գրեք, թե ինչի համար եք վերցնում։ Առանց դրա գրանցել չենք կարող։"
+CASH_DONE = (
+    "💸 Գրանցվեց՝ <b>{amount}</b>\n"
+    "Նպատակը՝ {purpose}\n\n"
+    "Դրամարկղում մնաց՝ {cash}"
+)
+CASH_DONE_PLAINLY = "💸 Գումարի վերցնումը գրանցվեց։"
+
+# -- a new product, added at the counter -------------------------------------
+
+NEW_ITEM_ASK_NAME = (
+    "➕ <b>Նոր ապրանք</b>\n\n"
+    "Գրեք ապրանքի անունը՝ այնպես, ինչպես կփնտրեք այն վաճառելիս։"
+)
+NEW_ITEM_ASK_NAME_AGAIN = "Գրեք ապրանքի անունը։"
+NEW_ITEM_ASK_COUNT = "«{item}» — քանի՞ հատ եք ավելացնում պահեստին։"
+NEW_ITEM_ASK_COST = "Ի՞նչ գնով եք գնել մեկ հատը (ինքնարժեք)։"
+NEW_ITEM_ASK_PRICE = "Ի՞նչ գնով եք վաճառելու մեկ հատը։"
+NEW_ITEM_DONE = (
+    "✅ Ավելացվեց՝ <b>{item}</b>\n"
+    "Պահեստում՝ {count} հատ · գինը՝ {price}\n\n"
+    "Այժմ կարող եք վաճառել այն։"
+)
+NEW_ITEM_DONE_PLAINLY = "✅ Ապրանքն ավելացվեց պահեստին։"

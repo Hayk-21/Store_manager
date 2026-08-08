@@ -211,7 +211,10 @@ async def choose_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     """The commit. One key for this sale, reused by every retry of it."""
     query = update.callback_query
     await query.answer()
-    method = query.data.split(":", 1)[1]
+    # "p:cash" or "p:cash:d" -- the marker rides along with the method rather
+    # than needing a toggle with a state of its own.
+    parts = query.data.split(":")
+    method, is_delivery = parts[1], len(parts) > 2 and parts[2] == "d"
     item = context.user_data.get("sell_item")
     if item is None:  # pragma: no cover
         return ConversationHandler.END
@@ -229,6 +232,7 @@ async def choose_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             key=key,
             unit_price=str(context.user_data["sell_price"]),
             price_kind=context.user_data.get("sell_kind", "retail"),
+            is_delivery=is_delivery,
         )
     except Exception as exc:  # noqa: BLE001
         return await _fail(update, context, exc)

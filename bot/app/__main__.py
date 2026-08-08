@@ -24,7 +24,7 @@ from telegram.ext import (
 from app import keyboards, texts
 from app.api import api
 from app.config import settings
-from app.handlers import closeout, common, defect, sell, shift, stock
+from app.handlers import cash, closeout, common, defect, newitem, sell, shift, stock
 
 log = logging.getLogger("storemanager.bot")
 
@@ -71,7 +71,6 @@ def build() -> Application:
     closeout_flow = ConversationHandler(
         entry_points=[
             MessageHandler(_exact(texts.BTN_END_SHIFT), closeout.begin),
-            MessageHandler(_exact(texts.BTN_CLOSE_STORE), closeout.begin),
         ],
         states={
             closeout.PICK_ITEM: [
@@ -109,6 +108,7 @@ def build() -> Application:
             CommandHandler("start", closeout.escape(shift.start)),
             MessageHandler(_exact(texts.BTN_SELL), closeout.escape(sell.begin)),
             MessageHandler(_exact(texts.BTN_DEFECT), closeout.escape(defect.begin)),
+            MessageHandler(_exact(texts.BTN_TAKE_CASH), closeout.escape(cash.begin)),
             MessageHandler(_exact(texts.BTN_STOCK), closeout.escape(stock.show)),
             MessageHandler(_exact(texts.BTN_STATUS), closeout.escape(shift.status)),
             MessageHandler(_exact(texts.BTN_OPEN), closeout.escape(shift.ask_location)),
@@ -159,8 +159,8 @@ def build() -> Application:
             # conversation holding a state that would swallow the write-up's
             # next answer.
             MessageHandler(_exact(texts.BTN_END_SHIFT), sell.interrupted),
-            MessageHandler(_exact(texts.BTN_CLOSE_STORE), sell.interrupted),
             MessageHandler(_exact(texts.BTN_DEFECT), sell.escape(defect.begin)),
+            MessageHandler(_exact(texts.BTN_TAKE_CASH), sell.escape(cash.begin)),
             MessageHandler(_exact(texts.BTN_STOCK), sell.escape(stock.show)),
             MessageHandler(_exact(texts.BTN_STATUS), sell.escape(shift.status)),
             MessageHandler(_exact(texts.BTN_OPEN), sell.escape(shift.ask_location)),
@@ -183,10 +183,6 @@ def build() -> Application:
                 MessageHandler(_free_text, defect.search),
             ],
             defect.ASK_QUANTITY: [MessageHandler(_free_text, defect.choose_quantity)],
-            defect.ASK_REASON: [
-                CallbackQueryHandler(defect.choose_reason, pattern=f"^{keyboards.CB_REASON}:"),
-                MessageHandler(_free_text, defect.type_reason),
-            ],
         },
         fallbacks=[
             MessageHandler(_exact(texts.BTN_CANCEL), defect.cancel),
@@ -194,10 +190,32 @@ def build() -> Application:
             CommandHandler("cancel", defect.cancel),
             CommandHandler("start", defect.escape(shift.start)),
             MessageHandler(_exact(texts.BTN_SELL), defect.escape(sell.begin)),
+            MessageHandler(_exact(texts.BTN_TAKE_CASH), defect.escape(cash.begin)),
             MessageHandler(_exact(texts.BTN_STOCK), defect.escape(stock.show)),
             MessageHandler(_exact(texts.BTN_STATUS), defect.escape(shift.status)),
             MessageHandler(_exact(texts.BTN_END_SHIFT), defect.cancel),
-            MessageHandler(_exact(texts.BTN_CLOSE_STORE), defect.cancel),
+        ],
+        conversation_timeout=600,
+        per_message=False,
+    )
+
+    # Taking cash out. Two steps, both free text, so it needs the same escapes
+    # as the others: a button pressed mid-way must not be read as an amount.
+    cash_flow = ConversationHandler(
+        entry_points=[MessageHandler(_exact(texts.BTN_TAKE_CASH), cash.begin)],
+        states={
+            cash.ASK_AMOUNT: [MessageHandler(_free_text, cash.type_amount)],
+            cash.ASK_PURPOSE: [MessageHandler(_free_text, cash.type_purpose)],
+        },
+        fallbacks=[
+            MessageHandler(_exact(texts.BTN_CANCEL), cash.cancel),
+            CommandHandler("cancel", cash.cancel),
+            CommandHandler("start", cash.escape(shift.start)),
+            MessageHandler(_exact(texts.BTN_SELL), cash.escape(sell.begin)),
+            MessageHandler(_exact(texts.BTN_DEFECT), cash.escape(defect.begin)),
+            MessageHandler(_exact(texts.BTN_STOCK), cash.escape(stock.show)),
+            MessageHandler(_exact(texts.BTN_STATUS), cash.escape(shift.status)),
+            MessageHandler(_exact(texts.BTN_END_SHIFT), cash.cancel),
         ],
         conversation_timeout=600,
         per_message=False,
@@ -207,6 +225,33 @@ def build() -> Application:
     application.add_handler(CommandHandler("help", common.help_command))
     application.add_handler(sell_flow)
     application.add_handler(defect_flow)
+    application.add_handler(cash_flow)
+
+    # Adding a product at the counter. Four short answers, all free text, so it
+    # needs the same escapes: a button pressed mid-way must not become a name.
+    newitem_flow = ConversationHandler(
+        entry_points=[MessageHandler(_exact(texts.BTN_ADD_ITEM), newitem.begin)],
+        states={
+            newitem.ASK_NAME: [MessageHandler(_free_text, newitem.type_name)],
+            newitem.ASK_COUNT: [MessageHandler(_free_text, newitem.type_count)],
+            newitem.ASK_COST: [MessageHandler(_free_text, newitem.type_cost)],
+            newitem.ASK_PRICE: [MessageHandler(_free_text, newitem.type_price)],
+        },
+        fallbacks=[
+            MessageHandler(_exact(texts.BTN_CANCEL), newitem.cancel),
+            CommandHandler("cancel", newitem.cancel),
+            CommandHandler("start", newitem.escape(shift.start)),
+            MessageHandler(_exact(texts.BTN_SELL), newitem.escape(sell.begin)),
+            MessageHandler(_exact(texts.BTN_DEFECT), newitem.escape(defect.begin)),
+            MessageHandler(_exact(texts.BTN_TAKE_CASH), newitem.escape(cash.begin)),
+            MessageHandler(_exact(texts.BTN_STOCK), newitem.escape(stock.show)),
+            MessageHandler(_exact(texts.BTN_STATUS), newitem.escape(shift.status)),
+            MessageHandler(_exact(texts.BTN_END_SHIFT), newitem.cancel),
+        ],
+        conversation_timeout=600,
+        per_message=False,
+    )
+    application.add_handler(newitem_flow)
     application.add_handler(closeout_flow)
 
     # Undoing a sale is not part of entering one: the receipt is finished, and
@@ -215,6 +260,8 @@ def build() -> Application:
         CallbackQueryHandler(sell.undo, pattern=f"^{keyboards.CB_UNDO}:")
     )
     application.add_handler(MessageHandler(_exact(texts.BTN_DEFECT), defect.begin))
+    application.add_handler(MessageHandler(_exact(texts.BTN_TAKE_CASH), cash.begin))
+    application.add_handler(MessageHandler(_exact(texts.BTN_ADD_ITEM), newitem.begin))
 
     application.add_handler(MessageHandler(_exact(texts.BTN_OPEN), shift.ask_location))
     application.add_handler(MessageHandler(_shared_location, shift.handle_location))

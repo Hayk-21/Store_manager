@@ -26,12 +26,12 @@ CB_SUBMIT = "s"
 # Belongs to the sell conversation alone, so its fallback is the only thing that
 # handles it and the conversation actually ends when it fires.
 CB_CANCEL = "x"
-CB_CLOSE_STORE = "c"
 # Undoing one specific sale, so a button tapped three sales later still reverses
 # the receipt it was attached to rather than whatever happens to be last.
 CB_UNDO = "u"
-CB_REASON = "r"
-# Dismissing the close-store confirmation, which happens outside any conversation.
+# Dismissing a confirmation, which happens outside any conversation. Nothing
+# builds one any more, but a keyboard already sitting in somebody's chat still
+# can, and a tap that spins forever is worse than one that says "cancelled".
 CB_DISMISS = "d"
 
 
@@ -51,8 +51,9 @@ def on_shift() -> ReplyKeyboardMarkup:
         [
             [KeyboardButton(texts.BTN_SELL)],
             [KeyboardButton(texts.BTN_STOCK), KeyboardButton(texts.BTN_DEFECT)],
-            [KeyboardButton(texts.BTN_STATUS)],
-            [KeyboardButton(texts.BTN_END_SHIFT), KeyboardButton(texts.BTN_CLOSE_STORE)],
+            [KeyboardButton(texts.BTN_TAKE_CASH), KeyboardButton(texts.BTN_STATUS)],
+            [KeyboardButton(texts.BTN_ADD_ITEM)],
+            [KeyboardButton(texts.BTN_END_SHIFT)],
         ],
         resize_keyboard=True,
     )
@@ -145,9 +146,6 @@ def closeout_confirm() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(texts.BTN_CO_SUBMIT, callback_data=f"{CB_SUBMIT}:shift")],
-            [InlineKeyboardButton(
-                texts.BTN_CO_SUBMIT_CLOSE, callback_data=f"{CB_SUBMIT}:store"
-            )],
             [InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)],
         ]
     )
@@ -181,35 +179,30 @@ def undo_sale(sale_id: int) -> InlineKeyboardMarkup:
 
 
 def payment_methods() -> InlineKeyboardMarkup:
+    """How it was paid, and whether it went out for delivery.
+
+    Delivery is a second row rather than a toggle: a toggle needs a state to
+    live in and a redraw to show, and this is one tap either way. It changes no
+    money -- same price, same method -- it only records that the goods left the
+    shop rather than the counter, which nothing else in the row would tell the
+    owner afterwards.
+    """
     return InlineKeyboardMarkup(
         [
             [
                 InlineKeyboardButton(texts.BTN_CASH, callback_data=f"{CB_PAY}:cash"),
                 InlineKeyboardButton(texts.BTN_CARD, callback_data=f"{CB_PAY}:card"),
             ],
+            [
+                InlineKeyboardButton(
+                    texts.BTN_CASH_DELIVERY, callback_data=f"{CB_PAY}:cash:d"
+                ),
+                InlineKeyboardButton(
+                    texts.BTN_CARD_DELIVERY, callback_data=f"{CB_PAY}:card:d"
+                ),
+            ],
             [InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)],
         ]
     )
 
 
-def confirm_close_store() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton(texts.BTN_CONFIRM_CLOSE, callback_data=CB_CLOSE_STORE)],
-            [InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_DISMISS)],
-        ]
-    )
-
-
-def defect_reasons() -> InlineKeyboardMarkup:
-    """The four things that actually happen, plus room to type anything else.
-
-    Offered as buttons because a reason typed under pressure is usually blank,
-    and a write-off with no reason is a number the owner cannot act on.
-    """
-    rows = [
-        [InlineKeyboardButton(label, callback_data=f"{CB_REASON}:{key}")]
-        for key, label in texts.DEFECT_REASONS.items()
-    ]
-    rows.append([InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)])
-    return InlineKeyboardMarkup(rows)

@@ -69,7 +69,8 @@ def _summary(basket: list[dict]) -> str:
             price=format.money(line["unit_price"]),
             total=format.money(Decimal(line["unit_price"]) * line["quantity"]),
             method=texts.BTN_CASH if line["payment_method"] == "cash" else texts.BTN_CARD,
-            kind=_kind_suffix(line.get("price_kind")),
+            kind=_kind_suffix(line.get("price_kind"))
+                 + (texts.KIND_DELIVERY if line.get("is_delivery") else ""),
         )
         for index, line in enumerate(basket)
     ]
@@ -256,7 +257,10 @@ async def _ask_method(message, context) -> int:
 async def choose_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    method = query.data.split(":", 1)[1]
+    # "p:cash" or "p:cash:d" -- the marker rides along with the method rather
+    # than needing a toggle with a state of its own.
+    parts = query.data.split(":")
+    method, is_delivery = parts[1], len(parts) > 2 and parts[2] == "d"
     item = context.user_data.get("co_item")
     if item is None:  # pragma: no cover
         return ConversationHandler.END
@@ -274,6 +278,7 @@ async def choose_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 "unit_price": str(context.user_data["co_price"]),
             "price_kind": context.user_data.get("co_price_kind", "retail"),
             "payment_method": method,
+            "is_delivery": is_delivery,
         }
     )
     for key in ("co_item", "co_qty", "co_price", "co_price_kind", "co_candidates"):
@@ -318,7 +323,6 @@ async def drop_last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def submit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    close_store = query.data.endswith(":store")
     basket = _basket(context)
     key = context.user_data.get("co_key") or new_idempotency_key()
     context.user_data["co_key"] = key
@@ -335,11 +339,11 @@ async def submit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     "unit_price": line["unit_price"],
                     "price_kind": line.get("price_kind", "retail"),
                     "payment_method": line["payment_method"],
+                    "is_delivery": line.get("is_delivery", False),
                 }
                 for line in basket
             ],
             key,
-            close_store=close_store,
         )
     except Exception as exc:  # noqa: BLE001
         return await _fail(update, exc)

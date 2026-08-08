@@ -50,7 +50,11 @@ def _merge(lines: list[dict]) -> list[dict]:
 
 
 async def record_sale(
-    worker: Worker, lines: list[dict], payment_method: str, external_id: str
+    worker: Worker,
+    lines: list[dict],
+    payment_method: str,
+    external_id: str,
+    is_delivery: bool = False,
 ) -> dict:
     """Requirement 6: decrement stock and credit the till, atomically."""
     if not lines:
@@ -85,6 +89,7 @@ async def record_sale(
                 payment_method=payment_method,
                 total=total,
                 external_id=external_id,
+                is_delivery=is_delivery,
             )
             await sales_repo.insert_lines(conn, worker.owner_id, sale_id, applied)
             await money_repo.insert_movement(
@@ -250,6 +255,7 @@ async def apply_closeout_lines(conn, worker: Worker, shift, lines: list[dict]) -
             payment_method=method,
             total=line_total,
             external_id=external_id,
+            is_delivery=line.get("is_delivery", False),
         )
         await sales_repo.insert_lines(
             conn,
@@ -351,6 +357,7 @@ async def void_last_sale(
             "sale_id": sale["id"],
             "total": f"{Decimal(sale['total']):.2f}",
             "payment_method": sale["payment_method"],
+            "is_delivery": sale["is_delivery"],
             "sold_at": sale["sold_at"].isoformat(),
             "restored": [
                 {"item_id": line["item_id"], "quantity": line["quantity"]} for line in lines
@@ -366,7 +373,7 @@ async def _sale_payload(sale_id: int, *, duplicate: bool) -> dict:
     sale = await db.fetchrow(
         """
         SELECT sa.id, sa.store_id, sa.work_session_id, sa.store_session_id,
-               sa.payment_method, sa.total, sa.sold_at, sa.voided_at
+               sa.payment_method, sa.total, sa.sold_at, sa.voided_at, sa.is_delivery
           FROM sales sa WHERE sa.id = $1
         """,
         sale_id,
@@ -381,6 +388,7 @@ async def _sale_payload(sale_id: int, *, duplicate: bool) -> dict:
             "store_id": sale["store_id"],
             "session_id": sale["work_session_id"],
             "payment_method": sale["payment_method"],
+            "is_delivery": sale["is_delivery"],
             "total": f"{Decimal(sale['total']):.2f}",
             "sold_at": sale["sold_at"].isoformat(),
             "voided": sale["voided_at"] is not None,

@@ -276,6 +276,78 @@ async def test_the_price_and_its_kind_reach_the_server():
     assert sent["quantity"] == 2
 
 
+# -- delivery -----------------------------------------------------------------
+
+async def test_tapping_a_delivery_button_marks_the_sale_as_one():
+    """Same price, same method, one extra fact. It rides along with the payment
+    method because a toggle would need a state of its own for no gain."""
+    sent = {}
+
+    async def fake_sell(**kwargs):
+        sent.update(kwargs)
+        return _server_answer()
+
+    async def noop(*args, **kwargs):
+        return None
+
+    async def fake_reply(self, *args, **kwargs):
+        return None
+
+    context = _Context(sell_item={"id": 3, "name": "HQD Cuvie"}, sell_qty=1,
+                       sell_price=Decimal("3500.00"))
+
+    with (
+        mock.patch.object(sell.api, "sell", fake_sell),
+        mock.patch.object(CallbackQuery, "answer", noop),
+        mock.patch.object(CallbackQuery, "edit_message_reply_markup", noop),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await sell.choose_method(_tap("p:cash:d"), context)
+
+    assert sent["is_delivery"] is True
+    assert sent["payment_method"] == "cash", "the marker does not replace the method"
+    assert sent["unit_price"] == "3500.00", "and it does not change the money"
+
+
+async def test_an_ordinary_sale_is_not_a_delivery():
+    sent = {}
+
+    async def fake_sell(**kwargs):
+        sent.update(kwargs)
+        return _server_answer()
+
+    async def noop(*args, **kwargs):
+        return None
+
+    async def fake_reply(self, *args, **kwargs):
+        return None
+
+    context = _Context(sell_item={"id": 3, "name": "HQD Cuvie"}, sell_qty=1,
+                       sell_price=Decimal("3500.00"))
+
+    with (
+        mock.patch.object(sell.api, "sell", fake_sell),
+        mock.patch.object(CallbackQuery, "answer", noop),
+        mock.patch.object(CallbackQuery, "edit_message_reply_markup", noop),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await sell.choose_method(_tap("p:card"), context)
+
+    assert sent["is_delivery"] is False
+
+
+def test_every_way_of_paying_can_be_a_delivery():
+    """Cash at the door and card in advance are both deliveries, which is why it
+    is a marker on the sale rather than a third payment method."""
+    from app import keyboards
+
+    data = [b.callback_data for row in keyboards.payment_methods().inline_keyboard
+            for b in row]
+
+    assert "p:cash:d" in data
+    assert "p:card:d" in data
+
+
 async def test_one_sale_keeps_one_key_across_retries():
     """The idempotency key is minted once per sale, so a retry after a timeout
     resolves to the receipt already written instead of selling twice."""

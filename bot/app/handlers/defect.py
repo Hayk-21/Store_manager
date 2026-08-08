@@ -24,7 +24,12 @@ log = logging.getLogger("storemanager.bot.defect")
 
 # Its own range, so a stray update can never be read as belonging to the sell
 # flow or the write-up.
-PICK_ITEM, ASK_QUANTITY, ASK_REASON = range(30, 33)
+#
+# Two steps, not three. A reason was asked for and then dropped: at the counter
+# the answer to "what happened" is always some form of "it broke", so the step
+# cost a tap and bought nothing. What the owner needs is which item and how
+# many, and the report shows who wrote it off and when.
+PICK_ITEM, ASK_QUANTITY = range(30, 32)
 
 MAX_QUANTITY = 10_000
 
@@ -117,27 +122,10 @@ async def choose_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return ASK_QUANTITY
 
     context.user_data["def_qty"] = quantity
-    await update.effective_message.reply_text(
-        texts.DEFECT_ASK_REASON, reply_markup=keyboards.defect_reasons()
-    )
-    return ASK_REASON
+    return await _submit(update.effective_message, update.effective_user.id, context)
 
 
-async def choose_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """A tapped reason. Typing one works too — see ``type_reason``."""
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_reply_markup(reply_markup=None)
-    label = texts.DEFECT_REASONS.get(query.data.split(":", 1)[1], "")
-    return await _submit(query.message, update.effective_user.id, context, label)
-
-
-async def type_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    reason = (update.effective_message.text or "").strip()[:300]
-    return await _submit(update.effective_message, update.effective_user.id, context, reason)
-
-
-async def _submit(message, telegram_id: int, context, reason: str) -> int:
+async def _submit(message, telegram_id: int, context) -> int:
     item = context.user_data.get("def_item")
     quantity = context.user_data.get("def_qty")
     if item is None or quantity is None:  # pragma: no cover
@@ -151,7 +139,6 @@ async def _submit(message, telegram_id: int, context, reason: str) -> int:
             telegram_id=telegram_id,
             item_id=item["id"],
             quantity=quantity,
-            reason=reason or None,
             key=key,
         )
     except (ApiError, ApiUnavailable) as exc:

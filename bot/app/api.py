@@ -180,6 +180,7 @@ class Api:
         key: str,
         unit_price: str | None = None,
         price_kind: str = "retail",
+        is_delivery: bool = False,
     ) -> dict:
         line: dict[str, Any] = {"item_id": item_id, "quantity": quantity,
                                 "price_kind": price_kind}
@@ -194,22 +195,21 @@ class Api:
                 "telegram_id": telegram_id,
                 "items": [line],
                 "payment_method": payment_method,
+                "is_delivery": is_delivery,
                 "idempotency_key": key,
             },
         )
 
-    async def close_out(
-        self,
-        telegram_id: int,
-        lines: list[dict],
-        key: str,
-        close_store: bool = False,
-    ) -> dict:
+    async def close_out(self, telegram_id: int, lines: list[dict], key: str) -> dict:
         """End the shift and declare the day's sales in one call.
 
         One call rather than a sale per line then an end: the server applies the
         whole thing in a single transaction, so there is no state where the stock
         moved but the shift is still open.
+
+        It never asks for the shop to be closed. Closing it is not a decision a
+        cashier makes — the last one to leave closes it, which the server works
+        out for itself.
         """
         return await self._call(
             "POST",
@@ -218,7 +218,6 @@ class Api:
                 "telegram_id": telegram_id,
                 "lines": lines,
                 "idempotency_key": key,
-                "close_store": close_store,
             },
         )
 
@@ -236,6 +235,42 @@ class Api:
         if sale_id is not None:
             payload["sale_id"] = sale_id
         return await self._call("POST", "/sale/void", json=payload)
+
+    async def add_item(
+        self,
+        telegram_id: int,
+        name: str,
+        count: int,
+        self_price: str,
+        sell_price: str,
+    ) -> dict:
+        """Put a new product on the shelf of the store this shift belongs to."""
+        return await self._call(
+            "POST",
+            "/items",
+            json={
+                "telegram_id": telegram_id,
+                "name": name,
+                "count": count,
+                "self_price": self_price,
+                "sell_price": sell_price,
+            },
+        )
+
+    async def withdraw(
+        self, telegram_id: int, amount: str, purpose: str, key: str
+    ) -> dict:
+        """Cash out of the till. Amount as a decimal string, never a float."""
+        return await self._call(
+            "POST",
+            "/cash/withdraw",
+            json={
+                "telegram_id": telegram_id,
+                "amount": amount,
+                "purpose": purpose,
+                "idempotency_key": key,
+            },
+        )
 
     async def write_off(
         self,
@@ -264,11 +299,6 @@ class Api:
             payload["lat"], payload["lng"] = lat, lng
         return await self._call("POST", "/shift/end", json=payload)
 
-    async def close_store(self, telegram_id: int, key: str) -> dict:
-        return await self._call(
-            "POST", "/store/close",
-            json={"telegram_id": telegram_id, "idempotency_key": key},
-        )
 
 
 api = Api()

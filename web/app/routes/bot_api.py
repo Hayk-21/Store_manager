@@ -31,11 +31,14 @@ from app.schemas import (
     CloseStoreRequest,
     EndShiftRequest,
     LocationPingRequest,
+    NewItemRequest,
     OpenStoreRequest,
     SaleRequest,
     VoidRequest,
+    WithdrawRequest,
     WriteOffRequest,
 )
+from app.services import money as money_service
 from app.services import sales as sales_service
 from app.services import shifts as shifts_service
 from app.services import write_offs as write_offs_service
@@ -276,11 +279,17 @@ async def sale(body: SaleRequest) -> JSONResponse:
     result = await sales_service.record_sale(
         worker,
         [
-            {"item_id": line.item_id, "quantity": line.quantity, "unit_price": line.unit_price}
+            {
+                "item_id": line.item_id,
+                "quantity": line.quantity,
+                "unit_price": line.unit_price,
+                "price_kind": line.price_kind,
+            }
             for line in body.items
         ],
         body.payment_method,
         body.idempotency_key,
+        body.is_delivery,
     )
     return JSONResponse(result, status_code=201)
 
@@ -290,6 +299,60 @@ async def void_sale(body: VoidRequest) -> dict:
     """Undo the worker's own most recent receipt in this shift."""
     worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
     return await sales_service.void_last_sale(worker, body.reason, body.sale_id)
+
+
+@router.post("/items", status_code=201)
+async def add_item(body: NewItemRequest) -> dict:
+    """Put a new product on the shelf, from the counter.
+
+    The store comes from the open shift, like every other bot write: a cashier
+    cannot stock a shop they are not standing in.
+    """
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
+    shift = await sessions_repo.open_for_worker(worker.id)
+    if shift is None:
+        raise BotError("no_open_session")
+
+    item_id = await items_repo.create(
+        owner_id=worker.owner_id,
+        store_id=shift["store_id"],
+        name=body.name.strip(),
+        count=body.count,
+        self_price=body.self_price,
+        sell_price=body.sell_price,
+    )
+    if item_id is None:
+        # The name belongs to something already on the list. Saying so beats
+        # silently replacing a colleague's prices.
+        raise BotError(
+            "validation_error",
+            f"«{body.name.strip()}» արդեն կա այս խանութի ցուցակում։",
+        )
+
+    log.info("worker %s added item %s to store %s", worker.id, item_id, shift["store_id"])
+    item = await items_repo.get(worker.owner_id, item_id)
+    return {
+        "ok": True,
+        "item": {
+            "id": item["id"],
+            "name": item["name"],
+            "count": item["count"],
+            "sell_price": f"{Decimal(item['sell_price']):.2f}",
+        },
+    }
+
+
+@router.post("/cash/withdraw", status_code=201)
+async def withdraw(body: WithdrawRequest) -> dict:
+    """Money out of the till at the counter, with the reason written down.
+
+    It leaves whether or not the system knows, so the choice is between an
+    unexplained shortfall at close and a row saying where it went.
+    """
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
+    return await money_service.withdraw_by_worker(
+        worker, body.amount, body.purpose, body.idempotency_key
+    )
 
 
 @router.post("/write-off", status_code=201)
@@ -322,6 +385,7 @@ async def close_out(body: CloseoutRequest) -> dict:
                 "quantity": line.quantity,
                 "unit_price": line.unit_price,
                 "payment_method": line.payment_method,
+                "is_delivery": line.is_delivery,
             }
             for line in body.lines
         ],

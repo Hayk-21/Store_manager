@@ -52,12 +52,13 @@ async def insert_sale(
     payment_method: str,
     total: Decimal,
     external_id: str,
+    is_delivery: bool = False,
 ) -> int:
     return await conn.fetchval(
         """
         INSERT INTO sales (owner_id, store_id, worker_id, work_session_id, store_session_id,
-                           payment_method, total, external_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                           payment_method, total, external_id, is_delivery)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id
         """,
         owner_id,
@@ -68,6 +69,7 @@ async def insert_sale(
         payment_method,
         total,
         external_id,
+        is_delivery,
     )
 
 
@@ -98,7 +100,7 @@ async def insert_lines(conn, owner_id: int, sale_id: int, lines: list[dict]) -> 
 async def lock_last_voidable(
     conn, worker_id: int, work_session_id: int, sale_id: int | None = None
 ) -> asyncpg.Record | None:
-    """An un-voided receipt of this worker''s in *this* shift, locked.
+    """An un-voided receipt of this worker's in *this* shift, locked.
 
     The most recent one by default, which is what "undo that" means when a
     cashier realises straight away. ``sale_id`` names one instead: the undo
@@ -110,7 +112,8 @@ async def lock_last_voidable(
     """
     return await conn.fetchrow(
         """
-        SELECT id, owner_id, store_id, store_session_id, payment_method, total, sold_at
+        SELECT id, owner_id, store_id, store_session_id, payment_method, total,
+               sold_at, is_delivery
           FROM sales
          WHERE worker_id = $1 AND work_session_id = $2 AND voided_at IS NULL
            AND ($3::bigint IS NULL OR id = $3)
@@ -168,7 +171,7 @@ async def receipts_in_store_session(store_session_id: int) -> list[asyncpg.Recor
     return await db.fetch(
         f"""
         SELECT sa.id, sa.total, sa.payment_method, sa.sold_at, sa.voided_at,
-               sa.superseded_by_sale_id,
+               sa.superseded_by_sale_id, sa.is_delivery,
                {DISPLAY_NAME} AS worker_name,
                {VOIDED_BY_NAME} AS voided_by_name,
                (SELECT string_agg(i.name || ' ×' || si.quantity, ', ' ORDER BY si.id)

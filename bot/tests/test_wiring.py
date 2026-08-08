@@ -69,10 +69,10 @@ def test_every_button_can_escape_the_write_up():
     flow = _flow()
     own = {
         texts.BTN_CO_ADD, texts.BTN_CO_REMOVE, texts.BTN_CO_DONE,
-        texts.BTN_CO_ABANDON, texts.BTN_CO_SUBMIT, texts.BTN_CO_SUBMIT_CLOSE,
+        texts.BTN_CO_ABANDON, texts.BTN_CO_SUBMIT,
         texts.BTN_CANCEL, texts.BTN_CASH, texts.BTN_CARD,
-        texts.BTN_RETAIL, texts.BTN_WHOLESALE, texts.BTN_CONFIRM_CLOSE,
-        texts.BTN_END_SHIFT, texts.BTN_CLOSE_STORE,
+        texts.BTN_RETAIL, texts.BTN_WHOLESALE, texts.BTN_OTHER_PRICE,
+        texts.BTN_CASH_DELIVERY, texts.BTN_CARD_DELIVERY, texts.BTN_END_SHIFT,
     }
 
     for state, handlers in flow.states.items():
@@ -115,7 +115,7 @@ def test_starting_a_sale_and_then_ending_the_shift_does_not_strand_the_cashier()
     sale that no longer exists."""
     flow = _flow(texts.BTN_SELL)
 
-    for label in (texts.BTN_END_SHIFT, texts.BTN_CLOSE_STORE):
+    for label in (texts.BTN_END_SHIFT,):
         assert any(
             getattr(h, "filters", None) is not None and h.filters.check_update(_message(label))
             for h in flow.fallbacks
@@ -125,9 +125,10 @@ def test_starting_a_sale_and_then_ending_the_shift_does_not_strand_the_cashier()
 def test_neither_flow_eats_the_others_buttons_as_free_text():
     own = {
         texts.BTN_CO_ADD, texts.BTN_CO_REMOVE, texts.BTN_CO_DONE, texts.BTN_CO_ABANDON,
-        texts.BTN_CO_SUBMIT, texts.BTN_CO_SUBMIT_CLOSE, texts.BTN_CANCEL,
+        texts.BTN_CO_SUBMIT, texts.BTN_CANCEL,
         texts.BTN_CASH, texts.BTN_CARD, texts.BTN_RETAIL, texts.BTN_WHOLESALE,
-        texts.BTN_CONFIRM_CLOSE, texts.BTN_END_SHIFT, texts.BTN_CLOSE_STORE, texts.BTN_SELL,
+        texts.BTN_OTHER_PRICE, texts.BTN_CASH_DELIVERY, texts.BTN_CARD_DELIVERY,
+        texts.BTN_END_SHIFT, texts.BTN_SELL,
     }
 
     for entry in (texts.BTN_SELL, texts.BTN_END_SHIFT):
@@ -148,9 +149,42 @@ def test_pressing_end_shift_starts_the_write_up_rather_than_ending_anything():
     assert any(
         h.filters.check_update(_message(texts.BTN_END_SHIFT)) for h in flow.entry_points
     )
-    assert any(
-        h.filters.check_update(_message(texts.BTN_CLOSE_STORE)) for h in flow.entry_points
+
+
+def test_there_is_no_close_the_store_button():
+    """Closing the shop is not a thing a cashier decides.
+
+    The last one to end their shift closes it, which is the same outcome without
+    a button that can end a colleague's day. The write-up is the only way out.
+    """
+    labels = set(BUTTON_LABELS)
+
+    assert not any("Փակել" in label for label in labels), (
+        "a close-the-store button is back on the keyboard"
     )
+    assert texts.BTN_END_SHIFT in labels
+
+
+def test_writing_off_asks_only_which_item_and_how_many():
+    """A reason used to be asked for and was dropped. At the counter the answer
+    to "what happened" is always some form of "it broke", so the step cost a tap
+    and bought nothing the report could act on."""
+    from app.handlers import defect
+
+    flow = _flow(texts.BTN_DEFECT)
+
+    assert set(flow.states) == {defect.PICK_ITEM, defect.ASK_QUANTITY}
+    assert not hasattr(defect, "ASK_REASON")
+    assert not hasattr(keyboards, "defect_reasons")
+
+
+def test_taking_cash_and_adding_a_product_are_both_on_the_keyboard():
+    """Both are things that happen mid-shift with a customer waiting, so both
+    have to be one tap from the main keyboard rather than buried."""
+    labels = {b.text for row in keyboards.on_shift().keyboard for b in row}
+
+    assert texts.BTN_TAKE_CASH in labels
+    assert texts.BTN_ADD_ITEM in labels
 
 
 def test_the_location_label_has_its_own_handler():

@@ -27,7 +27,7 @@ and ends when the store is closed.
 worker presses «Բացել»  ──►  store session opens  ──►  sales and salaries accumulate
                                 (till starts at 0)
                                         │
-                        «Փակել», or the last worker leaves
+                        the last worker ends their shift
                                         ▼
                         till is settled, cash/card snapshotted,
                         the store's visible total returns to 0
@@ -40,6 +40,12 @@ session stays readable at `/reports`.
 
 Several workers can share one store session. The first to arrive opens it; the
 others join. Each gets their own shift row and their own salary.
+
+Closing the shop is not a button a cashier has. «Ավարտել իմ հերթափոխը» opens the
+«Հերթափոխի ամփոփում» — the write-up of what they sold — and ends their own shift
+and nobody else's. The session closes on its own once the last of them has left,
+so no cashier can end a colleague's day by mistake. The owner can still force one
+closed from `/reports`.
 
 `Asia/Yerevan` is used for *displaying* times and for grouping report rows. It
 never decides which bucket money lands in.
@@ -253,10 +259,14 @@ services cannot drift apart on what a failure means.
 | POST | `/checkin` | read-only geofence probe; 200 even when out of range |
 | POST | `/store/open` | geofence, open-or-join the session, start the shift → 201 |
 | GET | `/items?telegram_id=&q=` | stock of the store of the open shift |
-| POST | `/sale` | the atomic sale → 201 |
+| POST | `/items` | put a new product on the shelf of that store → 201 |
+| POST | `/sale` | the atomic sale → 201. `is_delivery` marks it as delivered |
 | POST | `/sale/void` | undo the worker's last receipt in this shift |
+| POST | `/write-off` | stock that broke or expired, off the shelf without a sale → 201 |
+| POST | `/cash/withdraw` | cash out of the till, with the reason → 201 |
+| POST | `/shift/close-out` | declare the day's sales and end the shift, in one transaction |
 | POST | `/shift/end` | end the shift, pay the salary, close the store if last out |
-| POST | `/store/close` | close the store for everyone |
+| POST | `/store/close` | close the store for everyone. Owner-side only — the bot never calls it |
 
 Error codes: `unauthorized` · `unknown_worker` · `worker_inactive` ·
 `no_store_in_range` · `no_stores_located` · `location_too_vague` ·

@@ -112,6 +112,9 @@ class SaleLine(BaseModel):
 class SaleRequest(IdempotentRequest):
     items: list[SaleLine] = Field(min_length=1, max_length=50)
     payment_method: str
+    # Orthogonal to the payment method: a delivery can be paid in cash at the
+    # door or by card in advance. Changes no money, only what the owner can see.
+    is_delivery: bool = False
 
     @field_validator("payment_method")
     @classmethod
@@ -127,6 +130,41 @@ class VoidRequest(BotRequest):
     # is what "undo that" means at the counter; the undo button under a
     # confirmation names its own sale so it cannot reverse a later one.
     sale_id: int | None = Field(default=None, gt=0)
+
+
+class NewItemRequest(BotRequest):
+    """A product the cashier is putting on the shelf.
+
+    Both prices are asked for rather than defaulted: an item with no cost price
+    reports its entire selling price as profit, which is worse than not having
+    the item at all.
+    """
+
+    name: str = Field(min_length=1, max_length=200)
+    count: int = Field(ge=0, le=1_000_000)
+    self_price: Decimal = Field(ge=0)
+    sell_price: Decimal = Field(ge=0)
+
+    @field_validator("self_price", "sell_price", mode="before")
+    @classmethod
+    def _string_money(cls, value):
+        if isinstance(value, float):
+            raise ValueError("send money as a decimal string, not a float")
+        return value
+
+
+class WithdrawRequest(IdempotentRequest):
+    """A cashier taking cash out of the till, with the reason they took it."""
+
+    amount: Decimal = Field(gt=0)
+    purpose: str = Field(min_length=1, max_length=300)
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _string_money(cls, value):
+        if isinstance(value, float):
+            raise ValueError("send money as a decimal string, not a float")
+        return value
 
 
 class WriteOffRequest(IdempotentRequest):
@@ -154,6 +192,8 @@ class CloseoutLine(BaseModel):
     # this records the *reason* — without it a wholesale run and a haggled
     # discount are the same row with a smaller number.
     price_kind: str = "retail"
+    # Delivered rather than handed over the counter. Changes no money.
+    is_delivery: bool = False
 
     @field_validator("unit_price", mode="before")
     @classmethod
