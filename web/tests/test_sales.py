@@ -298,6 +298,62 @@ async def test_voiding_walks_backwards_one_receipt_at_a_time(client):
     assert caught.value.code == "nothing_to_void"
 
 
+async def test_a_named_sale_is_the_one_reversed(client):
+    """The undo button under a confirmation carries its own sale id. Tapped
+    three sales later it must still reverse the receipt it belongs to, not
+    whatever happens to be most recent by then."""
+    _, _, worker, item_id, _ = await _open_shift()
+    first = await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "cash", "idem-key-aaaa-1"
+    )
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 3}], "cash", "idem-key-bbbb-2"
+    )
+
+    result = await sales_service.void_last_sale(worker, sale_id=first["sale"]["id"])
+
+    assert result["voided"]["sale_id"] == first["sale"]["id"]
+    assert result["voided"]["total"] == "3500.00", "the older, named one"
+    assert await _count(item_id) == 7, "only its unit came back"
+    assert await db.fetchval(
+        "SELECT count(*) FROM sales WHERE voided_at IS NULL"
+    ) == 1, "the later sale stands"
+
+
+async def test_naming_an_already_voided_sale_is_refused(client):
+    """Tapping undo twice must not reverse something else instead."""
+    _, _, worker, item_id, _ = await _open_shift()
+    sale = await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "cash", SALE_KEY
+    )
+    await sales_service.void_last_sale(worker, sale_id=sale["sale"]["id"])
+
+    with pytest.raises(BotError) as caught:
+        await sales_service.void_last_sale(worker, sale_id=sale["sale"]["id"])
+
+    assert caught.value.code == "nothing_to_void"
+
+
+async def test_another_workers_sale_cannot_be_named(client):
+    """The lookup is scoped to the caller's own open shift, so an id from
+    somebody else's till resolves to nothing."""
+    owner_id, store_id, worker, item_id, _ = await _open_shift()
+    sale = await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "cash", SALE_KEY
+    )
+    other_id, _ = await make_worker(owner_id, "Գոռ", salary_amount="0.00")
+    other = shifts_service.Worker(
+        id=other_id, owner_id=owner_id, name="Գոռ", salary_amount=Decimal("0.00")
+    )
+    await shifts_service.open_store(other, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-open-2", 900)
+
+    with pytest.raises(BotError) as caught:
+        await sales_service.void_last_sale(other, sale_id=sale["sale"]["id"])
+
+    assert caught.value.code == "nothing_to_void"
+    assert await db.fetchval("SELECT voided_at FROM sales") is None
+
+
 async def test_a_sale_from_an_earlier_shift_cannot_be_reached(client):
     """Undo is for your own slip just now, not for editing history."""
     _, _, worker, item_id, _ = await _open_shift()

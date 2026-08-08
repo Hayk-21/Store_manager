@@ -27,6 +27,10 @@ CB_SUBMIT = "s"
 # handles it and the conversation actually ends when it fires.
 CB_CANCEL = "x"
 CB_CLOSE_STORE = "c"
+# Undoing one specific sale, so a button tapped three sales later still reverses
+# the receipt it was attached to rather than whatever happens to be last.
+CB_UNDO = "u"
+CB_REASON = "r"
 # Dismissing the close-store confirmation, which happens outside any conversation.
 CB_DISMISS = "d"
 
@@ -46,7 +50,8 @@ def on_shift() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(texts.BTN_SELL)],
-            [KeyboardButton(texts.BTN_STOCK), KeyboardButton(texts.BTN_STATUS)],
+            [KeyboardButton(texts.BTN_STOCK), KeyboardButton(texts.BTN_DEFECT)],
+            [KeyboardButton(texts.BTN_STATUS)],
             [KeyboardButton(texts.BTN_END_SHIFT), KeyboardButton(texts.BTN_CLOSE_STORE)],
         ],
         resize_keyboard=True,
@@ -111,6 +116,10 @@ def suggested_prices(item: dict) -> InlineKeyboardMarkup:
             f"{texts.BTN_WHOLESALE} — {Decimal(item['wholesale_price']):,.0f} ֏",
             callback_data=f"{CB_KIND}:wholesale",
         )])
+    # Typing a price always worked, but only the prose said so, and a cashier
+    # looking at two buttons does not read the prose. Now it is a button that
+    # asks for the number.
+    rows.append([InlineKeyboardButton(texts.BTN_OTHER_PRICE, callback_data=f"{CB_KIND}:other")])
     rows.append([InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)])
     return InlineKeyboardMarkup(rows)
 
@@ -131,7 +140,7 @@ def closeout_confirm() -> InlineKeyboardMarkup:
 
     Both are offered because the last person out wants one tap, not two. The
     server refuses the second when colleagues are still on shift, so the button
-    cannot end somebody else''s day before they have written up their sales.
+    cannot end somebody else's day before they have written up their sales.
     """
     return InlineKeyboardMarkup(
         [
@@ -164,6 +173,13 @@ def price_kinds(retail: Decimal, wholesale: Decimal) -> InlineKeyboardMarkup:
     )
 
 
+def undo_sale(sale_id: int) -> InlineKeyboardMarkup:
+    """One tap to reverse the sale just recorded."""
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(texts.BTN_UNDO_SALE, callback_data=f"{CB_UNDO}:{sale_id}")]]
+    )
+
+
 def payment_methods() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
@@ -183,3 +199,17 @@ def confirm_close_store() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_DISMISS)],
         ]
     )
+
+
+def defect_reasons() -> InlineKeyboardMarkup:
+    """The four things that actually happen, plus room to type anything else.
+
+    Offered as buttons because a reason typed under pressure is usually blank,
+    and a write-off with no reason is a number the owner cannot act on.
+    """
+    rows = [
+        [InlineKeyboardButton(label, callback_data=f"{CB_REASON}:{key}")]
+        for key, label in texts.DEFECT_REASONS.items()
+    ]
+    rows.append([InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)])
+    return InlineKeyboardMarkup(rows)

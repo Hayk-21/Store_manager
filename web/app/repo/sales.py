@@ -95,10 +95,17 @@ async def insert_lines(conn, owner_id: int, sale_id: int, lines: list[dict]) -> 
     )
 
 
-async def lock_last_voidable(conn, worker_id: int, work_session_id: int) -> asyncpg.Record | None:
-    """The worker's most recent un-voided receipt in *this* shift, locked.
+async def lock_last_voidable(
+    conn, worker_id: int, work_session_id: int, sale_id: int | None = None
+) -> asyncpg.Record | None:
+    """An un-voided receipt of this worker''s in *this* shift, locked.
 
-    Scoped to the current shift on purpose: a worker undoing their own slip is
+    The most recent one by default, which is what "undo that" means when a
+    cashier realises straight away. ``sale_id`` names one instead: the undo
+    button under a confirmation has to reverse *that* sale, not whatever
+    happened to be last by the time it was tapped.
+
+    Scoped to the current shift either way: a worker undoing their own slip is
     convenient, a worker reaching back into yesterday is not.
     """
     return await conn.fetchrow(
@@ -106,12 +113,14 @@ async def lock_last_voidable(conn, worker_id: int, work_session_id: int) -> asyn
         SELECT id, owner_id, store_id, store_session_id, payment_method, total, sold_at
           FROM sales
          WHERE worker_id = $1 AND work_session_id = $2 AND voided_at IS NULL
+           AND ($3::bigint IS NULL OR id = $3)
          ORDER BY sold_at DESC, id DESC
          LIMIT 1
            FOR UPDATE
         """,
         worker_id,
         work_session_id,
+        sale_id,
     )
 
 

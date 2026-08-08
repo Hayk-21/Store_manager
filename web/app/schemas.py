@@ -123,6 +123,18 @@ class SaleRequest(IdempotentRequest):
 
 class VoidRequest(BotRequest):
     reason: str | None = Field(default=None, max_length=300)
+    # Which receipt to reverse. Absent means the worker's most recent one, which
+    # is what "undo that" means at the counter; the undo button under a
+    # confirmation names its own sale so it cannot reverse a later one.
+    sale_id: int | None = Field(default=None, gt=0)
+
+
+class WriteOffRequest(IdempotentRequest):
+    """Stock that left without being sold: broken, expired, lost."""
+
+    item_id: int = Field(gt=0)
+    quantity: int = Field(gt=0, le=10_000)
+    reason: str | None = Field(default=None, max_length=300)
 
 
 class CloseoutLine(BaseModel):

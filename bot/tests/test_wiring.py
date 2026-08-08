@@ -308,8 +308,23 @@ def test_the_price_keyboard_offers_wholesale_only_when_there_is_one():
     )
     without = keyboards.suggested_prices({"sell_price": "4000.00", "wholesale_price": None})
 
-    assert len(with_wholesale.inline_keyboard) == 3
-    assert len(without.inline_keyboard) == 2
+    def labels(markup):
+        return [b.text for row in markup.inline_keyboard for b in row]
+
+    assert any(texts.BTN_WHOLESALE in label for label in labels(with_wholesale))
+    assert not any(texts.BTN_WHOLESALE in label for label in labels(without))
+    # Retail, «other price» and cancel are always there; wholesale is the only
+    # row that comes and goes.
+    assert len(with_wholesale.inline_keyboard) == len(without.inline_keyboard) + 1
+
+
+def test_a_price_can_always_be_typed_instead():
+    """It was always possible and only the prose said so, which is not the same
+    as being offered."""
+    markup = keyboards.suggested_prices({"sell_price": "4000.00", "wholesale_price": None})
+
+    labels = [b.text for row in markup.inline_keyboard for b in row]
+    assert texts.BTN_OTHER_PRICE in labels
 
 
 def test_money_renders_the_way_the_website_does():

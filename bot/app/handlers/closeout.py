@@ -202,6 +202,11 @@ async def choose_suggested_price(update: Update, context: ContextTypes.DEFAULT_T
     if item is None:  # pragma: no cover
         return ConversationHandler.END
 
+    if kind == "other":
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(texts.ASK_OTHER_PRICE)
+        return ASK_PRICE
+
     price = item.get("wholesale_price") if kind == "wholesale" else item.get("sell_price")
     if price is None:  # pragma: no cover - the button is only offered when set
         price = item["sell_price"]

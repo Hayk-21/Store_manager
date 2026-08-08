@@ -23,6 +23,7 @@ from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
 from app.repo import stores as stores_repo
 from app.repo import workers as workers_repo
+from app.repo import write_offs as write_offs_repo
 from app.schemas import PRICE_KINDS
 from app.services import corrections, statistics
 from app.services import money as money_service
@@ -580,6 +581,7 @@ async def reports_page(
             # dict.items and silently renders nothing.
             "stock": await items_repo.list_for_store(user.id, session["store_id"]),
             "history": await audit_repo.for_session(user.id, store_session_id),
+            "write_offs": await write_offs_repo.for_session(store_session_id),
         }
     return render(
         request,

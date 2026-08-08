@@ -1,4 +1,4 @@
-"""The numbers behind the statistics page, and the shapes the charts draw.
+﻿"""The numbers behind the statistics page, and the shapes the charts draw.
 
 Two jobs kept together because they answer one question: what did the business
 earn, and what did that cost. Gross profit comes from the sale lines; net profit
@@ -18,6 +18,7 @@ from app.config import settings
 from app.repo import expenses as expenses_repo
 from app.repo import stats as stats_repo
 from app.repo import stores as stores_repo
+from app.repo import write_offs as write_offs_repo
 
 ZERO = Decimal("0.00")
 
@@ -115,6 +116,10 @@ async def overview(
     # Expenses are business-wide by nature (rent, advertising), so they are not
     # narrowed by the store filter — attributing them per shop would be a guess.
     spending = Decimal(await expenses_repo.total_between(owner_id, since, until))
+    # Breakage is money the shop spent and did not get back. It never touched the
+    # till, which is exactly why it would go missing from every figure unless it
+    # is added here.
+    breakage = Decimal(await write_offs_repo.cost_between(owner_id, since, until, store_id))
 
     gross = Decimal(summary["profit"])
     days = (until - since).days + 1
@@ -137,7 +142,8 @@ async def overview(
         "salaries": salaries,
         "spending": spending,
         "gross_profit": gross,
-        "net_profit": gross - salaries - spending,
+        "breakage": breakage,
+        "net_profit": gross - salaries - spending - breakage,
         "average_receipt": (
             Decimal(summary["revenue"]) / summary["receipts"]
             if summary["receipts"] else ZERO

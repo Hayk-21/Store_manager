@@ -284,6 +284,36 @@
     </form>
   </details>
 
+  {% if d.write_offs %}
+  {# Stock that left without a sale. Kept apart from the receipts on purpose:
+     nothing was earned, so it belongs nowhere near the revenue figures. #}
+  <h3>Խոտան</h3>
+  <div class="table-wrap">
+    <table class="cards">
+      <thead>
+        <tr><th>Ժամ</th><th>Ապրանք</th><th class="num">Քանակ</th>
+            <th>Պատճառ</th><th>Աշխատող</th><th class="num">Կորուստ</th></tr>
+      </thead>
+      <tbody>
+        {% for w in d.write_offs %}
+        <tr>
+          <td class="nowrap" data-label="Ժամ">{{ w.created_at | clock }}</td>
+          <td class="cell-name" data-label="Ապրանք">{{ w.name }}</td>
+          <td class="num" data-label="Քանակ">{{ w.quantity }}</td>
+          <td data-label="Պատճառ">{{ w.reason or '—' }}</td>
+          <td data-label="Աշխատող">{{ w.worker_name or '—' }}</td>
+          <td class="num negative" data-label="Կորուստ">{{ w.total_cost | money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small">
+    Կորուստը հաշվվում է ինքնարժեքով՝ այն, ինչ վճարել ենք ապրանքի համար։
+    Դրամարկղին չի ազդում՝ փողը դուրս է եկել գնելու պահին։
+  </p>
+  {% endif %}
+
   <h3>Դրամարկղի շարժ</h3>
   <div class="table-wrap">
     <table class="cards">

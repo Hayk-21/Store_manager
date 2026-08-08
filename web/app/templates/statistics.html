@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}Վիճակագրություն · Store Manager{% endblock %}
 
 {% block content %}
@@ -59,9 +59,10 @@
   </div>
   <div class="card stat">
     <span class="total-label">Ծախսեր</span>
-    <span class="total-value negative">{{ (salaries + spending) | money }}</span>
+    <span class="total-value negative">{{ (salaries + spending + breakage) | money }}</span>
     <span class="muted small">
-      աշխատավարձ {{ salaries | money }} · այլ {{ spending | money }}</span>
+      աշխատավարձ {{ salaries | money }} · այլ {{ spending | money }}{% if breakage %} ·
+      խոտան {{ breakage | money }}{% endif %}</span>
   </div>
   <div class="card stat">
     <span class="total-label">Զուտ շահույթ</span>

@@ -159,6 +159,12 @@ async def choose_suggested_price(update: Update, context: ContextTypes.DEFAULT_T
     if item is None:  # pragma: no cover
         return ConversationHandler.END
 
+    if kind == "other":
+        # Stay on this step and wait for a number. Nothing is decided yet.
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(texts.ASK_OTHER_PRICE)
+        return ASK_PRICE
+
     price = item.get("wholesale_price") if kind == "wholesale" else item.get("sell_price")
     if price is None:  # pragma: no cover - the button is only offered when set
         price = item["sell_price"]
@@ -231,11 +237,54 @@ async def choose_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     # failure: telling a cashier their sale did not go through when it did is
     # how the same sale gets entered twice.
     _clear(context)
+    sale_id = (result.get("sale") or {}).get("id")
     await query.message.reply_text(
         _confirmation(result, method), parse_mode=ParseMode.HTML,
         reply_markup=keyboards.on_shift(),
     )
+    # The undo sits on the confirmation itself, naming this sale. A cashier who
+    # realises immediately should not have to find a menu, and naming the sale
+    # means a later one cannot be reversed by mistake.
+    if sale_id is not None:
+        await query.message.reply_text(
+            texts.UNDO_HINT, reply_markup=keyboards.undo_sale(sale_id)
+        )
     return ConversationHandler.END
+
+
+async def undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Reverse the sale this button belongs to.
+
+    Registered outside the conversation: the sale is finished, so this is not
+    part of entering one. The button carries its own sale id, so tapping it ten
+    minutes and three sales later still reverses the right receipt.
+    """
+    query = update.callback_query
+    await query.answer()
+    sale_id = int(query.data.split(":", 1)[1])
+    try:
+        result = await api.void_last(
+            update.effective_user.id, reason="սխալ գրանցում", sale_id=sale_id
+        )
+    except (ApiError, ApiUnavailable) as exc:
+        await query.message.reply_text(exc.human())
+        return
+    except Exception:  # noqa: BLE001
+        log.exception("could not undo sale %s", sale_id)
+        await query.message.reply_text(texts.UNEXPECTED)
+        return
+
+    await query.edit_message_reply_markup(reply_markup=None)
+    voided, totals = result["voided"], result["store_totals"]
+    await query.message.reply_text(
+        texts.VOID_DONE.format(
+            total=format.money(voided["total"]),
+            cash=format.money(totals["cash"]),
+            card=format.money(totals["card"]),
+        ),
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboards.on_shift(),
+    )
 
 
 def _confirmation(result: dict, method: str) -> str:

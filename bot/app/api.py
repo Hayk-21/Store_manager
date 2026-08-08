@@ -222,11 +222,39 @@ class Api:
             },
         )
 
-    async def void_last(self, telegram_id: int, reason: str | None = None) -> dict:
+    async def void_last(
+        self, telegram_id: int, reason: str | None = None, sale_id: int | None = None
+    ) -> dict:
+        """Reverse a receipt. Without ``sale_id`` it is the most recent one.
+
+        The undo button under a confirmation names its own sale, so tapping it
+        three sales later still reverses the right one.
+        """
         payload: dict[str, Any] = {"telegram_id": telegram_id}
         if reason:
             payload["reason"] = reason
+        if sale_id is not None:
+            payload["sale_id"] = sale_id
         return await self._call("POST", "/sale/void", json=payload)
+
+    async def write_off(
+        self,
+        telegram_id: int,
+        item_id: int,
+        quantity: int,
+        key: str,
+        reason: str | None = None,
+    ) -> dict:
+        """Damaged or expired stock, off the shelf without a sale."""
+        payload: dict[str, Any] = {
+            "telegram_id": telegram_id,
+            "item_id": item_id,
+            "quantity": quantity,
+            "idempotency_key": key,
+        }
+        if reason:
+            payload["reason"] = reason
+        return await self._call("POST", "/write-off", json=payload)
 
     async def end_shift(
         self, telegram_id: int, key: str, lat: float | None = None, lng: float | None = None

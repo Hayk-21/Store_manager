@@ -34,9 +34,11 @@ from app.schemas import (
     OpenStoreRequest,
     SaleRequest,
     VoidRequest,
+    WriteOffRequest,
 )
 from app.services import sales as sales_service
 from app.services import shifts as shifts_service
+from app.services import write_offs as write_offs_service
 from app.services.geofence import match_store
 
 log = logging.getLogger("storemanager.bot_api")
@@ -287,7 +289,21 @@ async def sale(body: SaleRequest) -> JSONResponse:
 async def void_sale(body: VoidRequest) -> dict:
     """Undo the worker's own most recent receipt in this shift."""
     worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
-    return await sales_service.void_last_sale(worker, body.reason)
+    return await sales_service.void_last_sale(worker, body.reason, body.sale_id)
+
+
+@router.post("/write-off", status_code=201)
+async def write_off(body: WriteOffRequest) -> dict:
+    """Damaged or expired stock, taken off the shelf.
+
+    Deliberately not a sale of zero: that would land in the revenue figures, the
+    receipt count and the worker''s bonus progress, and the last of those would
+    pay somebody for breaking things.
+    """
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
+    return await write_offs_service.record(
+        worker, body.item_id, body.quantity, body.reason, body.idempotency_key
+    )
 
 
 @router.post("/shift/close-out")

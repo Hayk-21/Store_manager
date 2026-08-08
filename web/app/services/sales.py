@@ -302,7 +302,9 @@ async def apply_closeout_lines(conn, worker: Worker, shift, lines: list[dict]) -
     }
 
 
-async def void_last_sale(worker: Worker, reason: str | None = None) -> dict:
+async def void_last_sale(
+    worker: Worker, reason: str | None = None, sale_id: int | None = None
+) -> dict:
     """Let a worker undo their own most recent receipt in this shift.
 
     Never deletes anything: the receipt keeps its row with ``voided_at`` set and
@@ -314,7 +316,7 @@ async def void_last_sale(worker: Worker, reason: str | None = None) -> dict:
         if shift is None:
             raise BotError("no_open_session")
 
-        sale = await sales_repo.lock_last_voidable(conn, worker.id, shift["id"])
+        sale = await sales_repo.lock_last_voidable(conn, worker.id, shift["id"], sale_id)
         if sale is None:
             raise BotError("nothing_to_void")
 

@@ -24,7 +24,7 @@ from telegram.ext import (
 from app import keyboards, texts
 from app.api import api
 from app.config import settings
-from app.handlers import closeout, common, sell, shift, stock
+from app.handlers import closeout, common, defect, sell, shift, stock
 
 log = logging.getLogger("storemanager.bot")
 
@@ -108,6 +108,7 @@ def build() -> Application:
             CommandHandler("cancel", closeout.cancel),
             CommandHandler("start", closeout.escape(shift.start)),
             MessageHandler(_exact(texts.BTN_SELL), closeout.escape(sell.begin)),
+            MessageHandler(_exact(texts.BTN_DEFECT), closeout.escape(defect.begin)),
             MessageHandler(_exact(texts.BTN_STOCK), closeout.escape(stock.show)),
             MessageHandler(_exact(texts.BTN_STATUS), closeout.escape(shift.status)),
             MessageHandler(_exact(texts.BTN_OPEN), closeout.escape(shift.ask_location)),
@@ -154,11 +155,12 @@ def build() -> Application:
             CallbackQueryHandler(sell.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
             CommandHandler("cancel", sell.cancel),
             CommandHandler("start", sell.escape(shift.start)),
-# Ending the shift mid-sale: drop the sale rather than leave this
-            # conversation holding a state that would swallow the write-up''s
+            # Ending the shift mid-sale: drop the sale rather than leave this
+            # conversation holding a state that would swallow the write-up's
             # next answer.
             MessageHandler(_exact(texts.BTN_END_SHIFT), sell.interrupted),
             MessageHandler(_exact(texts.BTN_CLOSE_STORE), sell.interrupted),
+            MessageHandler(_exact(texts.BTN_DEFECT), sell.escape(defect.begin)),
             MessageHandler(_exact(texts.BTN_STOCK), sell.escape(stock.show)),
             MessageHandler(_exact(texts.BTN_STATUS), sell.escape(shift.status)),
             MessageHandler(_exact(texts.BTN_OPEN), sell.escape(shift.ask_location)),
@@ -170,10 +172,49 @@ def build() -> Application:
         per_message=False,
     )
 
+    # Writing off breakage. Its own flow rather than a sale of zero: a damaged
+    # vape in the revenue figures would also count towards a worker's bonus,
+    # which would pay somebody for breaking things.
+    defect_flow = ConversationHandler(
+        entry_points=[MessageHandler(_exact(texts.BTN_DEFECT), defect.begin)],
+        states={
+            defect.PICK_ITEM: [
+                CallbackQueryHandler(defect.choose_item, pattern=f"^{keyboards.CB_ITEM}:"),
+                MessageHandler(_free_text, defect.search),
+            ],
+            defect.ASK_QUANTITY: [MessageHandler(_free_text, defect.choose_quantity)],
+            defect.ASK_REASON: [
+                CallbackQueryHandler(defect.choose_reason, pattern=f"^{keyboards.CB_REASON}:"),
+                MessageHandler(_free_text, defect.type_reason),
+            ],
+        },
+        fallbacks=[
+            MessageHandler(_exact(texts.BTN_CANCEL), defect.cancel),
+            CallbackQueryHandler(defect.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
+            CommandHandler("cancel", defect.cancel),
+            CommandHandler("start", defect.escape(shift.start)),
+            MessageHandler(_exact(texts.BTN_SELL), defect.escape(sell.begin)),
+            MessageHandler(_exact(texts.BTN_STOCK), defect.escape(stock.show)),
+            MessageHandler(_exact(texts.BTN_STATUS), defect.escape(shift.status)),
+            MessageHandler(_exact(texts.BTN_END_SHIFT), defect.cancel),
+            MessageHandler(_exact(texts.BTN_CLOSE_STORE), defect.cancel),
+        ],
+        conversation_timeout=600,
+        per_message=False,
+    )
+
     application.add_handler(CommandHandler("start", shift.start))
     application.add_handler(CommandHandler("help", common.help_command))
     application.add_handler(sell_flow)
+    application.add_handler(defect_flow)
     application.add_handler(closeout_flow)
+
+    # Undoing a sale is not part of entering one: the receipt is finished, and
+    # the button may be tapped long after the flow ended.
+    application.add_handler(
+        CallbackQueryHandler(sell.undo, pattern=f"^{keyboards.CB_UNDO}:")
+    )
+    application.add_handler(MessageHandler(_exact(texts.BTN_DEFECT), defect.begin))
 
     application.add_handler(MessageHandler(_exact(texts.BTN_OPEN), shift.ask_location))
     application.add_handler(MessageHandler(_shared_location, shift.handle_location))
@@ -206,7 +247,13 @@ def main() -> None:
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    # httpx logs every request at INFO, and the URL carries the bot token.
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    # APScheduler narrates the conversation-timeout job it arms and disarms on
+    # every single message. Two lines per tap drowns the log: a real traceback
+    # sits between hundreds of "Added job"/"Removed job" pairs, which is exactly
+    # how a crash in the sell flow went unnoticed until a person reported it.
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
     log.info("starting bot against %s", settings.api_base_url)
     build().run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
