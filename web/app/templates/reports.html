@@ -178,12 +178,19 @@
             {% endif %}
             {% if not r.voided_at %}
               <form method="post" action="/sales/{{ r.id }}/void" class="inline"
-                    onsubmit="return confirm('Չեղարկե՞լ այս վաճառքը։ Ապրանքը կվերադառնա պահեստ։');">
+                    onsubmit="return confirm('Չեղարկե՞լ այս վաճառքը։ Ապրանքը կվերադառնա պահեստ, տողը կմնա՝ գծված։');">
                 <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
                 <input type="hidden" name="reason" value="ուղղում ղեկավարի կողմից">
-                <button type="submit" class="danger tiny">Չեղարկել</button>
+                <button type="submit" class="secondary tiny">Չեղարկել</button>
               </form>
             {% endif %}
+            {# Void keeps the receipt and shows it was taken back; this removes
+               it. Both are undoable from the history page. #}
+            <form method="post" action="/sales/{{ r.id }}/delete" class="inline"
+                  onsubmit="return confirm('Ջնջե՞լ այս վաճառքն ամբողջությամբ։ Այն կվերանա հաշվետվությունից։');">
+              <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+              <button type="submit" class="danger tiny" title="Ջնջել">✕</button>
+            </form>
           </td>
         </tr>
         {% if r.voided_at %}
@@ -293,14 +300,20 @@
           <td class="num {% if m.amount < 0 %}negative{% endif %}"
               data-label="Գումար">{{ m.amount | money }}</td>
           <td class="num cell-actions" data-label="">
-            {# Only what the owner typed can be removed. A sale or salary row is
-               the record of something that happened; correct the sale instead. #}
-            {% if m.created_by == 'owner' and m.kind in ('withdrawal', 'deposit', 'adjustment') %}
+            {# A sale or salary row is one half of something else — a receipt or
+               a shift — and removing it alone would leave the two disagreeing.
+               Those are removed by deleting the receipt or zeroing the wage,
+               which the server says when asked. #}
+            {% if m.kind in ('withdrawal', 'deposit', 'adjustment') %}
               <form method="post" action="/movements/{{ m.id }}/delete" class="inline"
                     onsubmit="return confirm('Ջնջե՞լ այս գրառումը։');">
                 <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
-                <button type="submit" class="danger tiny">✕</button>
+                <button type="submit" class="danger tiny" title="Ջնջել">✕</button>
               </form>
+            {% elif m.kind in ('sale', 'void') %}
+              <span class="muted small nowrap">→ Չեկեր</span>
+            {% elif m.kind == 'salary' %}
+              <span class="muted small nowrap">→ Հերթափոխեր</span>
             {% endif %}
           </td>
         </tr>

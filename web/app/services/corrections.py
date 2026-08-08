@@ -47,6 +47,7 @@ ACTION_LABELS = {
     "add_sale": "Ավելացված վաճառք",
     "add_movement": "Դրամարկղի գրառում",
     "delete_movement": "Գրառման ջնջում",
+    "delete_sale": "Վաճառքի ջնջում",
     "set_salary": "Աշխատավարձի փոփոխում",
 }
 
@@ -202,6 +203,100 @@ async def void_sale(
             payload={"sale_id": sale_id},
         )
     log.info("owner %s voided sale %s", owner_id, sale_id)
+
+
+async def delete_sale(owner_id: int, user_id: int, sale_id: int) -> None:
+    """Remove a sale from the books entirely.
+
+    Voiding is the honest correction — it keeps the receipt and shows it was
+    taken back, which is what a shop wants when a customer returned something.
+    This is the other thing: a row that should never have been there at all, a
+    duplicate or a test entry, and leaving it struck through forever only makes
+    the report harder to read.
+
+    Nothing is lost even so. The whole row, its lines and its ledger entries are
+    written into the audit payload first, so putting it back is one undo.
+    """
+    async with db.transaction() as conn:
+        sale = await conn.fetchrow(
+            """
+            SELECT id, store_id, worker_id, work_session_id, store_session_id,
+                   payment_method, total, external_id, sold_at, voided_at,
+                   voided_by_worker_id, void_reason, superseded_by_sale_id
+              FROM sales WHERE id = $1 AND owner_id = $2 FOR UPDATE
+            """,
+            sale_id, owner_id,
+        )
+        if sale is None:
+            raise AppError("not_found", "Վաճառքը չի գտնվել։")
+
+        lines = await conn.fetch(
+            """
+            SELECT item_id, quantity, unit_price, unit_cost, line_total, price_kind
+              FROM sale_items WHERE sale_id = $1 ORDER BY item_id
+            """,
+            sale_id,
+        )
+        movements = await conn.fetch(
+            """
+            SELECT method, kind, amount, work_session_id, worker_id, note, created_by
+              FROM cash_movements WHERE sale_id = $1 ORDER BY id
+            """,
+            sale_id,
+        )
+
+        # Only put the goods back if they are still counted as sold. A voided
+        # sale already returned them, and doing it twice would invent stock.
+        if sale["voided_at"] is None:
+            await _restore_stock(conn, sale_id)
+
+        # sale_items and cash_movements cascade; anything pointing at this sale
+        # as its replacement has that link set to NULL.
+        await conn.execute("DELETE FROM sales WHERE id = $1 AND owner_id = $2", sale_id, owner_id)
+        await _resync_snapshot(conn, sale["store_session_id"])
+        await audit_repo.record(
+            conn, owner_id, user_id, "delete_sale",
+            f"Ջնջվեց վաճառք #{sale_id} — {Decimal(sale['total']):,.0f} ֏",
+            store_session_id=sale["store_session_id"],
+            payload={
+                "sale": {
+                    "store_id": sale["store_id"],
+                    "worker_id": sale["worker_id"],
+                    "work_session_id": sale["work_session_id"],
+                    "store_session_id": sale["store_session_id"],
+                    "payment_method": sale["payment_method"],
+                    "total": str(sale["total"]),
+                    "external_id": sale["external_id"],
+                    "was_voided": sale["voided_at"] is not None,
+                    "voided_by_worker_id": sale["voided_by_worker_id"],
+                    "void_reason": sale["void_reason"],
+                },
+                "lines": [
+                    {
+                        "item_id": line["item_id"],
+                        "quantity": line["quantity"],
+                        "unit_price": str(line["unit_price"]),
+                        "unit_cost": str(line["unit_cost"]),
+                        "line_total": str(line["line_total"]),
+                        "price_kind": line["price_kind"],
+                    }
+                    for line in lines
+                ],
+                "movements": [
+                    {
+                        "method": m["method"],
+                        "kind": m["kind"],
+                        "amount": str(m["amount"]),
+                        "work_session_id": m["work_session_id"],
+                        "worker_id": m["worker_id"],
+                        "note": m["note"],
+                        "created_by": m["created_by"],
+                    }
+                    for m in movements
+                ],
+            },
+        )
+    log.info("owner %s deleted sale %s outright", owner_id, sale_id)
 
 
 # -- amending ----------------------------------------------------------------
@@ -408,27 +503,40 @@ async def add_movement(
 
 
 async def delete_movement(owner_id: int, user_id: int, movement_id: int) -> None:
-    """Remove an owner-entered movement.
+    """Remove a ledger row.
 
-    Only those. A 'sale', 'void' or 'salary' row is the record of something that
-    happened, and deleting it would leave the sale or shift it belongs to
-    describing money no longer in the ledger.
+    Every row can go, but not all of them through this door. A 'sale' or 'void'
+    row is one half of a receipt: deleting it alone would leave the receipt
+    describing money the ledger no longer holds, and the two would disagree
+    forever. A 'salary' row is one half of a shift, and the same applies.
+
+    So those two are refused *and told where to go instead* — delete the receipt,
+    or set the wage to zero. Both of those exist, both remove the ledger row as
+    part of doing the whole job, and both are undoable. Refusing without saying
+    that would just look like the feature is missing.
     """
     async with db.transaction() as conn:
         row = await conn.fetchrow(
             """
-            SELECT id, kind, method, amount, note, created_by, store_session_id, store_id
+            SELECT id, kind, method, amount, note, created_by, store_session_id,
+                   store_id, sale_id, work_session_id
               FROM cash_movements WHERE id = $1 AND owner_id = $2 FOR UPDATE
             """,
             movement_id, owner_id,
         )
         if row is None:
             raise AppError("not_found", "Գրառումը չի գտնվել։")
-        if row["created_by"] != "owner" or row["kind"] not in OWNER_KINDS:
+        if row["kind"] in {"sale", "void"}:
             raise AppError(
                 "validation_error",
-                "Այս գրառումը վաճառքի կամ աշխատավարձի արդյունք է։ "
-                "Ջնջելու փոխարեն ուղղեք համապատասխան վաճառքը։",
+                f"Այս գրառումը #{row['sale_id']} վաճառքի մասն է։ "
+                f"Ջնջեք հենց վաճառքը՝ «Չեկեր» բաժնում, և գրառումը կհեռանա նրա հետ։",
+            )
+        if row["kind"] == "salary":
+            raise AppError(
+                "validation_error",
+                "Այս գրառումն աշխատավարձ է։ Հեռացնելու համար «Հերթափոխեր» "
+                "բաժնում այդ հերթափոխի աշխատավարձը դարձրեք 0։",
             )
 
         await conn.execute("DELETE FROM cash_movements WHERE id = $1", movement_id)
@@ -444,6 +552,7 @@ async def delete_movement(owner_id: int, user_id: int, movement_id: int) -> None
                 "method": row["method"],
                 "amount": str(row["amount"]),
                 "note": row["note"],
+                "created_by": row["created_by"],
             },
         )
     log.info("owner %s deleted movement %s", owner_id, movement_id)
@@ -542,6 +651,7 @@ async def revert(owner_id: int, user_id: int, event_id: int) -> str:
             "add_sale": _revert_add_sale,
             "add_movement": _revert_add_movement,
             "delete_movement": _revert_delete_movement,
+            "delete_sale": _revert_delete_sale,
             "set_salary": _revert_set_salary,
         }[event["action"]]
         await handler(conn, owner_id, payload)
@@ -592,6 +702,89 @@ async def _revert_add_sale(conn, owner_id: int, payload: dict) -> None:
     await conn.execute("DELETE FROM sales WHERE id = $1 AND owner_id = $2", sale_id, owner_id)
 
 
+async def _revert_delete_sale(conn, owner_id: int, payload: dict) -> None:
+    """Put a deleted sale back, with its lines and its ledger entries.
+
+    A new id — the old one is gone for good — but the same money, the same
+    goods and the same attribution. The external_id comes back too, so the
+    idempotency key that first created it still resolves here.
+    """
+    sale = payload["sale"]
+
+    # Take the stock again first: if it has been sold since, saying so beats
+    # restoring a sale the shelf can no longer account for.
+    if not sale["was_voided"]:
+        for line in sorted(payload["lines"], key=lambda entry: entry["item_id"]):
+            taken = await conn.fetchval(
+                """
+                UPDATE items SET count = count - $3, updated_at = now()
+                 WHERE id = $1 AND owner_id = $2 AND count >= $3
+                RETURNING count
+                """,
+                line["item_id"], owner_id, line["quantity"],
+            )
+            if taken is None:
+                name = await conn.fetchval(
+                    "SELECT name FROM items WHERE id = $1", line["item_id"]
+                )
+                raise AppError(
+                    "validation_error",
+                    f"Հնարավոր չէ վերականգնել՝ «{name}»-ից պահեստում բավարար քանակ չկա։",
+                )
+
+    sale_id = await sales_repo.insert_sale(
+        conn,
+        owner_id=owner_id,
+        store_id=sale["store_id"],
+        worker_id=sale["worker_id"],
+        work_session_id=sale["work_session_id"],
+        store_session_id=sale["store_session_id"],
+        payment_method=sale["payment_method"],
+        total=Decimal(sale["total"]),
+        external_id=sale["external_id"],
+    )
+    await sales_repo.insert_lines(
+        conn,
+        owner_id,
+        sale_id,
+        [
+            {
+                "item_id": line["item_id"],
+                "quantity": line["quantity"],
+                "unit_price": Decimal(line["unit_price"]),
+                "unit_cost": Decimal(line["unit_cost"]),
+                "line_total": Decimal(line["line_total"]),
+                "price_kind": line["price_kind"],
+            }
+            for line in payload["lines"]
+        ],
+    )
+    if sale["was_voided"]:
+        await conn.execute(
+            """
+            UPDATE sales SET voided_at = now(), voided_by_worker_id = $2, void_reason = $3
+             WHERE id = $1
+            """,
+            sale_id, sale["voided_by_worker_id"], sale["void_reason"],
+        )
+
+    for movement in payload["movements"]:
+        await money_repo.insert_movement(
+            conn,
+            owner_id=owner_id,
+            store_id=sale["store_id"],
+            store_session_id=sale["store_session_id"],
+            method=movement["method"],
+            kind=movement["kind"],
+            amount=Decimal(movement["amount"]),
+            sale_id=sale_id,
+            work_session_id=movement["work_session_id"],
+            worker_id=movement["worker_id"],
+            note=movement["note"],
+            created_by=movement["created_by"],
+        )
+
+
 async def _revert_add_movement(conn, owner_id: int, payload: dict) -> None:
     await conn.execute(
         "DELETE FROM cash_movements WHERE id = $1 AND owner_id = $2",
@@ -610,7 +803,7 @@ async def _revert_delete_movement(conn, owner_id: int, payload: dict) -> None:
         kind=payload["kind"],
         amount=Decimal(payload["amount"]),
         note=payload.get("note"),
-        created_by="owner",
+        created_by=payload.get("created_by", "owner"),
     )
 
 

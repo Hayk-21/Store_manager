@@ -97,6 +97,134 @@ async def test_voiding_twice_is_refused(client):
         await corrections.void_sale(owner_id, owner_id, sale_id)
 
 
+# -- deleting outright -------------------------------------------------------
+
+async def test_deleting_a_sale_removes_it_from_the_books(client):
+    """Voiding is for a returned sale. This is for a row that should never have
+    been there, where a struck-through line forever only adds noise."""
+    owner_id, _, _, item_id, session_id, sale_id, _ = await _a_closed_shift(stock=20, sold=3)
+
+    await corrections.delete_sale(owner_id, owner_id, sale_id)
+
+    assert await db.fetchval("SELECT count(*) FROM sales WHERE id = $1", sale_id) == 0
+    assert await db.fetchval("SELECT count(*) FROM sale_items") == 0, "its lines went too"
+    assert await db.fetchval("SELECT count FROM items WHERE id = $1", item_id) == 20
+    # Only the salary is left in the till.
+    assert await _snapshot(session_id) == Decimal("-8000.00")
+
+
+async def test_deleting_a_voided_sale_does_not_invent_stock(client):
+    """The goods came back when it was voided; putting them back twice would
+    conjure inventory out of a bookkeeping action."""
+    owner_id, _, _, item_id, _, sale_id, _ = await _a_closed_shift(stock=20, sold=3)
+    await corrections.void_sale(owner_id, owner_id, sale_id)
+    assert await db.fetchval("SELECT count FROM items WHERE id = $1", item_id) == 20
+
+    await corrections.delete_sale(owner_id, owner_id, sale_id)
+
+    assert await db.fetchval("SELECT count FROM items WHERE id = $1", item_id) == 20
+
+
+async def test_deleting_a_sale_takes_its_ledger_entries_with_it(client):
+    owner_id, _, _, _, session_id, sale_id, _ = await _a_closed_shift()
+
+    await corrections.delete_sale(owner_id, owner_id, sale_id)
+
+    assert await db.fetchval(
+        "SELECT count(*) FROM cash_movements WHERE kind IN ('sale', 'void')"
+    ) == 0
+
+
+async def test_undoing_a_delete_puts_the_whole_receipt_back(client):
+    owner_id, _, _, item_id, session_id, sale_id, _ = await _a_closed_shift(stock=20, sold=3)
+    before = await _snapshot(session_id)
+    await corrections.delete_sale(owner_id, owner_id, sale_id)
+    event = await audit_repo.newest_pending(owner_id)
+
+    await corrections.revert(owner_id, owner_id, event["id"])
+
+    restored = await db.fetchrow(
+        "SELECT id, total, payment_method FROM sales WHERE store_session_id = $1", session_id
+    )
+    assert restored["total"] == Decimal("10500.00")
+    assert restored["payment_method"] == "cash"
+    assert await db.fetchval("SELECT count FROM items WHERE id = $1", item_id) == 17
+    assert await _snapshot(session_id) == before
+
+
+async def test_a_restored_receipt_keeps_its_lines_and_prices(client):
+    owner_id, _, _, item_id, _, sale_id, _ = await _a_closed_shift(stock=20, sold=3)
+    await corrections.delete_sale(owner_id, owner_id, sale_id)
+    event = await audit_repo.newest_pending(owner_id)
+
+    await corrections.revert(owner_id, owner_id, event["id"])
+
+    line = await db.fetchrow(
+        "SELECT item_id, quantity, unit_price, unit_cost, price_kind FROM sale_items"
+    )
+    assert line["item_id"] == item_id
+    assert line["quantity"] == 3
+    assert line["unit_price"] == Decimal("3500.00")
+    assert line["unit_cost"] == Decimal("1500.00")
+
+
+async def test_restoring_is_refused_when_the_stock_has_gone(client):
+    """Better than letting a count go negative to make the books balance."""
+    owner_id, _, _, item_id, _, sale_id, _ = await _a_closed_shift(stock=20, sold=3)
+    await corrections.delete_sale(owner_id, owner_id, sale_id)
+    await db.execute("UPDATE items SET count = 1 WHERE id = $1", item_id)
+    event = await audit_repo.newest_pending(owner_id)
+
+    with pytest.raises(AppError):
+        await corrections.revert(owner_id, owner_id, event["id"])
+
+    assert await db.fetchval("SELECT count(*) FROM sales") == 0, "nothing half-restored"
+
+
+async def test_a_sale_movement_cannot_be_deleted_on_its_own(client):
+    """It is one half of a receipt; removing it alone would leave the two
+    disagreeing forever. The message says where to go instead."""
+    owner_id, _, _, _, _, _, _ = await _a_closed_shift()
+    movement = await db.fetchval("SELECT id FROM cash_movements WHERE kind = 'sale'")
+
+    with pytest.raises(AppError) as caught:
+        await corrections.delete_movement(owner_id, owner_id, movement)
+
+    assert "Չեկեր" in caught.value.message
+
+
+async def test_a_salary_movement_points_at_the_salary_editor(client):
+    owner_id, _, _, _, _, _, _ = await _a_closed_shift()
+    movement = await db.fetchval("SELECT id FROM cash_movements WHERE kind = 'salary'")
+
+    with pytest.raises(AppError) as caught:
+        await corrections.delete_movement(owner_id, owner_id, movement)
+
+    assert "Հերթափոխեր" in caught.value.message
+
+
+async def test_zeroing_a_wage_removes_its_ledger_row(client):
+    """Which is how a salary line is removed — the shift and the till move
+    together, so the two cannot end up disagreeing."""
+    owner_id, _, _, _, session_id, _, shift_id = await _a_closed_shift(salary="8000.00")
+
+    await corrections.set_salary(owner_id, owner_id, shift_id, Decimal("0"))
+
+    assert await db.fetchval("SELECT count(*) FROM cash_movements WHERE kind = 'salary'") == 0
+    assert await _snapshot(session_id) == Decimal("10500.00")
+
+
+async def test_another_owner_cannot_delete_a_sale(client):
+    owner_id, _, _, _, _, sale_id, _ = await _a_closed_shift()
+    intruder = await make_owner()
+
+    with pytest.raises(AppError) as caught:
+        await corrections.delete_sale(intruder, intruder, sale_id)
+
+    assert caught.value.status == 404
+    assert await db.fetchval("SELECT count(*) FROM sales WHERE id = $1", sale_id) == 1
+
+
 # -- amending ----------------------------------------------------------------
 
 async def test_amending_replaces_rather_than_edits(client):

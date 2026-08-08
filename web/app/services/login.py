@@ -1,8 +1,8 @@
-"""Signing in with a Telegram handle and a one-time code.
+﻿"""Signing in with a Telegram handle and a one-time code.
 
 The flow, and why it has the shape it does:
 
-1. The admin types ``@justhayk``. If that handle is not registered, nothing
+1. The admin types their handle. If that handle is not registered, nothing
    happens — but the page says the same thing either way, so the form cannot be
    used to find out which handles exist.
 2. If it is registered *and bound to a chat*, a six-digit code goes out over the

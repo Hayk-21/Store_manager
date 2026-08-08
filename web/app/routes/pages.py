@@ -323,7 +323,7 @@ _USERNAME_TAKEN = (
     "պատկանել միայն մեկ գործատուի։"
 )
 _BAD_USERNAME = (
-    "Telegram օգտանունը սխալ է։ Գրեք @-ով, օրինակ՝ @justhayk "
+    "Telegram օգտանունը սխալ է։ Գրեք @-ով, օրինակ՝ @օգտանուն "
     "(4–32 նիշ՝ լատինատառ, թվեր և _)։"
 )
 
@@ -642,6 +642,20 @@ async def void_sale(
                                               required=False)
     )
     return _back_to_report(await _session_of_sale(user.id, sale_id))
+
+
+@router.post("/sales/{sale_id}/delete")
+async def delete_sale(sale_id: int, user: CurrentUser = Depends(require_csrf)):
+    """Remove a receipt from the books, rather than showing it struck through.
+
+    Voiding is the honest correction for a returned sale. This is for a row that
+    should never have been there -- a duplicate, a test entry -- where leaving it
+    visible forever only makes the report harder to read. It is recorded in the
+    history and can be undone.
+    """
+    store_session_id = await _session_of_sale(user.id, sale_id)
+    await corrections.delete_sale(user.id, user.id, sale_id)
+    return _back_to_report(store_session_id)
 
 
 @router.post("/sales/{sale_id}/amend")

@@ -1,4 +1,4 @@
-"""Signing in.
+﻿"""Signing in.
 
 A Telegram handle and a code the bot sends. That is the only way in through the
 browser — there is no password to guess, phish or leak.
@@ -37,7 +37,7 @@ log = logging.getLogger("storemanager.auth")
 
 router = APIRouter()
 
-_BAD_HANDLE = "Գրեք ձեր Telegram օգտանունը՝ @-ով, օրինակ՝ @justhayk։"
+_BAD_HANDLE = "Գրեք ձեր Telegram օգտանունը՝ @-ով, օրինակ՝ @օգտանուն։"
 
 
 def _bot_link() -> tuple[str, str]:

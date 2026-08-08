@@ -121,6 +121,64 @@ async def test_adding_a_missed_sale_from_the_form(client):
     ) == Decimal("7000.00"), "the price defaulted to the shelf price"
 
 
+async def test_a_receipt_offers_both_voiding_and_deleting(client):
+    """They mean different things: one shows the sale was reversed, the other
+    says it should never have been on the report at all."""
+    *_, session_id, _ = await _a_closed_session()
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "Չեղարկել" in page.text
+    assert "/delete" in page.text
+
+
+async def test_deleting_a_receipt_from_the_page(client):
+    _, _, _, item_id, session_id, sale_id = await _a_closed_session()
+    await login(client, "@ownerhandle")
+
+    response = await client.post(
+        f"/sales/{sale_id}/delete", data={"csrf_token": await _csrf(client)}
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/reports?store_session_id={session_id}"
+    assert await db.fetchval("SELECT count(*) FROM sales") == 0
+    assert await db.fetchval("SELECT count FROM items WHERE id = $1", item_id) == 20
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+    assert "Այս հերթափոխին վաճառք չի եղել" in page.text
+
+
+async def test_a_deleted_receipt_can_be_brought_back_from_the_history(client):
+    owner_id, _, _, item_id, session_id, sale_id = await _a_closed_session()
+    await login(client, "@ownerhandle")
+    await client.post(f"/sales/{sale_id}/delete", data={"csrf_token": await _csrf(client)})
+    event = await audit_repo.newest_pending(owner_id)
+
+    response = await client.post(
+        f"/history/{event['id']}/revert", data={"csrf_token": await _csrf(client)}
+    )
+
+    assert response.status_code == 303
+    assert await db.fetchval("SELECT total FROM sales") == Decimal("10500.00")
+    assert await db.fetchval("SELECT count FROM items WHERE id = $1", item_id) == 17
+
+
+async def test_a_sale_ledger_row_says_where_to_delete_it_instead(client):
+    """Removing it alone would leave the receipt and the ledger disagreeing."""
+    *_, session_id, _ = await _a_closed_session()
+    await login(client, "@ownerhandle")
+    movement = await db.fetchval("SELECT id FROM cash_movements WHERE kind = 'sale'")
+
+    response = await client.post(
+        f"/movements/{movement}/delete", data={"csrf_token": await _csrf(client)}
+    )
+
+    assert response.status_code == 422
+    assert "Չեկեր" in response.text
+
+
 async def test_a_movement_without_a_purpose_is_refused(client):
     *_, session_id, _ = await _a_closed_session()
     await login(client, "@ownerhandle")
