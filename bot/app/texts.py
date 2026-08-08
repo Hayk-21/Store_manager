@@ -120,6 +120,10 @@ SALE_DONE = (
     "Կանխիկ՝ {cash} · Քարտ՝ {card}"
 )
 SALE_ALREADY_RECORDED = "Այս վաճառքն արդեն գրանցված էր։"
+# The fallback when the confirmation cannot be built. The sale is already in the
+# books, so this has to read as success -- the alternative is a cashier entering
+# the same sale a second time.
+SALE_RECORDED_PLAINLY = "✅ Վաճառքը գրանցվեց։"
 SELL_INTERRUPTED = (
     "Սկսած վաճառքը չեղարկվեց՝ ոչինչ չի գրանցվել։\n"
     "Սեղմեք կոճակը կրկին։"

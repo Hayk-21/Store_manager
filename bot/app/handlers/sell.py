@@ -225,25 +225,43 @@ async def choose_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     except Exception as exc:  # noqa: BLE001
         return await _fail(update, context, exc)
 
-    line = result["items"][0]
-    totals = result["store_totals"]
-    body = texts.SALE_DONE.format(
-        item=format.esc(line["name"]),
-        quantity=line["quantity"],
-        total=format.money(line["line_total"]),
-        method=texts.BTN_CASH if method == "cash" else texts.BTN_CARD,
-        remaining=line["remaining_count"],
-        cash=format.money(totals["cash"]),
-        card=format.money(totals["card"]),
-    )
-    if result.get("duplicate"):
-        body = texts.SALE_ALREADY_RECORDED + "\n\n" + body
-
+    # Past this line the sale is in the books. Nothing below may report a
+    # failure: telling a cashier their sale did not go through when it did is
+    # how the same sale gets entered twice.
     _clear(context)
     await query.message.reply_text(
-        body, parse_mode=ParseMode.HTML, reply_markup=keyboards.on_shift()
+        _confirmation(result, method), parse_mode=ParseMode.HTML,
+        reply_markup=keyboards.on_shift(),
     )
     return ConversationHandler.END
+
+
+def _confirmation(result: dict, method: str) -> str:
+    """What to show once the server has taken the sale.
+
+    Defensive on purpose. The receipt is already written, so a field missing
+    from the response is a cosmetic problem — falling back to a plain "recorded"
+    is right, and raising here would tell the cashier the opposite of the truth.
+    """
+    try:
+        line = result["sale"]["lines"][0]
+        totals = result["store_totals"]
+        body = texts.SALE_DONE.format(
+            item=format.esc(line["name"]),
+            quantity=line["quantity"],
+            total=format.money(line["line_total"]),
+            method=texts.BTN_CASH if method == "cash" else texts.BTN_CARD,
+            remaining=line["remaining_count"],
+            cash=format.money(totals["cash"]),
+            card=format.money(totals["card"]),
+        )
+    except (KeyError, IndexError, TypeError):
+        log.exception("could not render a sale confirmation from %r", result)
+        body = texts.SALE_RECORDED_PLAINLY
+
+    if result.get("duplicate"):
+        body = texts.SALE_ALREADY_RECORDED + "\n\n" + body
+    return body
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

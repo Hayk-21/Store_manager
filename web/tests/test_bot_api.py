@@ -224,6 +224,33 @@ async def test_a_sale_returns_what_changed(client, bot_headers):
     assert body["store_totals"]["cash"] == "7000.00"
 
 
+async def test_the_sale_response_keeps_the_shape_the_bot_reads(client, bot_headers):
+    """A contract test, written after breaking it.
+
+    The bot builds its confirmation from these exact keys. When it read one that
+    did not exist, the sale committed and *then* the bot crashed rendering the
+    reply — so the cashier was told it had failed and would have entered it
+    again. Renaming any of these should fail here, on this side, first.
+    """
+    _, _, _, telegram_id, item_id = await _world()
+    await _open(client, bot_headers, telegram_id)
+
+    body = (await client.post(
+        f"{BASE}/sale",
+        json={"telegram_id": telegram_id, "items": [{"item_id": item_id, "quantity": 2}],
+              "payment_method": "cash", "idempotency_key": "idem-key-sale-01"},
+        headers=bot_headers,
+    )).json()
+
+    assert set(body) >= {"ok", "duplicate", "sale", "store_totals"}
+    assert set(body["store_totals"]) >= {"cash", "card"}
+    line = body["sale"]["lines"][0]
+    assert set(line) >= {"name", "quantity", "line_total", "remaining_count"}
+    # Money as decimal strings, so nothing has been through a float.
+    assert isinstance(line["line_total"], str)
+    assert isinstance(body["store_totals"]["cash"], str)
+
+
 async def test_money_never_arrives_as_a_float(client, bot_headers):
     """A float has already lost digits by the time we see it, so it is refused
     rather than quietly rounded."""
