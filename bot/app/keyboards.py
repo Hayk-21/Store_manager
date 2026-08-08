@@ -64,6 +64,44 @@ def off_shift() -> ReplyKeyboardMarkup:
     )
 
 
+def _labels_of(markup) -> set[str]:
+    return {button.text for row in markup.keyboard for button in row}
+
+
+def main_menu_labels() -> set[str]:
+    """The buttons a worker can reach at any moment.
+
+    These are the ones every conversation has to let go of: whatever a cashier is
+    half way through, one of these is on their screen and tapping it means "I am
+    doing something else now".
+
+    The write-up's own menu is deliberately not here. Those buttons only exist
+    while the write-up is on screen, and they belong to it.
+    """
+    return (
+        _labels_of(off_shift())
+        | _labels_of(on_shift())
+        | _labels_of(request_location())
+    )
+
+
+def reply_keyboard_labels() -> set[str]:
+    """Every label that can arrive as a plain text message.
+
+    A reply-keyboard tap is indistinguishable from typing, so each of these has to
+    be handled deliberately by whatever flow is open — and an inline button's label
+    never arrives this way, so it does not.
+
+    Collected by asking the builders rather than by keeping a second list beside
+    them: the failure worth preventing is a new button appearing on the keyboard
+    and nothing noticing it needs a way out.
+    """
+    labels = main_menu_labels() | _labels_of(selling())
+    for empty in (True, False):
+        labels |= _labels_of(closeout_menu(empty))
+    return labels
+
+
 def on_shift() -> ReplyKeyboardMarkup:
     """Selling comes first because it is what the shift is for.
 

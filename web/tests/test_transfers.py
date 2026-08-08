@@ -306,6 +306,65 @@ async def test_the_other_shops_item_list_carries_no_prices(client, bot_headers):
     assert "self_price" not in body["items"][0]
 
 
+async def test_a_shelf_of_mostly_empties_still_shows_what_is_there(client, bot_headers):
+    """Out of stock has to be filtered in the query, not after the limit.
+
+    The bug: the endpoint asked for a page of 25 and dropped the empty rows in
+    Python, so a shop whose first products are all at zero came back with nothing
+    and read as "no stock here" while a full box sat further down the alphabet.
+    """
+    owner_id, source, target, _ = await _two_shops(source_count=0)
+    for n in range(30):
+        await make_item(owner_id, source, f"Ա empty {n:02d}", count=0)
+    await make_item(owner_id, source, "Ֆ full", count=7)
+    _, telegram_id = await _worker_at(owner_id, target, "Անի", "ani")
+
+    body = (await client.get(
+        f"{BASE}/transfers/items",
+        params={"telegram_id": telegram_id, "store_id": source},
+        headers=bot_headers,
+    )).json()
+
+    assert [row["name"] for row in body["items"]] == ["Ֆ full"]
+
+
+async def test_the_search_also_skips_empty_shelves(client, bot_headers):
+    owner_id, source, target, _ = await _two_shops(source_count=0)
+    await make_item(owner_id, source, "Waka 1800", count=0)
+    await make_item(owner_id, source, "Waka 6000", count=4)
+    _, telegram_id = await _worker_at(owner_id, target, "Անի", "ani")
+
+    body = (await client.get(
+        f"{BASE}/transfers/items",
+        params={"telegram_id": telegram_id, "store_id": source, "q": "waka"},
+        headers=bot_headers,
+    )).json()
+
+    assert [row["name"] for row in body["items"]] == ["Waka 6000"]
+
+
+async def test_the_sell_flows_list_still_shows_out_of_stock_items(client, bot_headers):
+    """The opposite rule for the shop you are standing in: a zero there is worth
+    seeing, because the count is only as good as the last close-out and the cashier
+    may be holding the thing in their hand."""
+    owner_id, source, _, item_id = await _two_shops(source_count=0)
+    worker_id, telegram_id = await make_worker(owner_id, "Գոռ", salary_amount="0.00")
+    worker = shifts_service.Worker(
+        id=worker_id, owner_id=owner_id, name="Գոռ", salary_amount=Decimal("0.00")
+    )
+    store = await db.fetchrow("SELECT lat, lng FROM stores WHERE id = $1", source)
+    await shifts_service.open_store(
+        worker, store["lat"], store["lng"], 20, "idem-open-gor", 900
+    )
+
+    body = (await client.get(
+        f"{BASE}/items", params={"telegram_id": telegram_id}, headers=bot_headers
+    )).json()
+
+    assert [row["name"] for row in body["items"]] == ["HQD Cuvie"]
+    assert body["items"][0]["count"] == 0
+
+
 async def test_another_owners_shop_cannot_be_browsed(client, bot_headers):
     owner_id, _, target, _ = await _two_shops()
     _, telegram_id = await _worker_at(owner_id, target, "Անի", "ani")

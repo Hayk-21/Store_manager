@@ -72,6 +72,41 @@ _free_text = filters.TEXT & ~filters.COMMAND & ~filters.Text(BUTTON_LABELS)
 _shared_location = filters.LOCATION & ~filters.UpdateType.EDITED_MESSAGE
 _moved = filters.LOCATION & filters.UpdateType.EDITED_MESSAGE
 
+# Where every reply-keyboard button goes when it is pressed from inside some other
+# flow. One table, consulted by all of them, because the bug this prevents is not
+# a missing fallback in one conversation — it is a fallback added to four flows and
+# forgotten in the fifth, which leaves the forgotten one holding its state while
+# the worker gets on with something else. The next thing they type is then read as
+# a product name for a sale they have stopped entering.
+#
+# Only reply-keyboard labels belong here. An inline button's label never arrives as
+# text, so it needs no way out.
+_DOORS = {
+    texts.BTN_SELL: lambda: sell.begin,
+    texts.BTN_DEFECT: lambda: defect.begin,
+    texts.BTN_TAKE_CASH: lambda: cash.begin,
+    texts.BTN_ADD_ITEM: lambda: restock.begin,
+    texts.BTN_TRANSFERS: lambda: transfer.show,
+    texts.BTN_STOCK: lambda: stock.show,
+    texts.BTN_STATUS: lambda: shift.status,
+    texts.BTN_OPEN: lambda: shift.ask_location,
+    texts.BTN_SEND_LOCATION: lambda: common.location_from_desktop,
+}
+
+
+def _escapes(flow, *own: str) -> list[MessageHandler]:
+    """Ways out of ``flow`` for every reply-keyboard button that is not its own.
+
+    ``flow`` is the handler module, for its ``escape`` — which clears that flow's
+    half-finished state before handing over, so nothing is left behind to swallow
+    the next thing typed.
+    """
+    return [
+        MessageHandler(_exact(label), flow.escape(target()))
+        for label, target in _DOORS.items()
+        if label not in own
+    ]
+
 
 def build() -> Application:
     application = ApplicationBuilder().token(settings.bot_token).post_shutdown(_shutdown).build()
@@ -122,16 +157,7 @@ def build() -> Application:
             CallbackQueryHandler(closeout.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
             CommandHandler("cancel", closeout.cancel),
             CommandHandler("start", closeout.escape(shift.start)),
-            MessageHandler(_exact(texts.BTN_SELL), closeout.escape(sell.begin)),
-            MessageHandler(_exact(texts.BTN_DEFECT), closeout.escape(defect.begin)),
-            MessageHandler(_exact(texts.BTN_TAKE_CASH), closeout.escape(cash.begin)),
-            MessageHandler(_exact(texts.BTN_STOCK), closeout.escape(stock.show)),
-            MessageHandler(_exact(texts.BTN_STATUS), closeout.escape(shift.status)),
-            MessageHandler(_exact(texts.BTN_OPEN), closeout.escape(shift.ask_location)),
-            MessageHandler(
-                _exact(texts.BTN_SEND_LOCATION),
-                closeout.escape(common.location_from_desktop),
-            ),
+            *_escapes(closeout),
             MessageHandler(_shared_location, closeout.escape(shift.handle_location)),
         ],
         # Long: a cashier writing up a busy day gets interrupted by customers.
@@ -180,11 +206,7 @@ def build() -> Application:
             # conversation holding a state that would swallow the write-up's
             # next answer.
             MessageHandler(_exact(texts.BTN_END_SHIFT), sell.interrupted),
-            MessageHandler(_exact(texts.BTN_DEFECT), sell.escape(defect.begin)),
-            MessageHandler(_exact(texts.BTN_TAKE_CASH), sell.escape(cash.begin)),
-            MessageHandler(_exact(texts.BTN_STOCK), sell.escape(stock.show)),
-            MessageHandler(_exact(texts.BTN_STATUS), sell.escape(shift.status)),
-            MessageHandler(_exact(texts.BTN_OPEN), sell.escape(shift.ask_location)),
+            *_escapes(sell, texts.BTN_SELL),
             MessageHandler(_shared_location, sell.escape(shift.handle_location)),
         ],
         # Shorter than the write-up's: one sale is entered while the customer is
@@ -210,10 +232,7 @@ def build() -> Application:
             CallbackQueryHandler(defect.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
             CommandHandler("cancel", defect.cancel),
             CommandHandler("start", defect.escape(shift.start)),
-            MessageHandler(_exact(texts.BTN_SELL), defect.escape(sell.begin)),
-            MessageHandler(_exact(texts.BTN_TAKE_CASH), defect.escape(cash.begin)),
-            MessageHandler(_exact(texts.BTN_STOCK), defect.escape(stock.show)),
-            MessageHandler(_exact(texts.BTN_STATUS), defect.escape(shift.status)),
+            *_escapes(defect, texts.BTN_DEFECT),
             MessageHandler(_exact(texts.BTN_END_SHIFT), defect.cancel),
         ],
         conversation_timeout=600,
@@ -232,10 +251,7 @@ def build() -> Application:
             MessageHandler(_exact(texts.BTN_CANCEL), cash.cancel),
             CommandHandler("cancel", cash.cancel),
             CommandHandler("start", cash.escape(shift.start)),
-            MessageHandler(_exact(texts.BTN_SELL), cash.escape(sell.begin)),
-            MessageHandler(_exact(texts.BTN_DEFECT), cash.escape(defect.begin)),
-            MessageHandler(_exact(texts.BTN_STOCK), cash.escape(stock.show)),
-            MessageHandler(_exact(texts.BTN_STATUS), cash.escape(shift.status)),
+            *_escapes(cash, texts.BTN_TAKE_CASH),
             MessageHandler(_exact(texts.BTN_END_SHIFT), cash.cancel),
         ],
         conversation_timeout=600,
@@ -248,39 +264,59 @@ def build() -> Application:
     application.add_handler(defect_flow)
     application.add_handler(cash_flow)
 
-    # Correcting the shelf: the whole list with a − and a + against each product,
-    # nothing written until "confirm". Registered before newitem_flow, because the
-    # «Բոլորովին նոր ապրանք» button on its screen is that flow's entry point and
-    # this one must not swallow the tap.
-    restock_flow = ConversationHandler(
+    # Putting stock on the shelf, in one conversation with two screens: the whole
+    # list with a − and a + against each product, and — for something that is not on
+    # the list at all — the five questions that describe a new product.
+    #
+    # One conversation and not two. They were two, and both claimed the inline
+    # Cancel: the correction screen was offered the tap first, said "cancelled", and
+    # left the new-product steps running behind it, so the next number the cashier
+    # typed finished a product they thought they had abandoned. Sharing a
+    # conversation makes that impossible rather than unlikely.
+    stock_flow = ConversationHandler(
         entry_points=[MessageHandler(_exact(texts.BTN_ADD_ITEM), restock.begin)],
         states={
             restock.PICK: [
                 CallbackQueryHandler(restock.nudge, pattern=f"^{keyboards.CB_NUDGE}:"),
                 CallbackQueryHandler(restock.turn_page, pattern=f"^{keyboards.CB_PAGE}:"),
                 CallbackQueryHandler(restock.submit, pattern=f"^{keyboards.CB_APPLY}$"),
+                CallbackQueryHandler(
+                    restock.add_something_new, pattern=f"^{keyboards.CB_NEW_ITEM}$"
+                ),
                 # The count in the middle of each row is a button because Telegram
                 # has no other way to put text there. Answered and ignored, so it
                 # does not fall through to something else.
                 CallbackQueryHandler(restock.noop, pattern=f"^{keyboards.CB_NOOP}$"),
+                # Typing on this screen used to do nothing at all, which reads as a
+                # dead bot. There is no search here — the list is right there — so
+                # it says so instead of staying silent.
+                MessageHandler(_free_text, restock.nothing_to_type),
+            ],
+            newitem.ASK_NAME: [MessageHandler(_free_text, newitem.type_name)],
+            newitem.ASK_COUNT: [MessageHandler(_free_text, newitem.type_count)],
+            newitem.ASK_COST: [MessageHandler(_free_text, newitem.type_cost)],
+            newitem.ASK_PRICE: [MessageHandler(_free_text, newitem.type_price)],
+            newitem.ASK_WHOLESALE: [
+                # "Not sold wholesale" is an answer, so there is a button for it.
+                CallbackQueryHandler(
+                    newitem.skip_wholesale, pattern=f"^{keyboards.CB_SKIP}$"
+                ),
+                MessageHandler(_free_text, newitem.type_wholesale),
             ],
         },
+        # restock.cancel clears both halves, whichever screen is open.
         fallbacks=[
             MessageHandler(_exact(texts.BTN_CANCEL), restock.cancel),
             CallbackQueryHandler(restock.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
             CommandHandler("cancel", restock.cancel),
             CommandHandler("start", restock.escape(shift.start)),
-            MessageHandler(_exact(texts.BTN_SELL), restock.escape(sell.begin)),
-            MessageHandler(_exact(texts.BTN_DEFECT), restock.escape(defect.begin)),
-            MessageHandler(_exact(texts.BTN_TAKE_CASH), restock.escape(cash.begin)),
-            MessageHandler(_exact(texts.BTN_STOCK), restock.escape(stock.show)),
-            MessageHandler(_exact(texts.BTN_STATUS), restock.escape(shift.status)),
+            *_escapes(restock, texts.BTN_ADD_ITEM),
             MessageHandler(_exact(texts.BTN_END_SHIFT), restock.cancel),
         ],
         conversation_timeout=900,
         per_message=False,
     )
-    application.add_handler(restock_flow)
+    application.add_handler(stock_flow)
 
     # Asking another shop for stock. The item list belongs to the *other* shop, so
     # PICK_ITEM takes free text for searching it — hence the usual escapes.
@@ -309,12 +345,7 @@ def build() -> Application:
             CallbackQueryHandler(transfer.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
             CommandHandler("cancel", transfer.cancel),
             CommandHandler("start", transfer.escape(shift.start)),
-            MessageHandler(_exact(texts.BTN_SELL), transfer.escape(sell.begin)),
-            MessageHandler(_exact(texts.BTN_DEFECT), transfer.escape(defect.begin)),
-            MessageHandler(_exact(texts.BTN_TAKE_CASH), transfer.escape(cash.begin)),
-            MessageHandler(_exact(texts.BTN_ADD_ITEM), transfer.escape(restock.begin)),
-            MessageHandler(_exact(texts.BTN_STOCK), transfer.escape(stock.show)),
-            MessageHandler(_exact(texts.BTN_STATUS), transfer.escape(shift.status)),
+            *_escapes(transfer, texts.BTN_TRANSFERS),
             MessageHandler(_exact(texts.BTN_END_SHIFT), transfer.cancel),
         ],
         conversation_timeout=900,
@@ -322,43 +353,6 @@ def build() -> Application:
     )
     application.add_handler(transfer_flow)
 
-    # Adding a product at the counter. Five short answers, all free text, so it
-    # needs the same escapes: a button pressed mid-way must not become a name.
-    newitem_flow = ConversationHandler(
-        entry_points=[
-            # Reached from the correction screen: the cashier looked for the
-            # product, it was not there, and this is the other door.
-            CallbackQueryHandler(newitem.begin, pattern=f"^{keyboards.CB_NEW_ITEM}$"),
-        ],
-        states={
-            newitem.ASK_NAME: [MessageHandler(_free_text, newitem.type_name)],
-            newitem.ASK_COUNT: [MessageHandler(_free_text, newitem.type_count)],
-            newitem.ASK_COST: [MessageHandler(_free_text, newitem.type_cost)],
-            newitem.ASK_PRICE: [MessageHandler(_free_text, newitem.type_price)],
-            newitem.ASK_WHOLESALE: [
-                # "Not sold wholesale" is an answer, so there is a button for it.
-                CallbackQueryHandler(
-                    newitem.skip_wholesale, pattern=f"^{keyboards.CB_SKIP}$"
-                ),
-                MessageHandler(_free_text, newitem.type_wholesale),
-            ],
-        },
-        fallbacks=[
-            MessageHandler(_exact(texts.BTN_CANCEL), newitem.cancel),
-            CallbackQueryHandler(newitem.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
-            CommandHandler("cancel", newitem.cancel),
-            CommandHandler("start", newitem.escape(shift.start)),
-            MessageHandler(_exact(texts.BTN_SELL), newitem.escape(sell.begin)),
-            MessageHandler(_exact(texts.BTN_DEFECT), newitem.escape(defect.begin)),
-            MessageHandler(_exact(texts.BTN_TAKE_CASH), newitem.escape(cash.begin)),
-            MessageHandler(_exact(texts.BTN_STOCK), newitem.escape(stock.show)),
-            MessageHandler(_exact(texts.BTN_STATUS), newitem.escape(shift.status)),
-            MessageHandler(_exact(texts.BTN_END_SHIFT), newitem.cancel),
-        ],
-        conversation_timeout=600,
-        per_message=False,
-    )
-    application.add_handler(newitem_flow)
     application.add_handler(closeout_flow)
 
     # Undoing a sale is not part of entering one: the receipt is finished, and

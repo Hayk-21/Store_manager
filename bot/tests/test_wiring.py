@@ -6,13 +6,32 @@ from decimal import Decimal
 from unittest import mock
 
 import pytest
-from telegram import Chat, Location, Message, Update, User
+from telegram import CallbackQuery, Chat, Location, Message, Update, User
 from telegram.ext import ApplicationHandlerStop, ConversationHandler, MessageHandler
 
 from app import format, keyboards, texts
 from app.__main__ import BUTTON_LABELS, build
 from app.api import ApiError
 from app.handlers import common, sell, shift, stock
+from app.keyboards import main_menu_labels, reply_keyboard_labels
+
+
+class _Ctx:
+    def __init__(self, **data) -> None:
+        self.user_data = dict(data)
+
+
+def _tap(data: str) -> Update:
+    user = User(id=1, first_name="T", is_bot=False)
+    message = Message(
+        message_id=1, date=None, chat=Chat(id=1, type="private"), from_user=user
+    )
+    return Update(
+        update_id=1,
+        callback_query=CallbackQuery(
+            id="1", from_user=user, chat_instance="1", data=data, message=message
+        ),
+    )
 
 
 def _message(text: str) -> Update:
@@ -63,17 +82,36 @@ def test_no_button_label_is_ever_treated_as_free_text():
     )
 
 
+def _text_fallbacks(flow):
+    """The fallbacks that answer a *reply-keyboard tap*, which arrives as text.
+
+    CommandHandler is excluded, and that exclusion is the whole point of this
+    helper. ``CommandHandler.filters`` defaults to ``filters.ALL``, so asking one
+    whether it handles a given message answers yes to everything — and a check
+    written as "does any fallback match this label" silently passed for every
+    label the moment a bare ``CommandHandler`` was in the list. It reported a way
+    out of the write-up for buttons that had none.
+    """
+    return [
+        h for h in flow.fallbacks
+        if isinstance(h, MessageHandler) and getattr(h, "filters", None) is not None
+    ]
+
+
 def test_every_button_can_escape_the_write_up():
     """Two halves: the states must only consume text the cashier actually typed,
-    and every button that is not part of the write-up must have a fallback."""
+    and every button that is not part of the write-up must have a fallback.
+
+    The trap: the write-up holds a basket. A button that leaves it without ending
+    it leaves the conversation alive in a state that takes free text, so the next
+    product name the cashier types anywhere is quietly added to a list they think
+    they have left.
+    """
     flow = _flow()
     own = {
         texts.BTN_CO_ADD, texts.BTN_CO_REMOVE, texts.BTN_CO_DONE,
         texts.BTN_CO_ABANDON, texts.BTN_CO_SUBMIT,
-        texts.BTN_CANCEL, texts.BTN_CASH, texts.BTN_CARD,
-        texts.BTN_RETAIL, texts.BTN_WHOLESALE, texts.BTN_OTHER_PRICE,
-        texts.BTN_DELIVERY_OFF, texts.BTN_DELIVERY_ON, texts.BTN_SKIP,
-        texts.BTN_END_SHIFT,
+        texts.BTN_CANCEL, texts.BTN_END_SHIFT,
     }
 
     for state, handlers in flow.states.items():
@@ -85,13 +123,45 @@ def test_every_button_can_escape_the_write_up():
                 if filt.check_update(_message(label)) and label not in own:
                     raise AssertionError(f"state {state} would consume {label!r} as free text")
 
-    for label in BUTTON_LABELS:
+    fallbacks = _text_fallbacks(flow)
+    for label in reply_keyboard_labels():
         if label in own:
             continue
-        assert any(
-            getattr(h, "filters", None) is not None and h.filters.check_update(_message(label))
-            for h in flow.fallbacks
-        ), f"no way out of the write-up when {label!r} is pressed"
+        assert any(h.filters.check_update(_message(label)) for h in fallbacks), (
+            f"no way out of the write-up when {label!r} is pressed"
+        )
+
+
+def test_every_flow_lets_go_of_every_other_flows_button():
+    """Not just the write-up: any conversation holding half-entered state must be
+    left cleanly when the cashier taps something else, or that state is still
+    there waiting to swallow the next thing they type."""
+    flows = [
+        h for h in build().handlers[0] if isinstance(h, ConversationHandler)
+    ]
+    assert len(flows) >= 6, "a flow went missing"
+
+    for flow in flows:
+        entries = {
+            label for label in main_menu_labels()
+            for h in flow.entry_points
+            if getattr(h, "filters", None) is not None
+            and h.filters.check_update(_message(label))
+        }
+        fallbacks = _text_fallbacks(flow)
+        for label in main_menu_labels():
+            if label in entries:
+                continue
+            handled = any(h.filters.check_update(_message(label)) for h in fallbacks)
+            state_takes_it = any(
+                getattr(h, "filters", None) is not None
+                and h.filters.check_update(_message(label))
+                for handlers in flow.states.values()
+                for h in handlers
+            )
+            assert handled or state_takes_it, (
+                f"{flow.name or flow}: pressing {label!r} leaves this flow holding its state"
+            )
 
 
 def test_there_are_two_ways_to_record_a_sale_and_both_are_reachable():
@@ -164,6 +234,55 @@ def test_there_is_no_close_the_store_button():
         "a close-the-store button is back on the keyboard"
     )
     assert texts.BTN_END_SHIFT in labels
+
+
+def test_one_conversation_owns_the_shelf_and_the_new_product():
+    """They were two, and it cost a cashier a product they had cancelled.
+
+    Both flows claimed the inline «Չեղարկել». The correction screen was offered the
+    tap first, answered "cancelled", and left the new-product steps running — so the
+    next number typed anywhere completed the product. One conversation cannot race
+    itself, which is why these states live together.
+    """
+    from app.handlers import newitem
+
+    flow = _flow(texts.BTN_ADD_ITEM)
+
+    assert newitem.ASK_NAME in flow.states, "the new-product steps live elsewhere again"
+    assert newitem.ASK_WHOLESALE in flow.states
+
+    claimants = [
+        f for f in build().handlers[0]
+        if isinstance(f, ConversationHandler)
+        and any(h.check_update(_tap(keyboards.CB_CANCEL)) for h in f.fallbacks)
+        and (newitem.ASK_NAME in f.states or restock_state(f))
+    ]
+    assert len(claimants) == 1, "two flows would fight over the same Cancel again"
+
+
+def restock_state(flow) -> bool:
+    from app.handlers import restock
+
+    return restock.PICK in flow.states
+
+
+def test_cancelling_the_new_product_clears_the_shelf_draft_too():
+    """One cancel, both halves. Clearing only one left the other's state behind for
+    the next thing the cashier typed."""
+    from app.handlers import restock
+
+    context = _Ctx(
+        rs_items=[{"id": 3, "name": "HQD Cuvie", "count": 1}],
+        rs_deltas={"3": 4},
+        new_name="Waka",
+        new_count=2,
+        new_cost=Decimal("1000"),
+        new_price=Decimal("2000"),
+    )
+
+    restock._clear(context)
+
+    assert context.user_data == {}
 
 
 def test_writing_off_asks_only_which_item_and_how_many():

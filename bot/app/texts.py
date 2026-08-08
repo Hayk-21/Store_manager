@@ -344,6 +344,10 @@ RESTOCK_NO_CHANGES = "\n\n<i>Դեռ ոչինչ նշված չէ։</i>"
 RESTOCK_CHANGED_HEADER = "\n\n<b>Փոփոխությունները՝</b>\n"
 RESTOCK_CHANGED_ROW = "• {name}՝ {before} → <b>{after}</b> ({delta})"
 RESTOCK_AT_ZERO = "Պահեստում այլևս չկա։"
+RESTOCK_USE_THE_BUTTONS = (
+    "Օգտվեք ➖ և ➕ կոճակներից՝ քանակը փոխելու համար։\n"
+    "Եթե ապրանքը ցուցակում չկա, սեղմեք «🆕 Բոլորովին նոր ապրանք»։"
+)
 RESTOCK_NOTHING_YET = (
     "📦 <b>Պահեստը դատարկ է</b>\n\n"
     "Այս խանութում դեռ ապրանք գրանցված չէ։ Ավելացրեք առաջինը։"

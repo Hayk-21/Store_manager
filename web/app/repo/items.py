@@ -185,12 +185,15 @@ async def deactivate(owner_id: int, item_id: int) -> bool:
 
 
 async def search_in_store(
-    store_id: int, query: str, limit: int = 12
+    store_id: int, query: str, limit: int = 12, in_stock_only: bool = False
 ) -> list[asyncpg.Record]:
     """Name search for the bot's sell flow.
 
     Ordered so an exact match beats a prefix match beats an anywhere match; a
     cashier typing the first few letters gets the obvious item at the top.
+
+    ``in_stock_only`` filters in the query for the same reason as the listing
+    above: a Python filter over a limited page silently loses rows.
     """
     needle = query.strip().lower()
     return await db.fetch(
@@ -198,6 +201,7 @@ async def search_in_store(
         SELECT id, name, count, sell_price, wholesale_price
           FROM items
          WHERE store_id = $1 AND is_active AND position($2 in lower(name)) > 0
+           AND (NOT $4 OR count > 0)
          ORDER BY CASE
                     WHEN lower(name) = $2 THEN 0
                     WHEN lower(name) LIKE $2 || '%' THEN 1
@@ -209,23 +213,33 @@ async def search_in_store(
         store_id,
         needle,
         limit,
+        in_stock_only,
     )
 
 
 async def list_in_store_for_bot(
-    store_id: int, limit: int = 50, offset: int = 0
+    store_id: int, limit: int = 50, offset: int = 0, in_stock_only: bool = False
 ) -> list[asyncpg.Record]:
+    """One page of a store's list, for the bot.
+
+    ``in_stock_only`` filters here rather than in the caller, and that matters more
+    than it looks: filtering an already-limited page in Python drops rows the query
+    counted towards the limit, so a shop whose first products are all at zero comes
+    back empty and reads as "nothing on the shelf" when the shelf is full.
+    """
     return await db.fetch(
         """
         SELECT id, name, count, sell_price, wholesale_price
           FROM items
          WHERE store_id = $1 AND is_active
+           AND (NOT $4 OR count > 0)
          ORDER BY lower(name)
          LIMIT $2 OFFSET $3
         """,
         store_id,
         limit,
         offset,
+        in_stock_only,
     )
 
 

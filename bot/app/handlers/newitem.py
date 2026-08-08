@@ -41,6 +41,11 @@ def _clear(context) -> None:
         context.user_data.pop(key, None)
 
 
+# The correction screen shares a conversation with these steps, and its cancel has
+# to tidy both halves. Exposed rather than reaching into the private one.
+forget = _clear
+
+
 def _money(raw: str) -> Decimal | None:
     """A typed amount, or None when it is not a number."""
     cleaned = (raw or "").strip().replace(",", ".").replace(" ", "")
@@ -52,17 +57,20 @@ def _money(raw: str) -> Decimal | None:
 
 
 async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Reached from the correction screen, whose «Բոլորովին նոր ապրանք» button is
-    this flow's entry point.
+    """Reached from the correction screen, by «Բոլորովին նոր ապրանք».
 
-    That screen's draft is dropped on the way in. The two share one journey — the
-    cashier went looking for a product on the shelf list and it was not there — and
-    leaving half-finished nudges behind would apply them the next time the list was
-    opened, long after anybody remembered making them.
+    One conversation owns both screens. It used to be two, and that was a trap: the
+    correction screen stayed open behind this one, both claimed the inline Cancel,
+    and the first of them to be offered the tap won. So cancelling here said
+    "cancelled" and left these steps running — and the next number the cashier
+    typed anywhere finished the product they thought they had abandoned.
+
+    The shelf draft is dropped on the way in by ``restock.add_something_new``,
+    which is what routes here — the two are one journey, and half-finished nudges
+    left behind would be applied the next time the list was opened, long after
+    anybody remembered making them.
     """
     _clear(context)
-    for key in ("rs_items", "rs_deltas", "rs_page", "rs_key"):
-        context.user_data.pop(key, None)
 
     message = update.effective_message
     if update.callback_query is not None:

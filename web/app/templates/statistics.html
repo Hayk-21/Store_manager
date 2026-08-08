@@ -123,7 +123,10 @@
 <div class="card">
   <h2>Ամենավաճառվող ապրանքները</h2>
   {% if top_items %}
-  {% set best = top_items[0].revenue %}
+  {# The tallest bar, and never zero. A shelf price of nought is allowed — a
+     giveaway, a replacement handed over — so a period whose only sales went out at
+     zero would divide by it and take the whole page down with a 500. #}
+  {% set best = top_items[0].revenue or 1 %}
   <div class="table-wrap">
     <table class="cards">
       <thead>

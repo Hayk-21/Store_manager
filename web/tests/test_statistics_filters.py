@@ -144,6 +144,35 @@ async def test_the_period_spending_is_listed_item_by_item(client):
     assert "120,000.00" in page.text
 
 
+async def test_a_period_of_giveaways_does_not_take_the_page_down(client):
+    """A shelf price of nought is allowed — a giveaway, a replacement handed over —
+    and the top-items bar divides by the tallest revenue. When every sale in the
+    period went out at zero, that divisor was zero and the page answered 500."""
+    owner_id = await make_owner("@ownerhandle")
+    store_id = await make_store(owner_id, "Խանութ 1", lat=YEREVAN_LAT, lng=YEREVAN_LNG)
+    item_id = await make_item(
+        owner_id, store_id, "Նվեր", count=10, self_price="0.00", sell_price="0.00"
+    )
+    worker_id, _ = await make_worker(owner_id, "Անի", salary_amount="0.00")
+    worker = shifts_service.Worker(
+        id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("0.00")
+    )
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-1", 900)
+    await shifts_service.close_out_shift(
+        worker,
+        [{"item_id": item_id, "quantity": 2, "unit_price": "0.00",
+          "payment_method": "cash"}],
+        "idem-close-1",
+        close_store_too=True,
+    )
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=7")
+
+    assert page.status_code == 200
+    assert "Նվեր" in page.text
+
+
 async def test_a_period_with_no_spending_says_so(client):
     await _a_shop_with_a_days_trading()
     await login(client, "@ownerhandle")

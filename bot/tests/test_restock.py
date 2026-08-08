@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from unittest import mock
 
+import pytest
 from telegram import CallbackQuery, Chat, Message, Update, User
 from telegram.ext import ConversationHandler
 
@@ -210,6 +211,70 @@ async def test_going_down_to_zero_is_allowed():
         await restock.nudge(_tap("n:4:-1"), context)
 
     assert context.user_data["rs_deltas"] == {"4": -2}
+
+
+async def test_a_stale_arrow_does_not_report_an_error():
+    """Telegram refuses an edit that changes nothing and answers with an error, so
+    turning past the last page from an old keyboard used to tell the worker
+    "unexpected error" for tapping an arrow. Nothing changed, so nothing is said."""
+    from telegram.error import BadRequest
+
+    async def noop(*args, **kwargs):
+        return None
+
+    async def refuse(*args, **kwargs):
+        raise BadRequest("Message is not modified")
+
+    context = _loaded(rs_page=0)
+    with (
+        mock.patch.object(CallbackQuery, "answer", noop),
+        mock.patch.object(CallbackQuery, "edit_message_text", refuse),
+    ):
+        state = await restock.turn_page(_tap(f"{keyboards.CB_PAGE}:-1"), context)
+
+    assert state == restock.PICK
+
+
+async def test_a_real_edit_failure_is_still_raised():
+    """Only "not modified" is swallowed. Anything else is a genuine fault and the
+    error handler should see it rather than have it quietly dropped."""
+    from telegram.error import BadRequest
+
+    async def noop(*args, **kwargs):
+        return None
+
+    async def refuse(*args, **kwargs):
+        raise BadRequest("MESSAGE_ID_INVALID")
+
+    with (
+        mock.patch.object(CallbackQuery, "answer", noop),
+        mock.patch.object(CallbackQuery, "edit_message_text", refuse),
+        pytest.raises(BadRequest),
+    ):
+        await restock.nudge(_tap("n:3:1"), _loaded())
+
+
+async def test_a_stale_confirm_answers_the_tap_exactly_once():
+    """Answering a callback twice is itself an error. The confirm button is only
+    drawn once something has changed, so reaching it with an empty draft means the
+    keyboard is old."""
+    answers = []
+
+    async def count_answer(self, *args, **kwargs):
+        answers.append(1)
+
+    async def fake_adjust(**kwargs):
+        raise AssertionError("nothing should be sent for an empty draft")
+
+    context = _loaded()
+    with (
+        mock.patch.object(restock.api, "adjust_stock", fake_adjust),
+        mock.patch.object(CallbackQuery, "answer", count_answer),
+    ):
+        state = await restock.submit(_tap(keyboards.CB_APPLY), context)
+
+    assert state == restock.PICK
+    assert len(answers) == 1
 
 
 # -- the keyboard ------------------------------------------------------------

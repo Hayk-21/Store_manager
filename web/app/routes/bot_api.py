@@ -326,10 +326,14 @@ async def transfer_items(
     if store is None:
         raise BotError("unknown_item")
 
+    # Out of stock is filtered in the query, not here: there is nothing to send from
+    # an empty shelf, and filtering an already-limited page would drop rows the
+    # limit had counted — a shop whose first products are at zero would read as
+    # having nothing when it has plenty.
     rows = (
-        await items_repo.search_in_store(store_id, q, limit)
+        await items_repo.search_in_store(store_id, q, limit, in_stock_only=True)
         if q.strip()
-        else await items_repo.list_in_store_for_bot(store_id, limit, 0)
+        else await items_repo.list_in_store_for_bot(store_id, limit, 0, in_stock_only=True)
     )
     return {
         "ok": True,
@@ -338,7 +342,6 @@ async def transfer_items(
         "items": [
             {"id": row["id"], "name": row["name"], "count": row["count"]}
             for row in rows
-            if row["count"] > 0
         ],
     }
 
@@ -501,7 +504,7 @@ async def write_off(body: WriteOffRequest) -> dict:
     """Damaged or expired stock, taken off the shelf.
 
     Deliberately not a sale of zero: that would land in the revenue figures, the
-    receipt count and the worker''s bonus progress, and the last of those would
+    receipt count and the worker's bonus progress, and the last of those would
     pay somebody for breaking things.
     """
     worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)

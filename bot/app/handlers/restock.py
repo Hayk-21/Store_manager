@@ -20,10 +20,12 @@ import logging
 
 from telegram import Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes, ConversationHandler
 
 from app import format, keyboards, texts
 from app.api import ApiError, ApiUnavailable, api, new_idempotency_key
+from app.handlers import newitem
 
 log = logging.getLogger("storemanager.bot.restock")
 
@@ -38,9 +40,22 @@ PAGE = 6
 _KEYS = ("rs_items", "rs_deltas", "rs_page", "rs_key")
 
 
-def _clear(context) -> None:
+def forget(context) -> None:
+    """Drop the draft. Exposed because the new-product steps share this
+    conversation and hand over by dropping it."""
     for key in _KEYS:
         context.user_data.pop(key, None)
+
+
+def _clear(context) -> None:
+    """Tidy both halves of this conversation.
+
+    One conversation owns two screens — the shelf list and the steps for a product
+    that is not on it — so one cancel has to clear both. Clearing only this half
+    once left the other running behind a message that said "cancelled".
+    """
+    forget(context)
+    newitem.forget(context)
 
 
 def _deltas(context) -> dict[str, int]:
@@ -153,10 +168,20 @@ def _keyboard(context):
 
 async def _redraw(query, context) -> int:
     """Update the message in place. The draft lives in one message, not in a
-    growing column of them."""
-    await query.edit_message_text(
-        _screen(context), parse_mode=ParseMode.HTML, reply_markup=_keyboard(context)
-    )
+    growing column of them.
+
+    Telegram refuses an edit that would change nothing, and answers with an error
+    rather than a shrug. That happens for real: a stale keyboard from an earlier
+    page can ask to turn past the last page, and the worker would get "unexpected
+    error" for tapping an arrow. Nothing changed, so nothing needs saying.
+    """
+    try:
+        await query.edit_message_text(
+            _screen(context), parse_mode=ParseMode.HTML, reply_markup=_keyboard(context)
+        )
+    except BadRequest as exc:
+        if "not modified" not in str(exc).lower():
+            raise
     return PICK
 
 
@@ -187,6 +212,17 @@ async def nudge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await _redraw(query, context)
 
 
+async def add_something_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """«Բոլորովին նոր ապրանք» — the product is not on the list.
+
+    Same conversation, different screen. Routed through here rather than wiring the
+    button straight to the other module so the shelf draft is dropped on the way,
+    and so the dependency runs one way only.
+    """
+    forget(context)
+    return await newitem.begin(update, context)
+
+
 async def noop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """The count in the middle of a row, and the page indicator.
 
@@ -195,6 +231,17 @@ async def noop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     ignored.
     """
     await update.callback_query.answer()
+    return PICK
+
+
+async def nothing_to_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Something typed on the correction screen.
+
+    There is nothing to type here — the shelf is on the keyboard — but silence
+    reads as a dead bot, and the cashier has no way to tell the difference between
+    "that does nothing" and "this is broken".
+    """
+    await update.effective_message.reply_text(texts.RESTOCK_USE_THE_BUTTONS)
     return PICK
 
 
@@ -216,7 +263,9 @@ async def submit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         int(raw_id): delta for raw_id, delta in _deltas(context).items() if delta
     }
     if not deltas:
-        await query.answer()
+        # The confirm button is only drawn once something has changed, so this is
+        # a stale keyboard. Already answered above — answering twice is an error
+        # in its own right.
         return PICK
 
     key = context.user_data.get("rs_key") or new_idempotency_key()
