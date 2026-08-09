@@ -33,31 +33,60 @@
     Հաշվարկը զրոյանում է հաջորդ օրվա սկզբին։
   </p>
 
-  {# The cash physically in the drawer, counted by hand at the end of a shift.
-     Shown whether the shop is open or shut, because that is the point of it: the
-     till is settled at close, but the money stays on the premises and is the float
-     the next shift starts from. Before this, a closed shop reported nothing about
-     its drawer and the cash in it was invisible until somebody opened up. #}
-  {% if drawer %}
-    <h3>Դրամարկղում մնացած կանխիկ</h3>
-    <div class="totals">
-      <div class="total">
-        <span class="total-label">Հաշվված</span>
-        <span class="total-value">{{ drawer.counted | money }}</span>
-      </div>
-      {% if drawer.difference %}
-      <div class="total">
-        <span class="total-label">Համակարգի հաշվարկից</span>
-        <span class="total-value {% if drawer.difference < 0 %}negative{% else %}positive{% endif %}">
-          {{ drawer.difference | money }}</span>
-      </div>
-      {% endif %}
+  {# The shop's own float. Its own figure, kept on the store, because it is a real
+     quantity that outlives every session: closing settles the *till*, it does not
+     empty the drawer. Shown whether the shop is open or shut for exactly that
+     reason. #}
+  <h3>Խանութի դրամարկղը</h3>
+  <div class="totals">
+    <div class="total">
+      <span class="total-label">Մնացորդ</span>
+      <span class="total-value">{{ till_balance | money }}</span>
     </div>
+    {% if drawer and drawer.handed_over is not none %}
+    <div class="total">
+      <span class="total-label">Վերջին անգամ հանձնվել է</span>
+      <span class="total-value">{{ drawer.handed_over | money }}</span>
+    </div>
+    {% endif %}
+  </div>
+  <p class="muted small">
+    {% if drawer %}
+      {% if drawer.kind == 'owner' %}
+        Ուղղել է ղեկավարը · {{ drawer.created_at | stamp }}։
+      {% else %}
+        Հաշվել է {{ drawer.worker_name or 'աշխատողը' }} · {{ drawer.created_at | stamp }}։
+      {% endif %}
+    {% else %}
+      Դեռ ոչ ոք չի հաշվել այս խանութի դրամարկղը։
+    {% endif %}
+    Այս գումարը մնում է խանութում և հաջորդ հերթափոխը սկսվում է դրանով։
+  </p>
+
+  {# The owner's correction. Needed because the figure is something a person can be
+     wrong about, and only the owner can settle it — a worker cannot be asked to
+     correct a drawer they are not standing at. #}
+  <details class="till-edit">
+    <summary class="muted small">Ուղղել մնացորդը</summary>
+    <form hx-post="/stores/{{ store_id }}/till-balance" hx-target="#store-status"
+          hx-swap="outerHTML" class="form-row">
+      <div class="narrow">
+        <label for="balance-{{ store_id }}">Նոր մնացորդ</label>
+        <input id="balance-{{ store_id }}" name="amount" inputmode="decimal"
+               value="{{ till_balance | plain_money }}" required>
+      </div>
+      <div>
+        <label for="balance-note-{{ store_id }}">Նշում</label>
+        <input id="balance-note-{{ store_id }}" name="note" maxlength="300">
+      </div>
+      <div class="actions">
+        <button type="submit" class="secondary">Պահել</button>
+      </div>
+    </form>
     <p class="muted small">
-      Հաշվել է {{ drawer.worker_name or 'աշխատողը' }} · {{ drawer.created_at | stamp }}։
-      Այս գումարը մնում է խանութում և հաջորդ հերթափոխի դրամարկղը սկսվում է դրանով։
+      Եթե խանութը բաց է, ուղղումը կկիրառվի նաև ընթացիկ դրամարկղին։
     </p>
-  {% endif %}
+  </details>
 
   {% if store_session %}
     <h3>Դրամարկղում հիմա</h3>
@@ -159,10 +188,7 @@
   {% else %}
     <p class="muted">
       Հերթափոխը բաց չէ, բայց այսօրվա վաճառքը վերևում մնում է մինչև օրվա վերջ։
-      Երբ աշխատողը բոտում սեղմի «Բացել խանութը», այստեղ կերևա նաև դրամարկղը։
-      {% if not drawer %}
-        Աշխատողը դեռ չի գրանցել, թե որքան կանխիկ է թողել դրամարկղում։
-      {% endif %}
+      Երբ աշխատողը բոտում սեղմի «Բացել խանութը», դրամարկղը կսկսվի վերևի մնացորդով։
     </p>
   {% endif %}
 </div>

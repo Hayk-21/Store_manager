@@ -1,4 +1,9 @@
-"""Hand counts of the cash drawer."""
+"""Hand counts of the cash drawer.
+
+The balance itself lives on ``stores.till_balance``. These rows are the record of how
+it got to that figure: who said so, when, what the till held at the time, and what
+went to the owner as a result.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +26,7 @@ async def insert(
     kind: str,
     counted: Decimal,
     expected: Decimal,
+    handed_over: Decimal | None = None,
     note: str | None = None,
     external_id: str | None = None,
 ) -> int:
@@ -28,19 +34,19 @@ async def insert(
         """
         INSERT INTO till_counts
             (owner_id, store_id, store_session_id, work_session_id, worker_id,
-             kind, counted, expected, note, external_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             kind, counted, expected, handed_over, note, external_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         RETURNING id
         """,
         owner_id, store_id, store_session_id, work_session_id, worker_id,
-        kind, counted, expected, note, external_id,
+        kind, counted, expected, handed_over, note, external_id,
     )
 
 
 async def by_external_id(owner_id: int, external_id: str) -> asyncpg.Record | None:
     return await db.fetchrow(
         """
-        SELECT id, kind, counted, expected FROM till_counts
+        SELECT id, kind, counted, expected, handed_over FROM till_counts
          WHERE owner_id = $1 AND external_id = $2
         """,
         owner_id,
@@ -48,44 +54,20 @@ async def by_external_id(owner_id: int, external_id: str) -> asyncpg.Record | No
     )
 
 
-async def last_close_for_store(conn, owner_id: int, store_id: int) -> Decimal | None:
-    """What the last person out of this shop said they were leaving.
+async def last_count_for_store(owner_id: int, store_id: int) -> asyncpg.Record | None:
+    """The most recent count of this shop's drawer, for a page to render.
 
-    Read on the caller's connection: it decides the float of a session being opened
-    in the same transaction. ``None`` when nobody has ever counted here, which is
-    not zero — it means "unknown", and the caller starts the till empty rather than
-    inventing a figure.
-    """
-    return await conn.fetchval(
-        """
-        SELECT counted FROM till_counts
-         WHERE owner_id = $1 AND store_id = $2 AND kind = 'close'
-         ORDER BY created_at DESC, id DESC
-         LIMIT 1
-        """,
-        owner_id,
-        store_id,
-    )
-
-
-async def last_close_for_store_pooled(
-    owner_id: int, store_id: int
-) -> asyncpg.Record | None:
-    """The same lookup for a page render, off the pool.
-
-    Separate from ``last_close_for_store`` rather than sharing it: that one takes an
-    explicit connection because it decides the float of a session being opened in
-    that transaction, and a page has no transaction to belong to. Carries who
-    counted and when, which the float does not need and a reader does.
+    Not the balance — that is a column on the store now. This is who last set it and
+    when. An owner's correction counts as a count here, because "the owner set it" is
+    exactly what somebody reading the page needs to be told.
     """
     return await db.fetchrow(
         f"""
-        SELECT t.counted, t.expected, t.created_at,
-               (t.counted - t.expected) AS difference,
+        SELECT t.counted, t.expected, t.handed_over, t.kind, t.created_at, t.note,
                {DISPLAY_NAME} AS worker_name
           FROM till_counts t
           LEFT JOIN workers w ON w.id = t.worker_id
-         WHERE t.owner_id = $1 AND t.store_id = $2 AND t.kind = 'close'
+         WHERE t.owner_id = $1 AND t.store_id = $2
          ORDER BY t.created_at DESC, t.id DESC
          LIMIT 1
         """,
@@ -95,11 +77,10 @@ async def last_close_for_store_pooled(
 
 
 async def for_session(store_session_id: int) -> list[asyncpg.Record]:
-    """Both ends of the session's counts, for the report."""
+    """Every handover recorded during one session, for the report."""
     return await db.fetch(
         f"""
-        SELECT t.id, t.kind, t.counted, t.expected, t.created_at,
-               (t.counted - t.expected) AS difference,
+        SELECT t.id, t.kind, t.counted, t.expected, t.handed_over, t.created_at,
                {DISPLAY_NAME} AS worker_name
           FROM till_counts t
           LEFT JOIN workers w ON w.id = t.worker_id

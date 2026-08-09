@@ -66,7 +66,7 @@
      looks like a slow network. #}
   {% with store_id = status.store_id, store_session = status.store_session,
           totals = status.totals, on_shift = status.on_shift, day = status.day,
-          drawer = status.drawer %}
+          drawer = status.drawer, till_balance = status.till_balance %}
     {% include "_store_status.html" %}
   {% endwith %}
 </div>

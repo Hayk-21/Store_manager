@@ -42,8 +42,8 @@
             <span class="muted">Դ</span>
             <span class="{% if s.cash < 0 %}negative{% endif %}">{{ s.cash | money }}</span>
           </span>
-        {% elif s.left_in_till is not none %}
-          <span title="Դրամարկղում մնացած կանխիկ · {{ s.left_at | stamp }}">
+        {% else %}
+          <span title="Խանութի դրամարկղի մնացորդը">
             <span class="muted">Դ</span>
             <span>{{ s.left_in_till | money }}</span>
           </span>

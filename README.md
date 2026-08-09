@@ -25,7 +25,7 @@ and ends when the store is closed.
 
 ```
 worker presses «Բացել»  ──►  store session opens  ──►  sales and salaries accumulate
-                                (till starts at 0)
+                          (till starts at the shop's float)
                                         │
                         the last worker ends their shift
                                         ▼
@@ -38,29 +38,38 @@ session. There is no running-balance column anywhere, which is why closing the
 store resets the till with nothing running at midnight, and why every past
 session stays readable at `/reports`.
 
-**The cash in the drawer does carry over, though.** A shop that keeps 40,000 in
-the till overnight still has it in the morning. So the worker locking up counts
-the drawer — `💰 Դրամարկղի մնացորդ`, on the working keyboard so it can be done
-before locking rather than from memory afterwards — and the next session to open
-seeds itself with that figure as an ordinary `deposit`, which keeps "how much is
-in the till" a sum over one table.
+**Each shop keeps its own float, though.** `stores.till_balance` — its *casa*.
+Might be nothing, might be forty thousand, differs from shop to shop. It is not
+takings and it is not the owner's yet: it is the change the next person needs to
+open up with. A session seeds its till from that column as an ordinary `deposit`,
+which keeps "how much is in the till" a sum over one table.
 
-The arriving worker counts again, and that count is *acted on*: if it differs from
-what the books expected, the difference is posted as an `adjustment`, so the till
-starts from what is really in the drawer. This is what covers cash that was there
-before anybody's shift — nobody counted before the first one, a count gets
-skipped, the owner drops a float in on a Sunday. Without it the whole session runs
-that much wrong, and the next count reports a shortfall nobody caused.
+One person sets it, once, at the end of their shift. The worker locking up says
+how much they are leaving — `💰 Դրամարկղի մնացորդ`, offered on the working
+keyboard and again after the shift write-up — and that figure becomes the store's
+balance. Everything else in the drawer goes to the owner:
 
-An adjustment, never an edited balance: `till_counts` still records what was
-expected and what was found, so the discrepancy survives, and the ledger gains one
-visible row saying a person corrected it. Overwriting the total would hide both
-halves — and the gap between the two figures is the only thing there that cannot
-be worked out from anything else.
+```
+handed to the owner  =  what the till held  −  what was left behind
+                     =  (yesterday's float + today's takings − wages − petty cash)
+                        −  the new float
+```
 
-A **closing** count posts no such row. It *is* the float the next session starts
-from, so what was really in the drawer carries forward by itself; a shortfall at
-the end of a shift is something that happened during it, and stays visible as one.
+The subtraction is **booked**, as a `withdrawal` noted «Հանձնված ղեկավարին». The
+cash genuinely left the shop, so the ledger says so, and the session's closing
+figure then matches what is really in the drawer. Reading it back out of
+arithmetic would leave every report describing money that is no longer there.
+
+Leaving *more* than the till held — an unrecorded sale, or somebody topped the
+drawer up — is booked as found cash (`adjustment`, «Դրամարկղում սպասվածից ավելի
+կանխիկ») rather than as a negative handover, because nothing was handed anywhere.
+
+**Nobody is asked at the start of a shift.** That asked a worker to answer for a
+drawer somebody else had filled, and bound nobody to anything. The float is what
+the last person said they left, and the owner can correct it from the store page
+when that is wrong — a count typed with an extra nought, a shop set up before
+anybody counted. While a session is open the correction is booked into the till
+too, so the page and the shop are never working from different figures.
 
 Several workers can share one store session. The first to arrive opens it; the
 others join. Each gets their own shift row and their own salary.
@@ -195,7 +204,7 @@ web/app/
     shifts.py      open / end shift / close store / auto-close
     sales.py       record_sale, void_last_sale — the atomic ones
     stock.py       counts corrected by hand, logged with a name against them
-    till.py        hand counts of the drawer, and the float carried to next shift
+    till.py        the shop’s float, the closing count, and the handover to the owner
     transfers.py   stock moved between two of one owner's shops
   routes/        auth · pages · partials · bot_api
   templates/     Jinja2; base.html carries the fixed footer
@@ -332,7 +341,7 @@ services cannot drift apart on what a failure means.
 | POST | `/write-off` | stock that broke or expired, off the shelf without a sale → 201 |
 | POST | `/cash/withdraw` | cash out of the till, with the reason → 201 |
 | GET | `/shift/sold` | what this worker has already rung up this shift, per product |
-| POST | `/shift/till` | a hand count of the drawer, `kind` open or close → 201 |
+| POST | `/shift/till` | what the worker leaves in the drawer; the rest is booked as handed over → 201 |
 | POST | `/shift/close-out` | declare the day's sales and end the shift, in one transaction |
 | POST | `/shift/end` | end the shift, pay the salary, close the store if last out |
 | POST | `/store/close` | close the store for everyone. Owner-side only — the bot never calls it |

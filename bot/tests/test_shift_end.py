@@ -76,7 +76,7 @@ async def test_ending_a_shift_offers_to_count_the_drawer():
         for button in row
     ]
 
-    assert f"{keyboards.CB_TILL}:close" in tapped, "no way to record the till"
+    assert keyboards.CB_TILL in tapped, "no way to record the till"
 
 
 async def test_the_drawer_is_offered_whether_or_not_the_shop_closed():
@@ -124,7 +124,7 @@ def test_something_actually_handles_the_drawer_button():
         update_id=1,
         callback_query=CallbackQuery(
             id="1", from_user=user, chat_instance="1",
-            data=f"{keyboards.CB_TILL}:close",
+            data=keyboards.CB_TILL,
             message=Message(message_id=1, date=None,
                             chat=Chat(id=1, type="private"), from_user=user),
         ),

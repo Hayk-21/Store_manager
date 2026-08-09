@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import asyncpg
 
 from app.db import db
@@ -19,12 +21,40 @@ async def list_for_owner(owner_id: int) -> list[asyncpg.Record]:
     )
 
 
+async def till_balance(conn, owner_id: int, store_id: int) -> Decimal | None:
+    """The cash this shop keeps in its drawer between shifts.
+
+    Takes a connection: every caller is deciding or changing it inside a transaction
+    that has to include the read.
+    """
+    return await conn.fetchval(
+        "SELECT till_balance FROM stores WHERE id = $1 AND owner_id = $2",
+        store_id,
+        owner_id,
+    )
+
+
+async def set_till_balance(conn, owner_id: int, store_id: int, amount: Decimal) -> None:
+    """Set it. Two callers only — a worker's closing count and the owner correcting
+    it — and both book the matching ledger movement in the same transaction."""
+    await conn.execute(
+        """
+        UPDATE stores SET till_balance = $3, updated_at = now()
+         WHERE id = $1 AND owner_id = $2
+        """,
+        store_id,
+        owner_id,
+        amount,
+    )
+
+
 async def get(owner_id: int, store_id: int) -> asyncpg.Record | None:
     """Always scoped by owner: a store belonging to someone else must read as
     missing, so the caller renders 404 rather than 403."""
     return await db.fetchrow(
         """
-        SELECT id, name, address, lat, lng, radius_m, day_start_hour, is_active, created_at
+        SELECT id, name, address, lat, lng, radius_m, day_start_hour, is_active,
+               till_balance, created_at
           FROM stores
          WHERE id = $1 AND owner_id = $2 AND is_active
         """,

@@ -473,15 +473,15 @@ async def add_item(body: NewItemRequest) -> dict:
 
 @router.post("/shift/till", status_code=201)
 async def count_the_till(body: TillCountRequest) -> dict:
-    """What the worker counted in the drawer.
+    """What the worker is leaving in the shop's drawer.
 
-    Recorded beside what the books expected, never over it: the gap between the two
-    is the reason for counting. A 'close' count is also what the next session's till
-    opens with — the money stays in the shop.
+    Three things at once, in one transaction: the count is recorded, it becomes the
+    store's float for tomorrow, and everything above it is booked out of the till as
+    handed to the owner.
     """
     worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
-    return await till_service.declare(
-        worker, body.kind, body.counted, body.idempotency_key
+    return await till_service.declare_close(
+        worker, body.counted, body.idempotency_key
     )
 
 

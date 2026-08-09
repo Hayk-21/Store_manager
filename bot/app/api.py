@@ -261,16 +261,17 @@ class Api:
             payload["wholesale_price"] = wholesale_price
         return await self._call("POST", "/items", json=payload)
 
-    async def count_till(
-        self, telegram_id: int, kind: str, counted: str, key: str
-    ) -> dict:
-        """A hand count of the drawer. Amount as a decimal string, never a float."""
+    async def count_till(self, telegram_id: int, counted: str, key: str) -> dict:
+        """What the worker is leaving in the shop's drawer.
+
+        Amount as a decimal string, never a float. The server makes it the store's
+        float and books the rest out as handed to the owner.
+        """
         return await self._call(
             "POST",
             "/shift/till",
             json={
                 "telegram_id": telegram_id,
-                "kind": kind,
                 "counted": counted,
                 "idempotency_key": key,
             },

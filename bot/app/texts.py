@@ -324,53 +324,33 @@ CASH_DONE_PLAINLY = "💸 Գումարի վերցնումը գրանցվեց։"
 
 # -- counting the drawer -----------------------------------------------------
 
-# On the main keyboard, so the drawer can be counted at any point in the shift and
-# not only once it is over. A worker who counts up before locking the door wants to
-# record it then, while the notes are in their hand.
+# One count, at the end, by the person who was at the drawer. Counting at the start
+# of a shift was dropped: it asked a worker to answer for a drawer somebody else had
+# filled.
 BTN_TILL_COUNT = "💰 Դրամարկղի մնացորդ"
 BTN_TILL_CLOSE = "💰 Գրել դրամարկղի մնացորդը"
-BTN_TILL_OPEN = "💰 Գրել դրամարկղում եղած գումարը"
 TILL_ASK_CLOSE = (
     "💰 <b>Դրամարկղի մնացորդը</b>\n\n"
-    "Հաշվեք դրամարկղում մնացած կանխիկը և գրեք գումարը թվով։\n"
-    "Այդ գումարը մնում է խանութում և կփոխանցվի հաջորդ հերթափոխին։"
-)
-TILL_ASK_OPEN = (
-    "💰 <b>Դրամարկղում որքա՞ն կանխիկ կա</b>\n\n"
-    "Հաշվեք դրամարկղում եղած կանխիկը և գրեք գումարը թվով։"
+    "Որքա՞ն կանխիկ եք թողնում դրամարկղում։ Գրեք գումարը թվով։\n"
+    "Այդ գումարը մնում է խանութում, մնացածը՝ ղեկավարին։"
 )
 TILL_BAD_AMOUNT = "Գրեք գումարը թվով, օրինակ՝ 40000։"
-TILL_DONE_CLOSE = "💰 Գրանցվեց՝ դրամարկղում մնաց <b>{counted}</b>։\n"
-TILL_DONE_OPEN = "💰 Գրանցվեց՝ դրամարկղում կա <b>{counted}</b>։\n"
-# Said plainly, and never called a mistake: a drawer can be over as easily as
-# short, and the worker standing there is the only one who can still explain it.
-TILL_MATCHES = "✅ Համակարգի հաշվարկի հետ համընկնում է։"
-TILL_OVER = (
-    "Համակարգի հաշվարկով՝ {expected}։\n"
-    "Ավելի է <b>{difference}</b>-ով։ Հնարավոր է՝ վաճառք գրանցված չէ։"
-)
-TILL_SHORT = (
-    "Համակարգի հաշվարկով՝ {expected}։\n"
-    "Պակաս է <b>{difference}</b>-ով։ Տեղեկացրեք ղեկավարին։"
-)
-# An opening count is acted on rather than just noted: the till is brought up to
-# what was actually found. Said as a correction, not as a shortfall — the money was
-# missing, or already there, before this worker arrived.
-TILL_MORE = "ավելի"
-TILL_LESS = "պակաս"
-TILL_OPENING_CORRECTED = (
-    "Համակարգի հաշվարկով՝ {expected}։\n"
-    "<b>{difference}</b>-ով {direction} է, և դրամարկղը ուղղվեց ձեր հաշվարկով։\n\n"
-    "<i>Այս տարբերությունը ձեր հերթափոխին չի վերագրվում։</i>"
+TILL_DONE_CLOSE = "💰 Գրանցվեց՝ դրամարկղում մնում է <b>{counted}</b>։\n"
+# The figure the worker is about to act on — they are holding that money — so it is
+# stated rather than left to be worked out from the other two.
+TILL_HANDED_OVER = "Ղեկավարին հանձնվում է՝ <b>{handed}</b>։\n"
+TILL_NOTHING_TO_HAND = "Ղեկավարին հանձնելու գումար չկա։\n"
+TILL_FOUND_EXTRA = (
+    "Դրամարկղում սպասվածից <b>{extra}</b>-ով ավելի է եղել, և այն նույնպես մնում է "
+    "խանութում։\n"
 )
 TILL_DONE_PLAINLY = "💰 Դրամարկղի մնացորդը գրանցվեց։"
-TILL_SKIPPED = "Դրամարկղի հաշվարկը բաց թողնվեց։"
+TILL_SKIPPED = (
+    "Դրամարկղի հաշվարկը բաց թողնվեց։ Խանութի մնացորդը մնում է նույնը։"
+)
 TILL_HANDOVER_PROMPT = (
     "Հաշվեք դրամարկղում մնացած կանխիկը։ Այդ գումարը մնում է խանութում "
     "և հաջորդ հերթափոխը կսկսվի դրանով։"
-)
-TILL_OPENING_PROMPT = (
-    "Ստուգեք դրամարկղը՝ որքա՞ն կանխիկ է մնացել նախորդ հերթափոխից։"
 )
 
 # -- moving stock between shops ----------------------------------------------

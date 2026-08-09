@@ -31,6 +31,7 @@ from app.schemas import PRICE_KINDS
 from app.services import corrections, statistics
 from app.services import money as money_service
 from app.services import shifts as shifts_service
+from app.services import till as till_service
 from app.services import transfers as transfers_service
 from app.templating import render
 
@@ -67,6 +68,7 @@ async def _status_context(owner_id: int, store_id: int) -> dict:
     totals = (
         await money_repo.totals_for_session(session["id"]) if session is not None else None
     )
+    store = await _store_or_404(owner_id, store_id)
     return {
         "store_id": store_id,
         "store_session": session,
@@ -75,10 +77,11 @@ async def _status_context(owner_id: int, store_id: int) -> dict:
         # Shown whether or not the store is open: closing settles the till, but
         # the shop still sold what it sold this morning.
         "day": await money_repo.day_totals_for_store(owner_id, store_id),
-        # What the last worker out counted and left in the drawer. Shown whether or
-        # not the shop is open, because the cash is there either way — closing
-        # settles the *till*, it does not empty the drawer.
-        "drawer": await till_repo.last_close_for_store_pooled(owner_id, store_id),
+        # The shop's own float, and the story of how it got to that figure. Shown
+        # whether or not the shop is open, because the cash is there either way —
+        # closing settles the *till*, it does not empty the drawer.
+        "till_balance": store["till_balance"],
+        "drawer": await till_repo.last_count_for_store(owner_id, store_id),
     }
 
 
@@ -820,6 +823,33 @@ async def _session_of_sale(owner_id: int, sale_id: int) -> int | None:
 def _back_to_report(store_session_id: int | None):
     target = f"/reports?store_session_id={store_session_id}" if store_session_id else "/reports"
     return RedirectResponse(target, status_code=303)
+
+
+@router.post("/stores/{store_id}/till-balance")
+async def set_till_balance(
+    request: Request,
+    store_id: int,
+    amount: str = Form(""),
+    note: str = Form(""),
+    user: CurrentUser = Depends(require_csrf),
+):
+    """Correct a shop's float.
+
+    The balance is a real quantity somebody can be wrong about — a count typed with
+    an extra nought, a drawer topped up in person, a shop that existed before anybody
+    counted anything — and only the owner can settle it. Recorded as their correction
+    rather than silently overwritten, so the history says who moved it.
+    """
+    await _store_or_404(user.id, store_id)
+    await till_service.set_by_owner(
+        user.id,
+        store_id,
+        forms.money(amount, "Գումար"),
+        forms.text(note, "Նշում", max_length=300, required=False),
+    )
+    return render(
+        request, "_store_status.html", await _status_context(user.id, store_id)
+    )
 
 
 @router.get("/transfers")

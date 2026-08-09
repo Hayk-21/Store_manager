@@ -361,7 +361,7 @@ def build() -> Application:
     till_flow = ConversationHandler(
         entry_points=[
             # From the message that ends or starts a shift...
-            CallbackQueryHandler(till.begin, pattern=f"^{keyboards.CB_TILL}:"),
+            CallbackQueryHandler(till.begin, pattern=f"^{keyboards.CB_TILL}$"),
             # ...and from the main keyboard, at any point during it. A worker who
             # counts up before locking the door records it then, not from memory
             # once the shift-end prompt asks.

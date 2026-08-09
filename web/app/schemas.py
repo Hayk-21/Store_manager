@@ -176,17 +176,14 @@ class AdjustStockRequest(IdempotentRequest):
 
 
 class TillCountRequest(IdempotentRequest):
-    """A hand count of the cash drawer, at the start or the end of a shift."""
+    """What the worker is leaving in the drawer at the end of their shift.
 
-    kind: str
+    No ``kind``. Counting at the *start* of a shift was dropped: it asked a worker to
+    answer for a drawer somebody else had filled, and the answer bound nobody to
+    anything. One count, at the end, by the person who was there.
+    """
+
     counted: Decimal = Field(ge=0)
-
-    @field_validator("kind")
-    @classmethod
-    def _known_kind(cls, value: str) -> str:
-        if value not in {"open", "close"}:
-            raise ValueError("kind must be 'open' or 'close'")
-        return value
 
     @field_validator("counted", mode="before")
     @classmethod

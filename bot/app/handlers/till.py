@@ -1,17 +1,15 @@
-"""Counting the cash drawer, at both ends of a shift.
+"""Counting the drawer at the end of a shift.
 
-One question, asked twice. The worker leaving says what they are leaving in the
-drawer; that money stays in the shop and is what the next session's till opens
-with. The worker arriving says what they found, and the two figures are compared
-for them — so a drawer that is short is noticed at the start of a shift by somebody
-who did not cause it, rather than at the end by whoever gets blamed.
+One question, asked once, by the person who was standing at the drawer: how much are
+you leaving in it. That amount becomes the shop's float — it stays on the premises
+and is what the next shift opens with — and everything above it goes to the owner.
 
-Neither answer changes the books. What the ledger says and what is in the drawer
-are separate facts, and the gap between them is the thing worth recording.
+Nobody is asked at the *start* of a shift. That asked a worker to answer for a
+drawer somebody else had filled, and the answer bound nobody to anything.
 
-Its own small conversation, entered by a button on a message rather than by a
-keyboard label: the message may well be tapped minutes after the shift ended, long
-after any flow of its own would have timed out.
+Reachable two ways: the button on the message that ends a shift, and «Դրամարկղի
+մնացորդ» on the working keyboard, so it can be recorded while the notes are still in
+hand rather than from memory once the door is locked.
 """
 
 from __future__ import annotations
@@ -30,17 +28,20 @@ log = logging.getLogger("storemanager.bot.till")
 
 ASK_AMOUNT = 80
 
-_KEYS = ("till_kind", "till_key", "till_back")
+_KEYS = ("till_key", "till_back")
+
+
+def _clear(context) -> None:
+    for key in _KEYS:
+        context.user_data.pop(key, None)
 
 
 def _keyboard_after(context):
     """The keyboard to leave behind.
 
     Taken from how the flow was entered rather than asked of the server. The entry
-    point already knows: the main keyboard and the shift-*start* message both mean
-    the worker is still working, and the shift-*end* message means they are not.
-    Asking ``/me`` instead was a round trip to learn something already in hand — and
-    it put a network call in a path that every test of this flow runs through.
+    point already knows: the working keyboard means the shift is still running, the
+    message that ends one means it is not.
     """
     return (
         keyboards.on_shift()
@@ -49,46 +50,31 @@ def _keyboard_after(context):
     )
 
 
-def _clear(context) -> None:
-    for key in _KEYS:
-        context.user_data.pop(key, None)
-
-
 async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """The button on the shift-end or shift-start message."""
+    """The button on the message that ends a shift."""
     query = update.callback_query
     await query.answer()
-    kind = query.data.split(":", 1)[1]
     _clear(context)
-    context.user_data["till_kind"] = kind
-    # An opening count happens on a shift that is starting; a closing one on the
-    # message that just ended it.
-    context.user_data["till_back"] = "on_shift" if kind == "open" else "off_shift"
+    context.user_data["till_back"] = "off_shift"
 
     # The button is gone once used, so a second tap cannot open a second count that
     # the server would then refuse under a different key.
     await query.edit_message_reply_markup(reply_markup=None)
-    await query.message.reply_text(
-        texts.TILL_ASK_CLOSE if kind == "close" else texts.TILL_ASK_OPEN,
-        parse_mode=ParseMode.HTML,
-    )
+    await query.message.reply_text(texts.TILL_ASK_CLOSE, parse_mode=ParseMode.HTML)
     return ASK_AMOUNT
 
 
 async def begin_from_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """«Դրամարկղի մնացորդ» on the main keyboard, mid-shift.
+    """«Դրամարկղի մնացորդ» on the working keyboard, mid-shift.
 
     The same question as at the end of a shift, asked whenever the worker has the
-    notes in their hand — counting up before locking the door and recording it then
-    is the natural order, and waiting for the shift-end prompt means doing it from
-    memory.
+    notes in their hand. Counting up before locking the door and recording it then is
+    the natural order; waiting for the shift-end prompt means doing it from memory.
 
-    Filed as a closing count, so it is what the next session's till opens with. A
-    later count replaces it: the most recent one is the one that carries over, which
-    means counting twice costs nothing and counting early is never wrong.
+    A later count replaces an earlier one, so counting twice costs nothing and
+    counting early is never wrong.
     """
     _clear(context)
-    context.user_data["till_kind"] = "close"
     context.user_data["till_back"] = "on_shift"
     await update.effective_message.reply_text(
         texts.TILL_ASK_CLOSE,
@@ -112,16 +98,12 @@ async def type_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await update.effective_message.reply_text(texts.TILL_BAD_AMOUNT)
         return ASK_AMOUNT
 
-    kind = context.user_data.get("till_kind", "close")
     key = context.user_data.get("till_key") or new_idempotency_key()
     context.user_data["till_key"] = key
 
     try:
         result = await api.count_till(
-            telegram_id=update.effective_user.id,
-            kind=kind,
-            counted=str(counted),
-            key=key,
+            telegram_id=update.effective_user.id, counted=str(counted), key=key
         )
     except (ApiError, ApiUnavailable) as exc:
         await update.effective_message.reply_text(exc.human())
@@ -136,15 +118,12 @@ async def type_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await update.effective_message.reply_text(texts.UNEXPECTED)
         return ConversationHandler.END
 
-    # Recorded. Nothing below may report a failure.
-    #
-    # Three ways in — the main keyboard mid-shift, the message that opens a shift,
-    # and the one that ends it — and they must not all end on the same keyboard.
-    # Read *before* clearing, or the answer is always the off-shift one.
+    # Recorded. Nothing below may report a failure. The keyboard is read before the
+    # state is cleared, or the answer is always the off-shift one.
     keyboard = _keyboard_after(context)
     _clear(context)
     try:
-        body = _confirmation(result["count"], kind)
+        body = _confirmation(result["count"])
     except (KeyError, TypeError):
         log.exception("could not render a till count from %r", result)
         body = texts.TILL_DONE_PLAINLY
@@ -155,44 +134,33 @@ async def type_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     return ConversationHandler.END
 
 
-def _confirmation(count: dict, kind: str) -> str:
-    """What was counted, and whether it agrees with the books.
+def _confirmation(count: dict) -> str:
+    """What stays in the shop, and what goes to the owner.
 
-    The difference is spelled out rather than left to be worked out, and it is not
-    called an error: a drawer can be over as easily as short, and either way the
-    worker is the person who can still explain it.
+    The handover is the figure the worker is about to act on — they are holding that
+    money — so it is stated outright rather than left as a subtraction they do in
+    their head at the door.
+
+    There is no "the books disagree" line, and there deliberately cannot be one: the
+    worker says what they are *leaving*, not what the whole drawer holds, so there is
+    no second reading of the same quantity to compare. The one case worth naming is
+    leaving more than the till is supposed to contain, which means either an
+    unrecorded sale or a miscount, and either way the money stays put.
     """
-    difference = Decimal(count["difference"])
-    head = texts.TILL_DONE_CLOSE if kind == "close" else texts.TILL_DONE_OPEN
-    body = head.format(counted=format.money(count["counted"]))
+    handed = Decimal(count["handed_over"] or 0)
+    body = texts.TILL_DONE_CLOSE.format(counted=format.money(count["counted"]))
 
-    if difference == 0:
-        return body + texts.TILL_MATCHES
-
-    # An opening count is acted on, so it is reported differently: the till has been
-    # brought up to what the worker found, and telling them "you are 500 short" for
-    # money that was missing before they arrived would be both wrong and unfair.
-    if kind == "open":
-        return body + texts.TILL_OPENING_CORRECTED.format(
-            expected=format.money(count["expected"]),
-            difference=format.money(abs(difference)),
-            direction=texts.TILL_MORE if difference > 0 else texts.TILL_LESS,
-        )
-
-    if difference > 0:
-        return body + texts.TILL_OVER.format(
-            expected=format.money(count["expected"]),
-            difference=format.money(difference),
-        )
-    return body + texts.TILL_SHORT.format(
-        expected=format.money(count["expected"]),
-        difference=format.money(-difference),
-    )
+    if handed > 0:
+        return body + texts.TILL_HANDED_OVER.format(handed=format.money(handed))
+    if handed < 0:
+        return body + texts.TILL_FOUND_EXTRA.format(extra=format.money(-handed))
+    return body + texts.TILL_NOTHING_TO_HAND
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Skipping the count. Allowed, because a worker standing at a locked shop with
-    a queue behind them should not be held there by a number."""
+    """Skipping the count. Allowed, because a worker standing at a locked shop with a
+    queue behind them should not be held there by a number — and the shop's float
+    simply stays whatever it already was."""
     keyboard = _keyboard_after(context)
     _clear(context)
     if update.callback_query is not None:

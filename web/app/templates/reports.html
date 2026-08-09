@@ -342,28 +342,32 @@
   {% endif %}
 
   {% if d.till_counts %}
-  {# What was in the drawer against what the books expected. Neither figure is
-     corrected to match the other: the difference is the only thing here that
-     cannot be worked out from anywhere else, and it is the reason for counting. #}
-  <h3>Դրամարկղի հաշվարկ</h3>
+  {# The three figures of a handover, and they are one sum: the till held X, the
+     worker left Y in the shop, so Z went to the owner. Kept as three columns rather
+     than one, because "how much should I have received" is the question this table
+     exists to answer and making the owner do the subtraction invites a wrong answer. #}
+  <h3>Դրամարկղի հանձնում</h3>
   <div class="table-wrap">
     <table class="cards">
       <thead>
-        <tr><th>Ժամ</th><th>Երբ</th><th>Աշխատող</th>
-            <th class="num">Հաշվված</th><th class="num">Ըստ համակարգի</th>
-            <th class="num">Տարբերություն</th></tr>
+        <tr><th>Ժամ</th><th>Ով</th>
+            <th class="num">Դրամարկղում էր</th><th class="num">Մնաց խանութում</th>
+            <th class="num">Հանձնվեց</th></tr>
       </thead>
       <tbody>
         {% for t in d.till_counts %}
         <tr>
           <td class="nowrap" data-label="Ժամ">{{ t.created_at | clock }}</td>
-          <td data-label="Երբ">{{ 'Բացման' if t.kind == 'open' else 'Փակման' }}</td>
-          <td data-label="Աշխատող">{{ t.worker_name or '—' }}</td>
-          <td class="num" data-label="Հաշվված">{{ t.counted | money }}</td>
-          <td class="num muted" data-label="Ըստ համակարգի">{{ t.expected | money }}</td>
-          <td class="num {% if t.difference < 0 %}negative{% elif t.difference > 0 %}positive{% endif %}"
-              data-label="Տարբերություն">
-            {% if t.difference == 0 %}—{% else %}{{ t.difference | money }}{% endif %}
+          <td data-label="Ով">
+            {% if t.kind == 'owner' %}ղեկավար{% else %}{{ t.worker_name or '—' }}{% endif %}
+          </td>
+          <td class="num muted" data-label="Դրամարկղում էր">{{ t.expected | money }}</td>
+          <td class="num" data-label="Մնաց խանութում">{{ t.counted | money }}</td>
+          <td class="num" data-label="Հանձնվեց">
+            {% if t.handed_over is none %}—
+            {% elif t.handed_over < 0 %}
+              <span class="positive">+{{ (-t.handed_over) | money }}</span>
+            {% else %}<b>{{ t.handed_over | money }}</b>{% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -371,9 +375,10 @@
     </table>
   </div>
   <p class="muted small">
-    Փակման պահին հաշվված գումարը մնում է խանութում և հաջորդ հերթափոխի դրամարկղը
-    սկսվում է դրանով։ Բացասական տարբերությունը նշանակում է, որ դրամարկղում ավելի
-    քիչ է, քան համակարգը սպասում էր՝ դրականը սովորաբար չգրանցված վաճառք է։
+    «Մնաց խանութում» գումարը դուրս չի գալիս խանութից՝ հաջորդ հերթափոխի դրամարկղը
+    սկսվում է դրանով։ «Հանձնվեց» սյունակը ցույց է տալիս, թե որքան պետք է ստացած
+    լինեք։ Կանաչ թիվը նշանակում է, որ դրամարկղում սպասվածից ավելի կանխիկ է եղել՝
+    սովորաբար չգրանցված վաճառք։
   </p>
   {% endif %}
 

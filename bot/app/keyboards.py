@@ -357,16 +357,14 @@ def restock_empty() -> InlineKeyboardMarkup:
     )
 
 
-def count_the_till(kind: str) -> InlineKeyboardMarkup:
-    """Offered on the message that ends a shift, and on the one that starts one.
+def count_the_till() -> InlineKeyboardMarkup:
+    """Offered on the message that ends a shift.
 
-    A button rather than another question in the flow: at the end of a shift the
-    worker is locking up, and at the start there is often a queue. Both are moments
-    to be handed one thing to do, not held in a conversation.
+    A button rather than another question in the flow: the worker is locking up, and
+    that is a moment to be handed one thing to do rather than held in a conversation.
     """
-    label = texts.BTN_TILL_CLOSE if kind == "close" else texts.BTN_TILL_OPEN
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton(label, callback_data=f"{CB_TILL}:{kind}")]]
+        [[InlineKeyboardButton(texts.BTN_TILL_CLOSE, callback_data=CB_TILL)]]
     )
 
 
