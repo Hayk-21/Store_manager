@@ -40,12 +40,27 @@ session stays readable at `/reports`.
 
 **The cash in the drawer does carry over, though.** A shop that keeps 40,000 in
 the till overnight still has it in the morning. So the worker locking up counts
-the drawer, and the next session to open seeds itself with that figure as an
-ordinary `deposit` — which keeps "how much is in the till" a sum over one table.
-The arriving worker counts again to confirm it, and both counts are kept in
-`till_counts` beside what the books expected at that moment. Neither figure ever
-corrects the other: the gap between them is the only thing there that cannot be
-worked out from anything else, and it is the reason for counting at all.
+the drawer — `💰 Դրամարկղի մնացորդ`, on the working keyboard so it can be done
+before locking rather than from memory afterwards — and the next session to open
+seeds itself with that figure as an ordinary `deposit`, which keeps "how much is
+in the till" a sum over one table.
+
+The arriving worker counts again, and that count is *acted on*: if it differs from
+what the books expected, the difference is posted as an `adjustment`, so the till
+starts from what is really in the drawer. This is what covers cash that was there
+before anybody's shift — nobody counted before the first one, a count gets
+skipped, the owner drops a float in on a Sunday. Without it the whole session runs
+that much wrong, and the next count reports a shortfall nobody caused.
+
+An adjustment, never an edited balance: `till_counts` still records what was
+expected and what was found, so the discrepancy survives, and the ledger gains one
+visible row saying a person corrected it. Overwriting the total would hide both
+halves — and the gap between the two figures is the only thing there that cannot
+be worked out from anything else.
+
+A **closing** count posts no such row. It *is* the float the next session starts
+from, so what was really in the drawer carries forward by itself; a shortfall at
+the end of a shift is something that happened during it, and stays visible as one.
 
 Several workers can share one store session. The first to arrive opens it; the
 others join. Each gets their own shift row and their own salary.

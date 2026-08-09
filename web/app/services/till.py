@@ -38,9 +38,11 @@ MAX_COUNT = Decimal("10000000.00")
 
 KINDS = {"open", "close"}
 
-# What the carried-over deposit is called in the ledger. A constant so the note the
-# owner reads on the report and the note the tests assert on cannot drift apart.
+# What these movements are called in the ledger. Constants so the note the owner
+# reads on the report and the note the tests assert on cannot drift apart.
 NOTE_CARRIED_OVER = "Նախորդ հերթափոխից մնացած կանխիկ"
+NOTE_OPENING_FOUND = "Բացման հաշվարկ՝ դրամարկղում եղած կանխիկ"
+NOTE_OPENING_MISSING = "Բացման հաշվարկ՝ դրամարկղում պակասող կանխիկ"
 
 
 async def carry_over_float(conn, owner_id: int, store_id: int, store_session_id: int):
@@ -71,6 +73,48 @@ async def carry_over_float(conn, owner_id: int, store_id: int, store_session_id:
     )
     log.info("store %s opened with %s carried over", store_id, amount)
     return amount
+
+
+async def _reconcile_the_opening(conn, worker, shift, difference: Decimal) -> None:
+    """Bring the till up to what the worker actually found in the drawer.
+
+    The carry-over only knows what the *last* worker counted, and that is not always
+    what is there. Nobody counted before the first shift; a count gets skipped; the
+    owner drops a float in on a Sunday; somebody takes a note out. In every one of
+    those the drawer holds money the books have never heard of, and without this the
+    whole session runs that much wrong — every till figure, and the shortfall the
+    next count reports against it.
+
+    Posted as an ``adjustment``, not by editing the balance. That distinction is the
+    point: the count in ``till_counts`` still says what was expected and what was
+    found, so the discrepancy survives, and the ledger gains one visible row saying
+    a person corrected it. Overwriting the total would have hidden both halves.
+
+    Only at opening. A closing count needs no row of its own — it *is* the float the
+    next session starts from, so what was really in the drawer carries forward by
+    itself.
+    """
+    if difference == ZERO:
+        return
+
+    found = difference > ZERO
+    await money_repo.insert_movement(
+        conn,
+        owner_id=worker.owner_id,
+        store_id=shift["store_id"],
+        store_session_id=shift["store_session_id"],
+        method="cash",
+        kind="adjustment",
+        amount=difference,
+        work_session_id=shift["id"],
+        worker_id=worker.id,
+        note=NOTE_OPENING_FOUND if found else NOTE_OPENING_MISSING,
+        created_by="worker",
+    )
+    log.info(
+        "store %s opened %s %s than the books said; till corrected",
+        shift["store_id"], abs(difference), "heavier" if found else "lighter",
+    )
 
 
 async def declare(
@@ -115,6 +159,9 @@ async def declare(
                 note=note,
                 external_id=idem_key,
             )
+
+            if kind == "open":
+                await _reconcile_the_opening(conn, worker, shift, counted - expected)
     except asyncpg.exceptions.UniqueViolationError:
         original = await till_repo.by_external_id(worker.owner_id, idem_key)
         if original is None:  # pragma: no cover - some other constraint

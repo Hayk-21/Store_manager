@@ -353,6 +353,16 @@ TILL_SHORT = (
     "Համակարգի հաշվարկով՝ {expected}։\n"
     "Պակաս է <b>{difference}</b>-ով։ Տեղեկացրեք ղեկավարին։"
 )
+# An opening count is acted on rather than just noted: the till is brought up to
+# what was actually found. Said as a correction, not as a shortfall — the money was
+# missing, or already there, before this worker arrived.
+TILL_MORE = "ավելի"
+TILL_LESS = "պակաս"
+TILL_OPENING_CORRECTED = (
+    "Համակարգի հաշվարկով՝ {expected}։\n"
+    "<b>{difference}</b>-ով {direction} է, և դրամարկղը ուղղվեց ձեր հաշվարկով։\n\n"
+    "<i>Այս տարբերությունը ձեր հերթափոխին չի վերագրվում։</i>"
+)
 TILL_DONE_PLAINLY = "💰 Դրամարկղի մնացորդը գրանցվեց։"
 TILL_SKIPPED = "Դրամարկղի հաշվարկը բաց թողնվեց։"
 TILL_HANDOVER_PROMPT = (

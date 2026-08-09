@@ -368,14 +368,17 @@ async def test_an_unknown_kind_is_refused_by_the_schema(client, bot_headers):
 # -- what the owner sees ------------------------------------------------------
 
 async def test_both_counts_show_on_the_report(client):
+    # In the order they really happen: count the drawer, then sell out of it, then
+    # count it again. Counting the *opening* after a sale would ask the till to be
+    # corrected down to an empty drawer, which is not a thing that occurs.
     owner_id, _, item_id = await _a_shop()
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
+    session_id = await _session()
+    await till_service.declare(worker, "open", Decimal("0"), "idem-till-1")
     await sales_service.record_sale(
         worker, [{"item_id": item_id, "quantity": 1}], "cash", "idem-sale-1"
     )
-    session_id = await _session()
-    await till_service.declare(worker, "open", Decimal("0"), "idem-till-1")
     await till_service.declare(worker, "close", Decimal("3200"), "idem-till-2")
     await login(client, "@ownerhandle")
 
@@ -384,6 +387,126 @@ async def test_both_counts_show_on_the_report(client):
     assert "Դրամարկղի հաշվարկ" in page.text
     assert "3,200.00" in page.text
     assert "-300.00" in page.text, "the difference, spelled out"
+
+
+# -- money that was in the drawer before the worker arrived -------------------
+
+async def test_cash_found_at_opening_is_added_to_the_till(client):
+    """Nobody counted before the first shift, so the books say the drawer is empty
+    and the drawer is not. Without this the whole session runs that much wrong."""
+    owner_id, _, _ = await _a_shop()
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+    assert await _till(session_id) == Decimal("0"), "the books know of nothing"
+
+    await till_service.declare(worker, "open", Decimal("50000"), "idem-till-1")
+
+    assert await _till(session_id) == Decimal("50000.00")
+
+
+async def test_cash_missing_at_opening_comes_off_the_till(client):
+    """The other direction: the last shift left 40,000 and only 38,000 is there. The
+    till has to say 38,000, or every figure this shift reports is 2,000 out."""
+    owner_id, _, _ = await _a_shop()
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await worked_a_full_shift(worker.id)
+    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await till_service.declare(worker, "close", Decimal("40000"), "idem-till-1")
+    await _open(worker, "idem-open-2")
+
+    await till_service.declare(worker, "open", Decimal("38000"), "idem-till-2")
+
+    assert await _till(await _session()) == Decimal("38000.00")
+
+
+async def test_the_correction_is_a_visible_row_not_an_edited_balance(client):
+    """The count still says what was expected and what was found, so the discrepancy
+    survives — and the ledger gains one row saying a person corrected it. Editing the
+    total would have hidden both halves."""
+    owner_id, _, _ = await _a_shop()
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+
+    await till_service.declare(worker, "open", Decimal("50000"), "idem-till-1")
+
+    row = await db.fetchrow(
+        "SELECT kind, amount, note, created_by, worker_id FROM cash_movements"
+    )
+    assert row["kind"] == "adjustment"
+    assert row["amount"] == Decimal("50000.00")
+    assert row["note"] == till_service.NOTE_OPENING_FOUND
+    assert row["created_by"] == "worker"
+    assert row["worker_id"] == worker.id
+    # And the count itself still records the gap it was correcting.
+    count = await db.fetchrow("SELECT counted, expected FROM till_counts")
+    assert count["counted"] == Decimal("50000.00")
+    assert count["expected"] == Decimal("0.00")
+
+
+async def test_a_drawer_that_matches_needs_no_correction(client):
+    owner_id, _, _ = await _a_shop()
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await worked_a_full_shift(worker.id)
+    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await till_service.declare(worker, "close", Decimal("40000"), "idem-till-1")
+    await _open(worker, "idem-open-2")
+
+    await till_service.declare(worker, "open", Decimal("40000"), "idem-till-2")
+
+    assert await db.fetchval(
+        "SELECT count(*) FROM cash_movements WHERE kind = 'adjustment'"
+    ) == 0
+    assert await _till(await _session()) == Decimal("40000.00")
+
+
+async def test_a_sale_on_top_of_found_cash_adds_to_it(client):
+    """The reason the correction has to happen at opening rather than be worked out
+    later: everything the shift does is measured from it."""
+    owner_id, _, item_id = await _a_shop()
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await till_service.declare(worker, "open", Decimal("50000"), "idem-till-1")
+
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "cash", "idem-sale-1"
+    )
+
+    assert await _till(await _session()) == Decimal("53500.00")
+
+
+async def test_a_closing_count_needs_no_correction_of_its_own(client):
+    """It *is* the float the next session starts from, so what was really in the
+    drawer carries forward by itself."""
+    owner_id, _, item_id = await _a_shop()
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "cash", "idem-sale-1"
+    )
+
+    await till_service.declare(worker, "close", Decimal("3000"), "idem-till-1")
+
+    assert await db.fetchval(
+        "SELECT count(*) FROM cash_movements WHERE kind = 'adjustment'"
+    ) == 0
+    assert await _till(await _session()) == Decimal("3500.00"), "the day's takings stand"
+
+
+async def test_a_retried_opening_count_corrects_the_till_once(client):
+    owner_id, _, _ = await _a_shop()
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+
+    await till_service.declare(worker, "open", Decimal("50000"), "idem-till-1")
+    await till_service.declare(worker, "open", Decimal("50000"), "idem-till-1")
+
+    assert await _till(await _session()) == Decimal("50000.00")
+    assert await db.fetchval(
+        "SELECT count(*) FROM cash_movements WHERE kind = 'adjustment'"
+    ) == 1
 
 
 async def test_a_closed_shop_still_reports_what_is_in_its_drawer(client):

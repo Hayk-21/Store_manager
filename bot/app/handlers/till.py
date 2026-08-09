@@ -168,6 +168,17 @@ def _confirmation(count: dict, kind: str) -> str:
 
     if difference == 0:
         return body + texts.TILL_MATCHES
+
+    # An opening count is acted on, so it is reported differently: the till has been
+    # brought up to what the worker found, and telling them "you are 500 short" for
+    # money that was missing before they arrived would be both wrong and unfair.
+    if kind == "open":
+        return body + texts.TILL_OPENING_CORRECTED.format(
+            expected=format.money(count["expected"]),
+            difference=format.money(abs(difference)),
+            direction=texts.TILL_MORE if difference > 0 else texts.TILL_LESS,
+        )
+
     if difference > 0:
         return body + texts.TILL_OVER.format(
             expected=format.money(count["expected"]),

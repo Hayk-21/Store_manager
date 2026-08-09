@@ -348,6 +348,73 @@ async def test_a_short_drawer_names_the_gap():
     assert "-500" not in replies[-1]
 
 
+async def test_an_opening_count_says_the_till_was_corrected():
+    """Cash already in the drawer is not this worker's doing. An opening count is
+    acted on — the till is brought up to what they found — so saying "you are 500
+    short" would be both wrong and unfair."""
+    replies = []
+
+    async def fake_count(**kwargs):
+        return _server_answer(counted="50000.00", expected="0.00")
+
+    async def fake_reply(self, text, *args, **kwargs):
+        replies.append(text)
+
+    with (
+        mock.patch.object(till.api, "count_till", fake_count),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await till.type_amount(_typed("50000"), _Context(till_kind="open"))
+
+    assert "50,000" in replies[-1]
+    assert texts.TILL_MORE in replies[-1]
+    assert "չի վերագրվում" in replies[-1], "and it is not laid at their door"
+    # Both messages open by quoting what the books said, so that line proves
+    # nothing. The shortfall wording is what must not appear: being told to report
+    # yourself to the manager over money that was missing before you arrived.
+    assert "Տեղեկացրեք ղեկավարին" not in replies[-1]
+
+
+async def test_a_light_drawer_at_opening_is_also_a_correction():
+    replies = []
+
+    async def fake_count(**kwargs):
+        return _server_answer(counted="38000.00", expected="40000.00")
+
+    async def fake_reply(self, text, *args, **kwargs):
+        replies.append(text)
+
+    with (
+        mock.patch.object(till.api, "count_till", fake_count),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await till.type_amount(_typed("38000"), _Context(till_kind="open"))
+
+    assert "2,000" in replies[-1]
+    assert texts.TILL_LESS in replies[-1]
+
+
+async def test_a_closing_shortfall_is_still_reported_as_one():
+    """The two ends are not the same question. Cash gone by the end of a shift is
+    something that happened during it."""
+    replies = []
+
+    async def fake_count(**kwargs):
+        return _server_answer(counted="3000.00", expected="3500.00")
+
+    async def fake_reply(self, text, *args, **kwargs):
+        replies.append(text)
+
+    with (
+        mock.patch.object(till.api, "count_till", fake_count),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await till.type_amount(_typed("3000"), _Context(till_kind="close"))
+
+    assert "չի վերագրվում" not in replies[-1]
+    assert "500" in replies[-1]
+
+
 async def test_a_heavy_drawer_is_not_reported_as_an_error():
     """It runs over as easily as short — usually an unrecorded sale — and the worker
     is the only one who can still say which."""
