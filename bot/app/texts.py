@@ -324,6 +324,10 @@ CASH_DONE_PLAINLY = "💸 Գումարի վերցնումը գրանցվեց։"
 
 # -- counting the drawer -----------------------------------------------------
 
+# On the main keyboard, so the drawer can be counted at any point in the shift and
+# not only once it is over. A worker who counts up before locking the door wants to
+# record it then, while the notes are in their hand.
+BTN_TILL_COUNT = "💰 Դրամարկղի մնացորդ"
 BTN_TILL_CLOSE = "💰 Գրել դրամարկղի մնացորդը"
 BTN_TILL_OPEN = "💰 Գրել դրամարկղում եղած գումարը"
 TILL_ASK_CLOSE = (

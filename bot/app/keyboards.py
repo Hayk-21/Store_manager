@@ -115,8 +115,9 @@ def on_shift() -> ReplyKeyboardMarkup:
         [
             [KeyboardButton(texts.BTN_SELL)],
             [KeyboardButton(texts.BTN_STOCK), KeyboardButton(texts.BTN_DEFECT)],
-            [KeyboardButton(texts.BTN_TAKE_CASH), KeyboardButton(texts.BTN_STATUS)],
+            [KeyboardButton(texts.BTN_TAKE_CASH), KeyboardButton(texts.BTN_TILL_COUNT)],
             [KeyboardButton(texts.BTN_ADD_ITEM), KeyboardButton(texts.BTN_TRANSFERS)],
+            [KeyboardButton(texts.BTN_STATUS)],
             [KeyboardButton(texts.BTN_END_SHIFT)],
         ],
         resize_keyboard=True,

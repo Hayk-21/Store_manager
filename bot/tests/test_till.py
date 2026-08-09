@@ -113,6 +113,140 @@ async def test_the_two_ends_ask_different_questions():
     assert replies == [texts.TILL_ASK_CLOSE, texts.TILL_ASK_OPEN]
 
 
+async def test_the_drawer_can_be_counted_from_the_main_keyboard():
+    """The point of the button: mid-shift, before locking up, while the notes are in
+    hand. Waiting for the shift-end prompt means doing it from memory."""
+    replies = []
+
+    async def fake_reply(self, text, *args, **kwargs):
+        replies.append((text, kwargs.get("reply_markup")))
+
+    context = _Context()
+    with mock.patch.object(Message, "reply_text", fake_reply):
+        state = await till.begin_from_menu(_typed(texts.BTN_TILL_COUNT), context)
+
+    assert state == till.ASK_AMOUNT
+    assert context.user_data["till_kind"] == "close", "it is what carries over"
+    assert replies[0][0] == texts.TILL_ASK_CLOSE
+
+
+async def test_counting_from_the_menu_leaves_only_cancel_on_the_keyboard():
+    """A number is expected next. A stray tap on «Վաճառել» must not be read as one —
+    and the reply keyboard is the thing most likely to be tapped by accident."""
+    markups = []
+
+    async def fake_reply(self, text, *args, **kwargs):
+        markups.append(kwargs.get("reply_markup"))
+
+    with mock.patch.object(Message, "reply_text", fake_reply):
+        await till.begin_from_menu(_typed(texts.BTN_TILL_COUNT), _Context())
+
+    labels = {b.text for row in markups[0].keyboard for b in row}
+    assert labels == {texts.BTN_CANCEL}
+
+
+async def test_a_mid_shift_count_is_what_the_next_shift_starts_with():
+    """Filed as a closing count, so counting early is never wrong — a later one
+    replaces it, because the most recent is the one that carries over."""
+    sent = {}
+
+    async def fake_count(**kwargs):
+        sent.update(kwargs)
+        return _server_answer(counted="40000.00", expected="40000.00")
+
+    async def fake_reply(self, *args, **kwargs):
+        return None
+
+    context = _Context()
+    with (
+        mock.patch.object(till.api, "count_till", fake_count),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await till.begin_from_menu(_typed(texts.BTN_TILL_COUNT), context)
+        await till.type_amount(_typed("40000"), context)
+
+    assert sent["kind"] == "close"
+
+
+async def test_a_count_mid_shift_hands_the_working_menu_back():
+    """Still on shift, so the keyboard has to come back — and which keyboard is taken
+    from how the flow was entered, not asked of the server."""
+    markups = []
+
+    async def fake_count(**kwargs):
+        return _server_answer(counted="40000.00", expected="40000.00")
+
+    async def fake_reply(self, text, *args, **kwargs):
+        markups.append(kwargs.get("reply_markup"))
+
+    context = _Context()
+    with (
+        mock.patch.object(till.api, "count_till", fake_count),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await till.begin_from_menu(_typed(texts.BTN_TILL_COUNT), context)
+        await till.type_amount(_typed("40000"), context)
+
+    labels = {b.text for row in markups[-1].keyboard for b in row}
+    assert texts.BTN_SELL in labels, "the worker is still on shift"
+    assert texts.BTN_TILL_COUNT in labels, "and can count again"
+
+
+async def test_a_count_after_the_shift_ended_does_not_hand_it_back():
+    """Offering the working menu there would be six buttons that all answer "you are
+    not on shift"."""
+    markups = []
+
+    async def fake_count(**kwargs):
+        return _server_answer(counted="40000.00", expected="40000.00")
+
+    async def noop(*args, **kwargs):
+        return None
+
+    async def fake_reply(self, text, *args, **kwargs):
+        markups.append(kwargs.get("reply_markup"))
+
+    context = _Context()
+    with (
+        mock.patch.object(till.api, "count_till", fake_count),
+        mock.patch.object(CallbackQuery, "answer", noop),
+        mock.patch.object(CallbackQuery, "edit_message_reply_markup", noop),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await till.begin(_tap(f"{keyboards.CB_TILL}:close"), context)
+        await till.type_amount(_typed("40000"), context)
+
+    labels = {b.text for row in markups[-1].keyboard for b in row}
+    assert labels == {texts.BTN_OPEN}
+
+
+async def test_an_opening_count_keeps_the_worker_at_work():
+    """Counting at the start of a shift is not the end of one."""
+    markups = []
+
+    async def fake_count(**kwargs):
+        return _server_answer(counted="40000.00", expected="40000.00")
+
+    async def noop(*args, **kwargs):
+        return None
+
+    async def fake_reply(self, text, *args, **kwargs):
+        markups.append(kwargs.get("reply_markup"))
+
+    context = _Context()
+    with (
+        mock.patch.object(till.api, "count_till", fake_count),
+        mock.patch.object(CallbackQuery, "answer", noop),
+        mock.patch.object(CallbackQuery, "edit_message_reply_markup", noop),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await till.begin(_tap(f"{keyboards.CB_TILL}:open"), context)
+        await till.type_amount(_typed("40000"), context)
+
+    labels = {b.text for row in markups[-1].keyboard for b in row}
+    assert texts.BTN_SELL in labels
+
+
 # -- the number --------------------------------------------------------------
 
 async def test_something_that_is_not_a_number_asks_again():

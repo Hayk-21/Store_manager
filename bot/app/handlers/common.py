@@ -53,11 +53,11 @@ async def stray_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """
     context.user_data.clear()
     await update.effective_message.reply_text(
-        texts.CANCELLED, reply_markup=await _keyboard_for(update)
+        texts.CANCELLED, reply_markup=await keyboard_for(update)
     )
 
 
-async def _keyboard_for(update: Update):
+async def keyboard_for(update: Update):
     """The menu this worker should be looking at.
 
     Asked rather than assumed: showing the on-shift menu to somebody who is not on

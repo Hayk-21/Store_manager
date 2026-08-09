@@ -86,6 +86,7 @@ _DOORS = {
     texts.BTN_SELL: lambda: sell.begin,
     texts.BTN_DEFECT: lambda: defect.begin,
     texts.BTN_TAKE_CASH: lambda: cash.begin,
+    texts.BTN_TILL_COUNT: lambda: till.begin_from_menu,
     texts.BTN_ADD_ITEM: lambda: restock.begin,
     texts.BTN_TRANSFERS: lambda: transfer.show,
     texts.BTN_STOCK: lambda: stock.show,
@@ -359,7 +360,12 @@ def build() -> Application:
     # the start there is often a queue, so the tap may come minutes later.
     till_flow = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(till.begin, pattern=f"^{keyboards.CB_TILL}:")
+            # From the message that ends or starts a shift...
+            CallbackQueryHandler(till.begin, pattern=f"^{keyboards.CB_TILL}:"),
+            # ...and from the main keyboard, at any point during it. A worker who
+            # counts up before locking the door records it then, not from memory
+            # once the shift-end prompt asks.
+            MessageHandler(_exact(texts.BTN_TILL_COUNT), till.begin_from_menu),
         ],
         states={
             till.ASK_AMOUNT: [MessageHandler(_free_text, till.type_amount)],
@@ -368,7 +374,7 @@ def build() -> Application:
             MessageHandler(_exact(texts.BTN_CANCEL), till.cancel),
             CommandHandler("cancel", till.cancel),
             CommandHandler("start", till.escape(shift.start)),
-            *_escapes(till),
+            *_escapes(till, texts.BTN_TILL_COUNT),
             MessageHandler(_exact(texts.BTN_END_SHIFT), till.cancel),
         ],
         conversation_timeout=600,

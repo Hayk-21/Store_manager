@@ -30,7 +30,23 @@ log = logging.getLogger("storemanager.bot.till")
 
 ASK_AMOUNT = 80
 
-_KEYS = ("till_kind", "till_key")
+_KEYS = ("till_kind", "till_key", "till_back")
+
+
+def _keyboard_after(context):
+    """The keyboard to leave behind.
+
+    Taken from how the flow was entered rather than asked of the server. The entry
+    point already knows: the main keyboard and the shift-*start* message both mean
+    the worker is still working, and the shift-*end* message means they are not.
+    Asking ``/me`` instead was a round trip to learn something already in hand — and
+    it put a network call in a path that every test of this flow runs through.
+    """
+    return (
+        keyboards.on_shift()
+        if context.user_data.get("till_back") == "on_shift"
+        else keyboards.off_shift()
+    )
 
 
 def _clear(context) -> None:
@@ -45,6 +61,9 @@ async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     kind = query.data.split(":", 1)[1]
     _clear(context)
     context.user_data["till_kind"] = kind
+    # An opening count happens on a shift that is starting; a closing one on the
+    # message that just ended it.
+    context.user_data["till_back"] = "on_shift" if kind == "open" else "off_shift"
 
     # The button is gone once used, so a second tap cannot open a second count that
     # the server would then refuse under a different key.
@@ -52,6 +71,31 @@ async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await query.message.reply_text(
         texts.TILL_ASK_CLOSE if kind == "close" else texts.TILL_ASK_OPEN,
         parse_mode=ParseMode.HTML,
+    )
+    return ASK_AMOUNT
+
+
+async def begin_from_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """«Դրամարկղի մնացորդ» on the main keyboard, mid-shift.
+
+    The same question as at the end of a shift, asked whenever the worker has the
+    notes in their hand — counting up before locking the door and recording it then
+    is the natural order, and waiting for the shift-end prompt means doing it from
+    memory.
+
+    Filed as a closing count, so it is what the next session's till opens with. A
+    later count replaces it: the most recent one is the one that carries over, which
+    means counting twice costs nothing and counting early is never wrong.
+    """
+    _clear(context)
+    context.user_data["till_kind"] = "close"
+    context.user_data["till_back"] = "on_shift"
+    await update.effective_message.reply_text(
+        texts.TILL_ASK_CLOSE,
+        parse_mode=ParseMode.HTML,
+        # Nothing but «Չեղարկել» while a number is expected, so a stray tap on the
+        # main menu cannot be read as an amount.
+        reply_markup=keyboards.selling(),
     )
     return ASK_AMOUNT
 
@@ -93,6 +137,11 @@ async def type_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         return ConversationHandler.END
 
     # Recorded. Nothing below may report a failure.
+    #
+    # Three ways in — the main keyboard mid-shift, the message that opens a shift,
+    # and the one that ends it — and they must not all end on the same keyboard.
+    # Read *before* clearing, or the answer is always the off-shift one.
+    keyboard = _keyboard_after(context)
     _clear(context)
     try:
         body = _confirmation(result["count"], kind)
@@ -100,13 +149,8 @@ async def type_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         log.exception("could not render a till count from %r", result)
         body = texts.TILL_DONE_PLAINLY
 
-    # Counting at the start of a shift puts the working menu back. Counting at the
-    # end must not: the shift is over, and the message before this one has already
-    # left the off-shift keyboard in place.
     await update.effective_message.reply_text(
-        body,
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboards.on_shift() if kind == "open" else None,
+        body, parse_mode=ParseMode.HTML, reply_markup=keyboard
     )
     return ConversationHandler.END
 
@@ -138,10 +182,13 @@ def _confirmation(count: dict, kind: str) -> str:
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Skipping the count. Allowed, because a worker standing at a locked shop with
     a queue behind them should not be held there by a number."""
+    keyboard = _keyboard_after(context)
     _clear(context)
     if update.callback_query is not None:
         await update.callback_query.answer()
-    await update.effective_message.reply_text(texts.TILL_SKIPPED)
+    await update.effective_message.reply_text(
+        texts.TILL_SKIPPED, reply_markup=keyboard
+    )
     return ConversationHandler.END
 
 
