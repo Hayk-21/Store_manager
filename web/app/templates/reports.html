@@ -89,6 +89,18 @@
       <span class="total-label">Վաճառք</span>
       <span class="total-value">{{ d.totals.sales | money }}</span>
     </div>
+    {# The split of the takings, at the same size as the total it belongs to. Labelled
+       «կանխիկ վաճառք» rather than «կանխիկ», because a bare «Կանխիկ» beside «Վաճառք» is
+       what read as the drawer balance and made the three figures look like they should
+       add up. #}
+    <div class="total">
+      <span class="total-label">Կանխիկ վաճառք</span>
+      <span class="total-value">{{ d.totals.sale_cash | money }}</span>
+    </div>
+    <div class="total">
+      <span class="total-label">Քարտով վաճառք</span>
+      <span class="total-value">{{ d.totals.sale_card | money }}</span>
+    </div>
     <div class="total">
       <span class="total-label">Ղեկավարին</span>
       <span class="total-value">{{ d.owed_to_owner | money }}</span>
@@ -102,17 +114,14 @@
       <span class="total-value">{{ (d.totals.salaries + d.totals.bonuses) | money }}</span>
     </div>
   </div>
-  {# The line that lets an owner check the four above against each other. Without it
-     "the owner gets 75,000" is a number to take on faith. #}
+  {# What came out of the cash between the takings and the handover. Without it
+     «Ղեկավարին 31,600» is a number to take on faith. #}
   <p class="muted small">
-    Վաճառքից՝ կանխիկ {{ d.totals.sale_cash | money }} · քարտով
-    {{ d.totals.sale_card | money }}
-    {%- if d.totals.voided %} · չեղարկված {{ d.totals.voided | money }}{% endif %}
-    {%- if d.totals.deposited %} · նախորդից մնացած {{ d.totals.deposited | money }}{% endif %}
-    <br>
     Կանխիկից հանվել է՝ աշխատավարձ {{ d.totals.salaries | money }}
     {%- if d.totals.bonuses %} · բոնուս {{ d.totals.bonuses | money }}{% endif %}
     {%- if d.totals.withdrawn %} · վերցված {{ d.totals.withdrawn | money }}{% endif %}
+    {%- if d.totals.voided %} · չեղարկված {{ d.totals.voided | money }}{% endif %}
+    {%- if d.totals.deposited %} · նախորդից մնացած {{ d.totals.deposited | money }}{% endif %}
     · դրամարկղում մնացել է <b>{{ d.totals.cash | money }}</b>, որից
     {{ d.left_in_store | money }} մնում է խանութում։
   </p>
@@ -384,9 +393,13 @@
   <div class="table-wrap">
     <table class="cards">
       <thead>
+        {# No «Ղեկավարին» column. It is one figure for the evening, not one per row —
+           a second count replaces the first rather than adding to it — so a column of
+           them invited adding two numbers that must not be added. It is a tile at the
+           top of the page instead. #}
         <tr><th>Ժամ</th><th>Ով</th>
             <th class="num">Դրամարկղում էր</th><th class="num">Մնաց խանութում</th>
-            <th class="num">Ղեկավարին</th></tr>
+            <th></th></tr>
       </thead>
       <tbody>
         {% for t in d.till_counts %}
@@ -406,8 +419,9 @@
                    class="money-input" aria-label="Մնաց խանութում">
             <button form="count-{{ t.id }}" type="submit" class="secondary tiny">✓</button>
           </td>
-          <td class="num" data-label="Ղեկավարին">
-            {% if t.handed_over is none %}—{% else %}<b>{{ t.handed_over | money }}</b>{% endif %}
+          <td class="num cell-actions" data-label="">
+            <button form="count-delete-{{ t.id }}" type="submit" class="danger tiny"
+                    title="Ջնջել այս հաշվարկը">✕</button>
           </td>
         </tr>
         {% endfor %}
@@ -420,12 +434,17 @@
     <form id="count-{{ t.id }}" method="post" action="/till-counts/{{ t.id }}/counted">
       <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
     </form>
+    <form id="count-delete-{{ t.id }}" method="post"
+          action="/till-counts/{{ t.id }}/delete"
+          onsubmit="return confirm('Ջնջե՞լ այս հաշվարկը։ Խանութի մնացորդը կվերադառնա նախորդ հաշվարկին։')">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    </form>
   {% endfor %}
   <p class="muted small">
     «Մնաց խանութում» գումարը դուրս չի գալիս խանութից՝ հաջորդ հերթափոխի դրամարկղը
-    սկսվում է դրանով, և կարող եք ուղղել այն այստեղ։ «Ղեկավարին» սյունակը ցույց է
-    տալիս, թե որքան պետք է ստացած լինեք՝ դրամարկղում եղածից հանած խանութում մնացածը։
-    Այդ գումարը դրամարկղից դուրս չի գրվում՝ սա հաշվարկ է, ոչ թե ծախս։
+    սկսվում է դրանով, և կարող եք ուղղել այն այստեղ։ Որքան պետք է ստանաք՝ նշված է
+    վերևում՝ «Ղեկավարին» դաշտում։ Հաշվարկը ջնջելիս խանութի մնացորդը կվերադառնա
+    նախորդ հաշվարկի գումարին։
   </p>
   {% endif %}
 

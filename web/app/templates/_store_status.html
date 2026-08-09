@@ -43,7 +43,10 @@
       <span class="total-label">Մնացորդ</span>
       <span class="total-value">{{ till_balance | money }}</span>
     </div>
-    {% if drawer and drawer.handed_over is not none %}
+    {# Only when there was something to hand over. Rows written before the owner's
+       share was floored at nothing carry negatives, and «հանձնվել է -7,000 ֏» is not
+       a figure anybody can act on. #}
+    {% if drawer and drawer.handed_over and drawer.handed_over > 0 %}
     <div class="total">
       <span class="total-label">Վերջին անգամ հանձնվել է</span>
       <span class="total-value">{{ drawer.handed_over | money }}</span>

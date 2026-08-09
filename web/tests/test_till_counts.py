@@ -24,6 +24,7 @@ from app.db import db
 from app.errors import AppError, BotError
 from app.repo import money as money_repo
 from app.repo import till as till_repo
+from app.services import corrections as corrections_service
 from app.services import sales as sales_service
 from app.services import shifts as shifts_service
 from app.services import till as till_service
@@ -613,7 +614,30 @@ async def test_the_header_no_longer_labels_the_drawer_as_cash_takings(client):
 
     assert "Ղեկավարին" in page.text, "what the owner should get"
     assert "Մնաց խանութում" in page.text, "and what stays behind"
-    assert "Վաճառքից՝ կանխիկ" in page.text, "with the takings split named as such"
+    assert "Կանխիկ վաճառք" in page.text, "the split, named for what it is"
+    assert "Քարտով վաճառք" in page.text
+
+
+async def test_the_takings_split_is_a_figure_not_a_footnote(client):
+    """At the same size as the total it belongs to, because it is the same kind of
+    number. It was small print under the tiles, which is where a figure goes when it is
+    an aside — and «how much of that was cash» is not an aside."""
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
+    for label in ("Վաճառք", "Կանխիկ վաճառք", "Քարտով վաճառք", "Ղեկավարին",
+                  "Մնաց խանութում", "Աշխատավարձ"):
+        assert f">{label}</span>" in tiles, f"«{label}» is not one of the big figures"
 
 
 async def test_the_header_answers_a_session_nobody_counted(client):
@@ -737,6 +761,221 @@ async def test_correcting_a_count_from_the_report(client):
 
     assert response.status_code in (200, 303)
     assert await _balance(store_id) == Decimal("30000.00")
+
+
+async def test_the_owners_share_is_worked_out_rather_than_read_back(client):
+    """From the ledger and the last count, not from the figure stored on that count.
+    So it follows a sale corrected next week, and rows written before the share was
+    floored at nothing cannot put a negative in the header — the shop that closed on
+    -4,500 has a count saying the owner is owed -7,000.
+    """
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    # A stale figure of the kind the old rules left behind.
+    await db.execute("UPDATE till_counts SET handed_over = -7000")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "17,000.00" in page.text, "the ledger, not the stored figure"
+    assert "-7,000" not in page.text
+
+
+async def test_the_drawer_table_has_no_column_for_the_owners_share(client):
+    """One figure for the evening, not one per row — a second count replaces the first
+    rather than adding to it — so a column of them invited adding two numbers that must
+    not be added."""
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    table = page.text.split("Դրամարկղի հանձնում")[1].split("</table>")[0]
+    assert "Ղեկավարին" not in table
+    assert "Ղեկավարին" in page.text, "but it is still on the page, as one tile"
+
+
+# -- deleting a count ---------------------------------------------------------
+
+async def test_a_count_can_be_deleted(client):
+    """Not a correction of a figure but a statement that the reading should never have
+    been there: a duplicate, a count against the wrong shop, a row left behind by a
+    rule that has since changed."""
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+
+    await till_service.delete_count(owner_id, owner_id, count_id)
+
+    assert await db.fetchval("SELECT count(*) FROM till_counts") == 0
+
+
+async def test_deleting_the_latest_count_falls_back_to_the_one_before(client):
+    """Leaving the float where the deleted row put it would keep a figure whose only
+    justification has just been thrown away."""
+    owner_id, store_id, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker, "idem-lockup-1")
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _open(worker, "idem-open-2")
+    await _lock_up(worker, "idem-lockup-2")
+    await till_service.declare_close(worker, Decimal("25000"), "idem-till-2")
+    newest = await db.fetchval("SELECT id FROM till_counts ORDER BY id DESC LIMIT 1")
+
+    await till_service.delete_count(owner_id, owner_id, newest)
+
+    assert await _balance(store_id) == Decimal("30000.00")
+
+
+async def test_deleting_the_only_count_leaves_the_shop_with_nothing_declared(client):
+    """Which is the honest answer: nobody has said what is in that drawer."""
+    owner_id, store_id, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+
+    await till_service.delete_count(owner_id, owner_id, count_id)
+
+    assert await _balance(store_id) == Decimal("0.00")
+
+
+async def test_deleting_an_older_count_leaves_the_float_alone(client):
+    owner_id, store_id, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker, "idem-lockup-1")
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    older = await db.fetchval("SELECT id FROM till_counts ORDER BY id LIMIT 1")
+    await _open(worker, "idem-open-2")
+    await _lock_up(worker, "idem-lockup-2")
+    await till_service.declare_close(worker, Decimal("25000"), "idem-till-2")
+
+    await till_service.delete_count(owner_id, owner_id, older)
+
+    assert await _balance(store_id) == Decimal("25000.00")
+
+
+async def test_deleting_a_count_is_recorded_in_the_history(client):
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+
+    await till_service.delete_count(owner_id, owner_id, count_id)
+
+    row = await db.fetchrow(
+        "SELECT action, summary FROM audit_events ORDER BY id DESC LIMIT 1"
+    )
+    assert row["action"] == "delete_till_count"
+    assert "30,000" in row["summary"]
+
+
+async def test_a_deleted_count_can_be_undone(client):
+    """The history page offers the newest event whatever it is, so an action with no
+    reverter behind it is a button that crashes. Every other deletion here is undoable,
+    and nothing else holds a deleted count to rebuild it from."""
+    owner_id, store_id, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+    await till_service.delete_count(owner_id, owner_id, count_id)
+    event_id = await db.fetchval("SELECT id FROM audit_events ORDER BY id DESC LIMIT 1")
+
+    await corrections_service.revert(owner_id, owner_id, event_id)
+
+    row = await db.fetchrow(
+        "SELECT counted, expected, handed_over, worker_id, external_id FROM till_counts"
+    )
+    assert row["counted"] == Decimal("30000.00")
+    assert row["expected"] == Decimal("47000.00")
+    assert row["handed_over"] == Decimal("17000.00")
+    assert row["worker_id"] == worker.id, "still theirs"
+    assert row["external_id"] == "idem-till-1", "and the bot's key still points at it"
+    assert await _balance(store_id) == Decimal("30000.00"), "and the float came back"
+
+
+async def test_the_restored_count_keeps_its_place_in_the_evening(client):
+    """``created_at`` comes back with it. Restoring it stamped with now() would move it
+    to the end of a table ordered by time, which is not where it happened."""
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+    was = await db.fetchval("SELECT created_at FROM till_counts WHERE id = $1", count_id)
+    await till_service.delete_count(owner_id, owner_id, count_id)
+    event_id = await db.fetchval("SELECT id FROM audit_events ORDER BY id DESC LIMIT 1")
+
+    await corrections_service.revert(owner_id, owner_id, event_id)
+
+    assert await db.fetchval("SELECT created_at FROM till_counts") == was
+
+
+async def test_another_owners_count_cannot_be_deleted(client):
+    owner_id, store_id, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+    stranger = await make_owner("@stranger")
+
+    with pytest.raises(AppError):
+        await till_service.delete_count(stranger, stranger, count_id)
+
+    assert await db.fetchval("SELECT count(*) FROM till_counts") == 1
+    assert await _balance(store_id) == Decimal("30000.00")
+
+
+async def test_deleting_a_count_from_the_report(client):
+    owner_id, store_id, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+    await login(client, "@ownerhandle")
+    csrf = await db.fetchval(
+        "SELECT csrf_token FROM auth_sessions ORDER BY created_at DESC LIMIT 1"
+    )
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+    assert f"/till-counts/{count_id}/delete" in page.text
+
+    response = await client.post(
+        f"/till-counts/{count_id}/delete", data={"csrf_token": csrf}
+    )
+
+    assert response.status_code in (200, 303)
+    assert await db.fetchval("SELECT count(*) FROM till_counts") == 0
+    assert await _balance(store_id) == Decimal("0.00")
 
 
 async def test_a_forgotten_sale_can_be_added_without_hunting_for_the_form(client):

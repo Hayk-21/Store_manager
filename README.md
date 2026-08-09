@@ -88,14 +88,22 @@ report. Neither touches the ledger — the balance is what stays on the premises
 the till is what the shop took, and since the handover stopped being booked those are
 no longer the same quantity.
 
-The report's per-session header answers four different questions and says so:
-**Վաճառք** (with the cash/card split of the *takings* beneath it), **Ղեկավարին**,
-**Մնաց խանութում**, **Աշխատավարձ**. It used to read «Կանխիկ · Քարտ · Վաճառք ·
-Աշխատավարձ», where the first was the drawer *balance* — takings less wages, petty
-cash and the handover — sitting beside two figures about takings, so «Կանխիկ 2,500 ·
-Քարտ 16,000 · Վաճառք 101,500» read as a payment split that does not add up when the
-cash sales were 85,500. Nothing was miscomputed; the labels described the wrong kinds
-of thing.
+The report's per-session header answers six different questions and says so:
+**Վաճառք · Կանխիկ վաճառք · Քարտով վաճառք · Ղեկավարին · Մնաց խանութում ·
+Աշխատավարձ**, with a line beneath giving what came out of the cash in between.
+
+It used to read «Կանխիկ · Քարտ · Վաճառք · Աշխատավարձ», where the first was the drawer
+*balance* — takings less wages, petty cash and the handover — sitting beside two
+figures about takings. So «Կանխիկ 2,500 · Քարտ 16,000 · Վաճառք 101,500» read as a
+payment split that does not add up, when the cash sales were 85,500. Nothing was
+miscomputed; the labels described the wrong kinds of thing. The split is still there
+and is now labelled «կանխիկ *վաճառք*», because a bare «Կանխիկ» beside «Վաճառք» is
+exactly what invited the wrong reading.
+
+**Ղեկավարին** is worked out from the ledger and the last count, not read from the
+figure stored on that count. So it follows a sale corrected next week, and rows written
+before the share was floored at nothing cannot put a negative in the header — the shop
+that closed on -4,500 has a count on it saying the owner is owed -7,000.
 
 Several workers can share one store session. The first to arrive opens it; the
 others join. Each gets their own shift row and their own salary.
@@ -134,6 +142,12 @@ so:
   the door, typed while locking up — so a wrong reading is worth replacing rather
   than stacking a correction beside. The owner's share and the shop's float both
   follow from it, and correcting an *older* count deliberately leaves the float alone;
+* **a whole count deleted**, for a reading that should never have been there: a
+  duplicate, one against the wrong shop, a row left behind by a rule that has since
+  changed. The float falls back to whatever count is now the latest, or to nothing if
+  that was the only one. Undoable like every other deletion — the audit payload
+  carries the entire row, including `created_at` so the restored count lands back in
+  its own place in the evening, because nothing else holds it once it is gone;
 * a shift's wage, which also clears whatever the till was too thin to pay;
 * breakage and shelf corrections;
 * a ledger entry, added or removed.

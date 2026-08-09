@@ -30,12 +30,14 @@ session opens with.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from decimal import Decimal
 
 import asyncpg
 
 from app.db import db
 from app.errors import AppError, BotError
+from app.repo import audit as audit_repo
 from app.repo import money as money_repo
 from app.repo import sessions as sessions_repo
 from app.repo import stores as stores_repo
@@ -253,12 +255,85 @@ async def correct_a_count(
         )
         # Only if this is still the shop's latest word on its drawer. An older count
         # being fixed for the record must not overwrite what a later one established.
-        latest = await till_repo.latest_id_for_store(conn, owner_id, row["store_id"])
-        if latest == count_id:
+        latest = await till_repo.latest_for_store(conn, owner_id, row["store_id"])
+        if latest is not None and latest["id"] == count_id:
             await stores_repo.set_till_balance(conn, owner_id, row["store_id"], counted)
 
     log.info("owner %s corrected count %s to %s", owner_id, count_id, counted)
     return row
+
+
+async def delete_count(owner_id: int, user_id: int, count_id: int) -> asyncpg.Record:
+    """Remove a count from the record.
+
+    Not a correction of a figure but a statement that the reading should never have
+    been there — a count entered against the wrong shop, a duplicate, a row left over
+    from a rule that has since changed. Nothing is booked from a count, so there is no
+    ledger to unwind.
+
+    The shop's float then falls back to whatever count is now the latest, or to nothing
+    if that was the only one. Leaving it where the deleted row put it would keep a
+    figure whose only justification has just been thrown away.
+    """
+    async with db.transaction() as conn:
+        row = await till_repo.lock(conn, owner_id, count_id)
+        if row is None:
+            raise AppError("not_found", "Հաշվարկը չի գտնվել։")
+
+        float_was = Decimal(
+            await stores_repo.till_balance(conn, owner_id, row["store_id"]) or 0
+        )
+        await till_repo.delete(conn, owner_id, count_id)
+        previous = await till_repo.latest_for_store(conn, owner_id, row["store_id"])
+        await stores_repo.set_till_balance(
+            conn,
+            owner_id,
+            row["store_id"],
+            Decimal(previous["counted"]) if previous is not None else ZERO,
+        )
+        await audit_repo.record(
+            conn, owner_id, user_id, "delete_till_count",
+            f"Ջնջվեց դրամարկղի հաշվարկ՝ {Decimal(row['counted']):,.0f} ֏",
+            store_session_id=row["store_session_id"],
+            # The whole row, not a handful of ids. Deleting one leaves nothing to
+            # rebuild it from anywhere else, and every other deletion here is undoable.
+            payload={"count": _as_payload(row), "float_was": str(float_was)},
+        )
+
+    log.info("owner %s deleted till count %s", owner_id, count_id)
+    return row
+
+
+def _as_payload(row) -> dict:
+    """A count as JSON, for the history to rebuild it from."""
+    return {
+        "store_id": row["store_id"],
+        "store_session_id": row["store_session_id"],
+        "work_session_id": row["work_session_id"],
+        "worker_id": row["worker_id"],
+        "kind": row["kind"],
+        "counted": str(row["counted"]),
+        "expected": str(row["expected"]),
+        "handed_over": None if row["handed_over"] is None else str(row["handed_over"]),
+        "note": row["note"],
+        "external_id": row["external_id"],
+        "created_at": row["created_at"].isoformat(),
+    }
+
+
+async def restore_count(conn, owner_id: int, payload: dict) -> None:
+    """Put a deleted count back, and the shop's float with it.
+
+    Called by the history's undo. The float is restored to what it was rather than to
+    this count's figure: a later count may have moved it since, and the undo's job is to
+    put things back as they were before the delete, not before the count.
+    """
+    row = dict(payload["count"])
+    row["created_at"] = datetime.fromisoformat(row["created_at"])
+    await till_repo.restore(conn, owner_id, row)
+    await stores_repo.set_till_balance(
+        conn, owner_id, row["store_id"], Decimal(payload["float_was"])
+    )
 
 
 def _payload(row, *, duplicate: bool) -> dict:

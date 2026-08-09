@@ -583,9 +583,10 @@ async def reports_page(
         if session is None:
             raise AppError("not_found", "Հերթափոխը չի գտնվել։")
         counts = await till_repo.for_session(store_session_id)
+        totals = await money_repo.totals_for_session(store_session_id)
         detail = {
             "session": session,
-            "totals": await money_repo.totals_for_session(store_session_id),
+            "totals": totals,
             "shifts": await sessions_repo.shifts_in_session(store_session_id),
             "receipts": await sales_repo.receipts_in_store_session(store_session_id),
             "ledger": await money_repo.ledger_for_session(store_session_id),
@@ -601,11 +602,15 @@ async def reports_page(
             # gap is the figure with no other home.
             "till_counts": counts,
             # The two questions the header could not answer before: what the owner
-            # should have received, and what stayed on the premises. Both come from the
-            # last count of the evening — a second count replaces the first rather than
+            # should have received, and what stayed on the premises. From the last
+            # count of the evening — a second count replaces the first rather than
             # adding to it, so summing them would double the day.
-            "owed_to_owner": Decimal(counts[-1]["handed_over"] or 0) if counts else Decimal(0),
-            "left_in_store": Decimal(counts[-1]["counted"]) if counts else Decimal(0),
+            #
+            # Worked out here rather than read from the count's stored figure, so it
+            # follows a sale corrected next week and so rows written under the old
+            # rules — before the owner's share was floored at nothing — do not put a
+            # negative in the header.
+            **_the_owners_share(totals, counts),
         }
     return render(
         request,
@@ -827,6 +832,26 @@ async def _session_of_sale(owner_id: int, sale_id: int) -> int | None:
     )
 
 
+def _the_owners_share(totals, counts) -> dict:
+    """What the owner should have received, and what stayed on the premises.
+
+    Derived from the ledger and the last count rather than read from the figure stored
+    on that count. Two reasons: it then follows a sale corrected next week, and rows
+    written before the owner's share was floored at nothing do not put a negative in
+    the header — the shop that closed on -4,500 has a count saying the owner is owed
+    -7,000, and no owner can act on that.
+
+    Nothing counted means nothing declared, and zero is the honest render of it.
+    """
+    if not counts:
+        return {"owed_to_owner": Decimal(0), "left_in_store": Decimal(0)}
+    left = Decimal(counts[-1]["counted"])
+    return {
+        "owed_to_owner": max(Decimal(0), Decimal(totals["cash"]) - left),
+        "left_in_store": left,
+    }
+
+
 def _back_to_report(store_session_id: int | None):
     target = f"/reports?store_session_id={store_session_id}" if store_session_id else "/reports"
     return RedirectResponse(target, status_code=303)
@@ -876,6 +901,21 @@ async def correct_a_till_count(
     row = await till_service.correct_a_count(
         user.id, count_id, forms.money(counted, "Մնացորդ")
     )
+    return _back_to_report(row["store_session_id"])
+
+
+@router.post("/till-counts/{count_id}/delete")
+async def delete_a_till_count(
+    count_id: int, user: CurrentUser = Depends(require_csrf)
+):
+    """Remove a count from the record.
+
+    Not a correction of a figure but a statement that the reading should never have
+    been there: a duplicate, a count against the wrong shop, a row left behind by a
+    rule that has since changed. The shop's float falls back to whatever count is now
+    the latest.
+    """
+    row = await till_service.delete_count(user.id, user.id, count_id)
     return _back_to_report(row["store_session_id"])
 
 

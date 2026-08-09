@@ -55,14 +55,48 @@ async def by_external_id(owner_id: int, external_id: str) -> asyncpg.Record | No
 
 
 async def lock(conn, owner_id: int, count_id: int) -> asyncpg.Record | None:
-    """One count, held for the length of a correction."""
+    """One count, held for the length of a correction.
+
+    Every column, because the caller may be about to delete it and the undo has to
+    rebuild a row that will not exist anywhere else.
+    """
     return await conn.fetchrow(
         """
-        SELECT id, store_id, store_session_id, counted, expected, handed_over
+        SELECT id, store_id, store_session_id, work_session_id, worker_id, kind,
+               counted, expected, handed_over, note, external_id, created_at
           FROM till_counts WHERE id = $1 AND owner_id = $2 FOR UPDATE
         """,
         count_id,
         owner_id,
+    )
+
+
+async def restore(conn, owner_id: int, row: dict) -> None:
+    """Put a deleted count back, exactly as it was.
+
+    ``created_at`` and ``external_id`` come back with it: the first so the row lands in
+    its own place in the history rather than at the end of it, the second so the bot's
+    idempotency key still points at something.
+    """
+    await conn.execute(
+        """
+        INSERT INTO till_counts
+            (owner_id, store_id, store_session_id, work_session_id, worker_id,
+             kind, counted, expected, handed_over, note, external_id, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        """,
+        owner_id,
+        row["store_id"],
+        row["store_session_id"],
+        row["work_session_id"],
+        row["worker_id"],
+        row["kind"],
+        Decimal(row["counted"]),
+        Decimal(row["expected"]),
+        Decimal(row["handed_over"]) if row["handed_over"] is not None else None,
+        row["note"],
+        row["external_id"],
+        row["created_at"],
     )
 
 
@@ -77,20 +111,26 @@ async def set_counted(
     )
 
 
-async def latest_id_for_store(conn, owner_id: int, store_id: int) -> int | None:
-    """Which count the shop's balance currently comes from.
+async def latest_for_store(conn, owner_id: int, store_id: int) -> asyncpg.Record | None:
+    """The count the shop's balance currently comes from.
 
-    So that fixing an older row for the record does not overwrite what a later count
-    established about the same drawer.
+    Read on the caller's connection: one caller has just deleted a row and needs the
+    newest of what is left, and a pooled read would still see the deleted one.
     """
-    return await conn.fetchval(
+    return await conn.fetchrow(
         """
-        SELECT id FROM till_counts
+        SELECT id, counted FROM till_counts
          WHERE owner_id = $1 AND store_id = $2
          ORDER BY created_at DESC, id DESC LIMIT 1
         """,
         owner_id,
         store_id,
+    )
+
+
+async def delete(conn, owner_id: int, count_id: int) -> None:
+    await conn.execute(
+        "DELETE FROM till_counts WHERE id = $1 AND owner_id = $2", count_id, owner_id
     )
 
 

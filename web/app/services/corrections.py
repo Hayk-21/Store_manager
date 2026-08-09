@@ -50,6 +50,7 @@ ACTION_LABELS = {
     "delete_movement": "Գրառման ջնջում",
     "delete_sale": "Վաճառքի ջնջում",
     "set_salary": "Աշխատավարձի փոփոխում",
+    "delete_till_count": "Դրամարկղի հաշվարկի ջնջում",
 }
 
 
@@ -636,15 +637,15 @@ async def revert(owner_id: int, user_id: int, event_id: int) -> str:
 
             payload = json.loads(payload)
 
-        handler = {
-            "void_sale": _revert_void,
-            "amend_sale": _revert_amend,
-            "add_sale": _revert_add_sale,
-            "add_movement": _revert_add_movement,
-            "delete_movement": _revert_delete_movement,
-            "delete_sale": _revert_delete_sale,
-            "set_salary": _revert_set_salary,
-        }[event["action"]]
+        handler = _REVERTERS.get(event["action"])
+        # A dead undo button rather than a 500. The page offers the newest event
+        # whatever it is, so an action added without a reverter used to crash here —
+        # and this dispatcher is the one place that knows the difference.
+        if handler is None:
+            raise AppError(
+                "validation_error",
+                "Այս գործողությունը հետ շրջել հնարավոր չէ։",
+            )
         await handler(conn, owner_id, payload)
 
         if event["store_session_id"] is not None:
@@ -809,3 +810,26 @@ async def _revert_set_salary(conn, owner_id: int, payload: dict) -> None:
     if shift is None:
         raise AppError("not_found", "Հերթափոխը չի գտնվել։")
     await _replace_salary(conn, owner_id, shift, Decimal(payload["previous"]))
+
+
+async def _revert_delete_till_count(conn, owner_id: int, payload: dict) -> None:
+    # Imported here: till imports nothing from this module, but keeping the reverter
+    # beside its siblings means the dispatcher below stays the one list of them.
+    from app.services import till as till_service
+
+    await till_service.restore_count(conn, owner_id, payload)
+
+
+# The one list of what can be undone. Below the handlers so every name resolves, and
+# looked up rather than indexed — an action with no reverter is a dead undo button,
+# which is bad, but a 500 is worse.
+_REVERTERS = {
+    "void_sale": _revert_void,
+    "amend_sale": _revert_amend,
+    "add_sale": _revert_add_sale,
+    "add_movement": _revert_add_movement,
+    "delete_movement": _revert_delete_movement,
+    "delete_sale": _revert_delete_sale,
+    "set_salary": _revert_set_salary,
+    "delete_till_count": _revert_delete_till_count,
+}
