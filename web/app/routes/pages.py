@@ -582,6 +582,7 @@ async def reports_page(
         session = await sessions_repo.get_store_session(user.id, store_session_id)
         if session is None:
             raise AppError("not_found", "Հերթափոխը չի գտնվել։")
+        counts = await till_repo.for_session(store_session_id)
         detail = {
             "session": session,
             "totals": await money_repo.totals_for_session(store_session_id),
@@ -598,7 +599,13 @@ async def reports_page(
             "adjustments": await adjustments_repo.for_session(store_session_id),
             # What was actually in the drawer, against what the books expected. The
             # gap is the figure with no other home.
-            "till_counts": await till_repo.for_session(store_session_id),
+            "till_counts": counts,
+            # The two questions the header could not answer before: what the owner
+            # should have received, and what stayed on the premises. Both come from the
+            # last count of the evening — a second count replaces the first rather than
+            # adding to it, so summing them would double the day.
+            "owed_to_owner": Decimal(counts[-1]["handed_over"] or 0) if counts else Decimal(0),
+            "left_in_store": Decimal(counts[-1]["counted"]) if counts else Decimal(0),
         }
     return render(
         request,
@@ -850,6 +857,26 @@ async def set_till_balance(
     return render(
         request, "_store_status.html", await _status_context(user.id, store_id)
     )
+
+
+@router.post("/till-counts/{count_id}/counted")
+async def correct_a_till_count(
+    count_id: int,
+    counted: str = Form(""),
+    user: CurrentUser = Depends(require_csrf),
+):
+    """Change what a count says was left in the shop.
+
+    The figure a cashier types at the door is the one most often wrong — a nought too
+    many, a bundle counted twice — and until now the report showed it and nothing else.
+    Editing it in place because this row is not a claim about what happened to any
+    money, only one person's reading of a drawer, and the owner's share and the shop's
+    balance both follow from that reading.
+    """
+    row = await till_service.correct_a_count(
+        user.id, count_id, forms.money(counted, "Մնացորդ")
+    )
+    return _back_to_report(row["store_session_id"])
 
 
 @router.get("/transfers")

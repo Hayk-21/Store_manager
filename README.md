@@ -49,39 +49,53 @@ offered on the message that ends the last shift and on the off-shift keyboard, a
 the server refuses a count while the session is open (`store_still_open`). Both the
 button's position and the refusal are the same rule: the count is the closing act.
 
-That ordering is not decoration. The count hands the owner everything above the
-float, so anything still to come out of the till — a wage above all — has to come out
-first. It used to be on the working keyboard, and a worker counted up at 21:07,
-handed over 82,000, and was paid at 21:10 out of a drawer that no longer had it: the
-shop closed showing cash of **-4,500** and their next count reported 7,000 more in
-the drawer than expected. A mid-shift count is also stale on the very next sale, and
-one of two cashiers going home cannot hand over the change the other needs for the
-next four hours.
+That ordering is not decoration. The owner's share is the till less the float, so
+anything still to come out of the till — a wage above all — has to come out before it
+is worked out. The button used to be on the working keyboard: a worker counted up at
+21:07 and was quoted a handover of 82,000, then paid 6,000 at 21:10, and the shop
+closed showing cash of **-4,500** — the owner's figure 6,000 too high and the drawer
+recorded as holding less than nothing. A mid-shift count is also stale on the very
+next sale, and one of two cashiers going home cannot settle the change the other needs
+for the next four hours.
 
-What they leave becomes the store's balance. Everything else in the drawer goes to
-the owner:
+What they leave becomes the store's balance. Everything else in the drawer is the
+owner's:
 
 ```
-handed to the owner  =  what the till held  −  what was left behind
-                     =  (yesterday's float + today's takings − wages − petty cash)
-                        −  the new float
+the owner's share  =  what the till held  −  what was left behind
+                   =  (yesterday's float + today's takings − wages − petty cash)
+                      −  the new float
 ```
 
-The subtraction is **booked**, as a `withdrawal` noted «Հանձնված ղեկավարին». The
-cash genuinely left the shop, so the ledger says so, and the session's closing
-figure then matches what is really in the drawer. Reading it back out of
-arithmetic would leave every report describing money that is no longer there.
+**Shown, not booked.** That subtraction is a figure on the report and nothing else —
+no `withdrawal` row for it, and no adjustment when the count disagrees with the
+books. The ledger is the shop's record of what it took and spent, and handing the
+day's money to the owner is not another expense in it. So a session's closing cash is
+the day's cash as the shop earned it, and «Ղեկավարին» on the report is worked out
+from it against what the worker left.
 
-Leaving *more* than the till held — an unrecorded sale, or somebody topped the
-drawer up — is booked as found cash (`adjustment`, «Դրամարկղում սպասվածից ավելի
-կանխիկ») rather than as a negative handover, because nothing was handed anywhere.
+It is **floored at nothing**. Leaving more than the books say the drawer held — an
+unrecorded sale, a miscount, somebody topping it up — means the owner gets nothing
+from this shop today, not that they owe it money; «-5,000 ֏» beside "hand to the
+owner" is not a figure anybody can act on. The gap is not swallowed: `expected` sits
+beside `counted` on the count, so both readings are on the report.
 
 **Nobody is asked at the start of a shift.** That asked a worker to answer for a
-drawer somebody else had filled, and bound nobody to anything. The float is what
-the last person said they left, and the owner can correct it from the store page
-when that is wrong — a count typed with an extra nought, a shop set up before
-anybody counted. While a session is open the correction is booked into the till
-too, so the page and the shop are never working from different figures.
+drawer somebody else had filled, and bound nobody to anything. The float is what the
+last person said they left, and the owner can correct it two ways when that is wrong:
+«Ուղղել մնացորդը» on the store page, or the editable «Մնաց խանութում» box on the
+report. Neither touches the ledger — the balance is what stays on the premises and
+the till is what the shop took, and since the handover stopped being booked those are
+no longer the same quantity.
+
+The report's per-session header answers four different questions and says so:
+**Վաճառք** (with the cash/card split of the *takings* beneath it), **Ղեկավարին**,
+**Մնաց խանութում**, **Աշխատավարձ**. It used to read «Կանխիկ · Քարտ · Վաճառք ·
+Աշխատավարձ», where the first was the drawer *balance* — takings less wages, petty
+cash and the handover — sitting beside two figures about takings, so «Կանխիկ 2,500 ·
+Քարտ 16,000 · Վաճառք 101,500» read as a payment split that does not add up when the
+cash sales were 85,500. Nothing was miscomputed; the labels described the wrong kinds
+of thing.
 
 Several workers can share one store session. The first to arrive opens it; the
 others join. Each gets their own shift row and their own salary.
@@ -104,6 +118,25 @@ something that failed to load. Sections are also cut off past 25 rows, and say s
 Telegram *rejects* a message over 4096 characters rather than trimming it, so an
 unbounded list does not make a long screen but an empty one, on exactly the shifts
 that most need reading back.
+
+### What the owner can fix on a report
+
+Everything a cashier can get wrong, from `/reports?store_session_id=…`, because the
+alternative is an owner reading a figure they know is wrong and having no way to say
+so:
+
+* a sale's quantity, price or payment method — or void it entirely;
+* **a sale the cashier forgot**, under «Ավելացնել մոռացված վաճառք», which is open
+  rather than collapsed: it was behind a `▸` and got reported as missing, and a
+  triangle beside a heading does not read as "there is a form here";
+* **«Մնաց խանութում»** on the drawer table, editable in place. That row is not a
+  claim about what happened to any money — it is one person's reading of a drawer at
+  the door, typed while locking up — so a wrong reading is worth replacing rather
+  than stacking a correction beside. The owner's share and the shop's float both
+  follow from it, and correcting an *older* count deliberately leaves the float alone;
+* a shift's wage, which also clears whatever the till was too thin to pay;
+* breakage and shelf corrections;
+* a ledger entry, added or removed.
 
 `Asia/Yerevan` is used for *displaying* times and for grouping report rows. It
 never decides which bucket money lands in.
@@ -248,7 +281,7 @@ web/app/
     shifts.py      open / end shift / close store / auto-close
     sales.py       record_sale, void_last_sale — the atomic ones
     stock.py       counts corrected by hand, logged with a name against them
-    till.py        the shop’s float, the closing count, and the handover to the owner
+    till.py        the shop’s float, the closing count, and the owner’s share of it
     transfers.py   stock moved between two of one owner's shops
   routes/        auth · pages · partials · bot_api
   templates/     Jinja2; base.html carries the fixed footer

@@ -22,8 +22,13 @@ from app.handlers import till
 
 
 def _server_answer(counted="30000.00", expected="130000.00") -> dict:
-    """Exactly what the web service sends back for ``POST /shift/till``."""
-    handed = Decimal(expected) - Decimal(counted)
+    """Exactly what the web service sends back for ``POST /shift/till``.
+
+    ``handed_over`` is floored at nothing on that side: when a worker leaves more than
+    the books say the drawer held, the owner gets nothing from this shop today rather
+    than owing it money.
+    """
+    handed = max(Decimal(0), Decimal(expected) - Decimal(counted))
     return {
         "ok": True,
         "duplicate": False,
@@ -33,7 +38,6 @@ def _server_answer(counted="30000.00", expected="130000.00") -> dict:
             "counted": counted,
             "expected": expected,
             "handed_over": f"{handed:.2f}",
-            "difference": f"{Decimal(counted) - Decimal(expected):.2f}",
         },
     }
 
@@ -268,8 +272,11 @@ async def test_a_matching_count_says_nothing_about_a_gap():
 
 
 async def test_a_drawer_holding_more_than_expected_is_not_called_an_error():
-    """It runs over as easily as short — usually an unrecorded sale — and the worker
-    standing at it is the only one who can still say which."""
+    """It runs over as easily as short — usually an unrecorded sale. The cashier is told
+    the count landed and that nothing goes to the owner, and no more than that: there is
+    nothing they can do with «the drawer holds 500 more than expected» while locking up,
+    and it is on the owner's report where somebody can look into it.
+    """
     replies = []
 
     async def fake_count(**kwargs):
@@ -285,8 +292,9 @@ async def test_a_drawer_holding_more_than_expected_is_not_called_an_error():
     ):
         await till.type_amount(_typed("4000"), _Context())
 
-    assert "500" in replies[-1]
+    assert "4,000" in replies[-1], "what they left is confirmed back"
     assert "սխալ" not in replies[-1].lower()
+    assert texts.TILL_NOTHING_TO_HAND.strip() in replies[-1]
 
 
 async def test_a_recorded_count_is_never_reported_as_a_failure():

@@ -54,6 +54,46 @@ async def by_external_id(owner_id: int, external_id: str) -> asyncpg.Record | No
     )
 
 
+async def lock(conn, owner_id: int, count_id: int) -> asyncpg.Record | None:
+    """One count, held for the length of a correction."""
+    return await conn.fetchrow(
+        """
+        SELECT id, store_id, store_session_id, counted, expected, handed_over
+          FROM till_counts WHERE id = $1 AND owner_id = $2 FOR UPDATE
+        """,
+        count_id,
+        owner_id,
+    )
+
+
+async def set_counted(
+    conn, count_id: int, counted: Decimal, handed_over: Decimal | None
+) -> None:
+    await conn.execute(
+        "UPDATE till_counts SET counted = $2, handed_over = $3 WHERE id = $1",
+        count_id,
+        counted,
+        handed_over,
+    )
+
+
+async def latest_id_for_store(conn, owner_id: int, store_id: int) -> int | None:
+    """Which count the shop's balance currently comes from.
+
+    So that fixing an older row for the record does not overwrite what a later count
+    established about the same drawer.
+    """
+    return await conn.fetchval(
+        """
+        SELECT id FROM till_counts
+         WHERE owner_id = $1 AND store_id = $2
+         ORDER BY created_at DESC, id DESC LIMIT 1
+        """,
+        owner_id,
+        store_id,
+    )
+
+
 async def last_count_for_store(owner_id: int, store_id: int) -> asyncpg.Record | None:
     """The most recent count of this shop's drawer, for a page to render.
 

@@ -12,14 +12,19 @@ in the drawer goes to the owner. Nobody is asked at the *start* of a shift — t
 asked a worker to answer for a drawer somebody else had filled, and the answer told
 you nothing you could hold anyone to.
 
-    handed to the owner  =  what was in the till  −  what was left behind
-                         =  (yesterday's float + today's takings − wages − petty
-                            cash)  −  the new float
+    the owner's share  =  what was in the till  −  what was left behind
+                       =  (yesterday's float + today's takings − wages − petty
+                          cash)  −  the new float
 
-The subtraction is booked, not just displayed. The cash genuinely left the shop, so
-the ledger says so, and the session's closing figure then matches what is actually
-in the drawer. Reading it back out of arithmetic would have left every report
-describing money that was no longer there.
+**Shown, not booked.** The subtraction is a figure on the report and nothing else: no
+`withdrawal` row, no adjustment when the count disagrees with the books. The owner
+asked for it that way — the ledger is the shop's record of what it took and spent, and
+handing the day's money over is not another expense in it.
+
+So the closing cash on a session is the day's cash as the shop earned it, and the
+owner's share is worked out from it against what the worker left. The one figure that
+does persist is ``stores.till_balance``: what stays on the premises, and what the next
+session opens with.
 """
 
 from __future__ import annotations
@@ -44,11 +49,9 @@ ZERO = Decimal("0.00")
 # for a shop that banks weekly.
 MAX_COUNT = Decimal("10000000.00")
 
-# What these movements are called in the ledger. Constants so the note the owner
-# reads on the report and the note the tests assert on cannot drift apart.
+# The one movement this module still writes, plus the note an owner's correction
+# carries. Constants so what the owner reads and what the tests assert cannot drift.
 NOTE_CARRIED_OVER = "Նախորդ հերթափոխից մնացած կանխիկ"
-NOTE_HANDED_OVER = "Հանձնված ղեկավարին"
-NOTE_FOUND_EXTRA = "Դրամարկղում սպասվածից ավելի կանխիկ"
 NOTE_OWNER_SET = "Դրամարկղի մնացորդը ուղղվեց ղեկավարի կողմից"
 
 
@@ -86,20 +89,19 @@ async def declare_close(
 ) -> dict:
     """The worker's count at the end of their shift.
 
-    Three things happen together, and they have to be one transaction: the count is
-    recorded, the shop's balance becomes what was left, and the rest is booked out
-    of the till as handed to the owner. Any two of those without the third leaves the
-    drawer, the ledger and the balance telling different stories.
+    Two things happen, in one transaction: the count is recorded, and the shop's
+    balance becomes what was left. The owner's share is worked out and stored beside
+    the count, but nothing is taken out of the till — that figure is reported, not
+    booked.
 
-    Only once the shop is shut, and that restriction is the whole ordering. The count
-    hands the owner everything above the float, so anything still to be paid out of the
-    till has to be paid first. A worker who counted up at 21:07 mid-shift handed over
-    82,000 and was then paid at 21:10 out of a drawer that no longer had it: the shop
-    closed showing cash of -4,500 and the next count reported 7,000 more in the drawer
-    than expected. A mid-shift count also goes stale on the very next sale.
+    Only once the shop is shut, and that restriction is the whole ordering. What the
+    owner is owed is the till less the float, so anything still to come out of the till
+    has to come out first. A worker who counted up at 21:07 mid-shift was quoted a
+    handover of 82,000 and then paid 6,000 at 21:10, leaving the owner's figure 6,000
+    too high. A mid-shift count also goes stale on the very next sale.
 
     It is the *session* that has to be shut, not just this worker's shift. The drawer is
-    shared — one of two cashiers going home cannot hand over the change their colleague
+    shared — one of two cashiers going home cannot settle the change their colleague
     needs for the next four hours.
     """
     if counted < ZERO or counted > MAX_COUNT:
@@ -118,10 +120,10 @@ async def declare_close(
                 raise BotError("store_still_open")
 
             # What the books said at this moment, frozen beside the count. A sale
-            # amended next week must not rewrite what was handed over tonight.
+            # amended next week must not rewrite what the owner was owed tonight.
             totals = await money_repo.totals_on(conn, shift["store_session_id"])
             in_the_till = Decimal(totals["cash"])
-            handed_over = in_the_till - counted
+            handed_over = _owners_share(in_the_till, counted)
 
             count_id = await till_repo.insert(
                 conn,
@@ -137,14 +139,9 @@ async def declare_close(
                 note=note,
                 external_id=idem_key,
             )
-            await _book_the_handover(conn, worker, shift, handed_over)
             await stores_repo.set_till_balance(
                 conn, worker.owner_id, shift["store_id"], counted
             )
-            # The drawer is normally counted after locking up, so the session it
-            # belongs to is already closed and carrying frozen totals. Without this
-            # the report would show the cash as it stood before the handover.
-            await sessions_repo.resync_snapshot(conn, shift["store_session_id"])
     except asyncpg.exceptions.UniqueViolationError:
         original = await till_repo.by_external_id(worker.owner_id, idem_key)
         if original is None:  # pragma: no cover - some other constraint
@@ -152,7 +149,7 @@ async def declare_close(
         return _payload(original, duplicate=True)
 
     log.info(
-        "worker %s left %s in store %s and handed over %s",
+        "worker %s left %s in store %s; the owner is owed %s",
         worker.id, counted, shift["store_id"], handed_over,
     )
     return {
@@ -168,50 +165,33 @@ async def declare_close(
     }
 
 
-async def _book_the_handover(conn, worker, shift, handed_over: Decimal) -> None:
-    """Take the owner's share out of the till, so the ledger matches the drawer.
+def _owners_share(in_the_till: Decimal, left_behind: Decimal) -> Decimal:
+    """What the owner is owed, which is never less than nothing.
 
-    Positive is the normal case: the worker keeps the float and hands the rest over.
-    Negative means the drawer holds more than the books expected — an unrecorded sale,
-    or somebody put money in — and that is booked as found cash rather than as a
-    negative handover, because nothing was handed anywhere.
+    Normally the till less the float. When the worker leaves *more* than the books say
+    the drawer held — an unrecorded sale, a miscount, somebody topping it up — the
+    answer is that the owner gets nothing from this shop today, not that they owe it
+    money. «-4,500 ֏» beside "hand to the owner" is not a figure anybody can act on.
+
+    The gap is not swallowed: the count keeps ``expected`` beside ``counted``, so the
+    two readings are both on the report and the difference is there to be seen.
     """
-    if handed_over == ZERO:
-        return
-
-    going_out = handed_over > ZERO
-    await money_repo.insert_movement(
-        conn,
-        owner_id=worker.owner_id,
-        store_id=shift["store_id"],
-        store_session_id=shift["store_session_id"],
-        method="cash",
-        kind="withdrawal" if going_out else "adjustment",
-        amount=-handed_over,
-        work_session_id=shift["id"],
-        worker_id=worker.id,
-        note=NOTE_HANDED_OVER if going_out else NOTE_FOUND_EXTRA,
-        # 'system', not 'worker': that flag means money taken from the till at the
-        # counter, and this is the settlement the count implies rather than petty
-        # cash anybody spent. Who counted is on the ``till_counts`` row and on
-        # ``worker_id`` here, so nothing about attribution is lost.
-        created_by="system",
-    )
+    return max(ZERO, in_the_till - left_behind)
 
 
 async def set_by_owner(
     owner_id: int, store_id: int, amount: Decimal, note: str | None = None
 ) -> Decimal:
-    """The owner correcting a shop's float from the website.
+    """The owner correcting a shop's float, from the store page or a report.
 
     Needed because the balance is a real quantity somebody can be wrong about: a
     count typed with an extra nought, a drawer topped up in person, a shop set up
-    before anybody counted anything. Recorded as their correction, so the history
+    before anybody counted anything. Recorded as their own correction, so the history
     says who moved it and not just that it moved.
 
-    While a session is open the balance *is* the till, so the correction is booked
-    there too — otherwise the figure on the page and the figure the shop is working
-    from would disagree until closing time.
+    Touches no ledger. The balance is what stays on the premises and the till is what
+    the shop took, and since the handover stopped being booked the two are no longer
+    the same quantity — a correction to one is not a movement in the other.
     """
     if amount < ZERO or amount > MAX_COUNT:
         raise AppError("validation_error", "Սխալ գումար։")
@@ -220,28 +200,11 @@ async def set_by_owner(
 
     async with db.transaction() as conn:
         session = await sessions_repo.lock_open_for_store(conn, owner_id, store_id)
-        expected = ZERO
-        if session is not None:
-            totals = await money_repo.totals_on(conn, session["id"])
-            expected = Decimal(totals["cash"])
-            difference = amount - expected
-            if difference != ZERO:
-                await money_repo.insert_movement(
-                    conn,
-                    owner_id=owner_id,
-                    store_id=store_id,
-                    store_session_id=session["id"],
-                    method="cash",
-                    kind="adjustment",
-                    amount=difference,
-                    note=note or NOTE_OWNER_SET,
-                    created_by="owner",
-                )
-        else:
-            expected = Decimal(
-                await stores_repo.till_balance(conn, owner_id, store_id) or 0
-            )
-
+        expected = Decimal(
+            (await money_repo.totals_on(conn, session["id"]))["cash"]
+            if session is not None
+            else await stores_repo.till_balance(conn, owner_id, store_id) or 0
+        )
         await till_repo.insert(
             conn,
             owner_id=owner_id,
@@ -252,7 +215,7 @@ async def set_by_owner(
             kind="owner",
             counted=amount,
             expected=expected,
-            handed_over=None,
+            handed_over=_owners_share(expected, amount) if session is not None else None,
             note=note or NOTE_OWNER_SET,
             external_id=None,
         )
@@ -260,6 +223,42 @@ async def set_by_owner(
 
     log.info("owner %s set the float of store %s to %s", owner_id, store_id, amount)
     return amount
+
+
+async def correct_a_count(
+    owner_id: int, count_id: int, counted: Decimal
+) -> asyncpg.Record:
+    """Change what a count says was left in the shop.
+
+    The figure a cashier types at the door is the one an owner most often needs to
+    fix — a nought too many, a bundle counted twice, a number typed while locking up.
+    Editing it in place rather than stacking a correction beside it, because unlike a
+    wage or a sale this row is not a claim about what happened to any money: it is one
+    person's reading of a drawer, and a wrong reading is worth replacing.
+
+    The owner's share moves with it, since it is that reading subtracted from the
+    till. So does the shop's balance, when this is the count the balance came from.
+    """
+    if counted < ZERO or counted > MAX_COUNT:
+        raise AppError("validation_error", "Սխալ գումար։")
+
+    async with db.transaction() as conn:
+        row = await till_repo.lock(conn, owner_id, count_id)
+        if row is None:
+            raise AppError("not_found", "Հաշվարկը չի գտնվել։")
+
+        expected = Decimal(row["expected"])
+        await till_repo.set_counted(
+            conn, count_id, counted, _owners_share(expected, counted)
+        )
+        # Only if this is still the shop's latest word on its drawer. An older count
+        # being fixed for the record must not overwrite what a later one established.
+        latest = await till_repo.latest_id_for_store(conn, owner_id, row["store_id"])
+        if latest == count_id:
+            await stores_repo.set_till_balance(conn, owner_id, row["store_id"], counted)
+
+    log.info("owner %s corrected count %s to %s", owner_id, count_id, counted)
+    return row
 
 
 def _payload(row, *, duplicate: bool) -> dict:

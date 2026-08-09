@@ -394,10 +394,6 @@ TILL_DONE_CLOSE = "💰 Գրանցվեց՝ դրամարկղում մնում է 
 # stated rather than left to be worked out from the other two.
 TILL_HANDED_OVER = "Ղեկավարին հանձնվում է՝ <b>{handed}</b>։\n"
 TILL_NOTHING_TO_HAND = "Ղեկավարին հանձնելու գումար չկա։\n"
-TILL_FOUND_EXTRA = (
-    "Դրամարկղում սպասվածից <b>{extra}</b>-ով ավելի է եղել, և այն նույնպես մնում է "
-    "խանութում։\n"
-)
 TILL_DONE_PLAINLY = "💰 Դրամարկղի մնացորդը գրանցվեց։"
 TILL_SKIPPED = (
     "Դրամարկղի հաշվարկը բաց թողնվեց։ Խանութի մնացորդը մնում է նույնը։"

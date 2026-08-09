@@ -178,9 +178,11 @@ async def test_the_rest_goes_to_the_owner(client):
     assert result["count"]["handed_over"] == "17000.00"
 
 
-async def test_the_handover_is_booked_so_the_ledger_matches_the_drawer(client):
-    """The cash genuinely left the shop. Reading it back out of arithmetic would leave
-    every report describing money that is no longer there."""
+async def test_the_owners_share_is_reported_and_never_booked(client):
+    """Shown, not extracted, which is how the owner wants it: the ledger is the shop's
+    record of what it took and spent, and handing the day's money over is not another
+    expense in it. So the till still says what the shop earned.
+    """
     owner_id, _, item_id = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
@@ -190,36 +192,32 @@ async def test_the_handover_is_booked_so_the_ledger_matches_the_drawer(client):
     session_id = await _session()
 
     await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    result = await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
 
-    row = await db.fetchrow(
-        """
-        SELECT kind, amount, note, created_by, worker_id FROM cash_movements
-         WHERE kind = 'withdrawal'
-        """
-    )
-    assert row["amount"] == Decimal("-17000.00")
-    assert row["note"] == till_service.NOTE_HANDED_OVER
-    assert row["worker_id"] is not None, "whoever counted is still on the row"
-    assert await _till(session_id) == Decimal("30000.00"), "the till now says the drawer"
+    assert result["count"]["handed_over"] == "17000.00"
+    assert await db.fetchval(
+        "SELECT count(*) FROM cash_movements WHERE kind IN ('withdrawal', 'adjustment')"
+    ) == 0, "no row for the handover, and none to correct one"
+    assert await _till(session_id) == Decimal("47000.00"), "the day's cash, untouched"
 
 
-async def test_the_handover_is_not_counted_as_petty_cash(client):
-    """``created_by = 'worker'`` means money taken from the till at the counter, and
-    the shift review reads those back as "what you took out". A handover is the
-    settlement the count implies, not something anybody spent."""
+async def test_the_count_leaves_the_closing_snapshot_alone(client):
+    """It used to re-snapshot the closed session, because the handover changed the
+    ledger under it. Nothing changes the ledger now."""
     owner_id, _, item_id = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     await sales_service.record_sale(
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
-    shift_id = await db.fetchval("SELECT id FROM work_sessions ORDER BY id DESC LIMIT 1")
-
+    session_id = await _session()
     await _lock_up(worker)
+
     await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
 
-    assert await money_repo.taken_out_during_shift(shift_id) == []
+    assert await db.fetchval(
+        "SELECT cash_at_close FROM store_sessions WHERE id = $1", session_id
+    ) == Decimal("47000.00")
 
 
 async def test_the_days_takings_are_untouched_by_the_handover(client):
@@ -252,23 +250,34 @@ async def test_leaving_everything_hands_over_nothing(client):
     ) == 0
 
 
-async def test_leaving_more_than_the_till_held_is_recorded_as_found_cash(client):
-    """Usually an unrecorded sale. Nothing was handed anywhere, so it is not booked as
-    a handover — and the money stays put."""
+async def test_leaving_more_than_the_till_held_owes_the_owner_nothing(client):
+    """Usually an unrecorded sale or a miscount. The owner gets nothing from this shop
+    today; they do not owe it money. «-5,000 ֏» beside "hand to the owner" is not a
+    figure anybody can act on, which is the whole reason it is floored at zero."""
     owner_id, store_id, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-
     await _lock_up(worker)
+
     result = await till_service.declare_close(worker, Decimal("45000"), "idem-till-1")
 
-    assert result["count"]["handed_over"] == "-5000.00"
-    row = await db.fetchrow(
-        "SELECT amount, note FROM cash_movements WHERE kind = 'adjustment'"
-    )
-    assert row["amount"] == Decimal("5000.00")
-    assert row["note"] == till_service.NOTE_FOUND_EXTRA
+    assert result["count"]["handed_over"] == "0.00"
     assert await _balance(store_id) == Decimal("45000.00")
+
+
+async def test_the_gap_is_still_visible_when_more_was_left_than_expected(client):
+    """Flooring the owner's share must not swallow the discrepancy. Both readings stay
+    on the row, so the report can show that the drawer held 5,000 more than the books
+    said."""
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker)
+
+    result = await till_service.declare_close(worker, Decimal("45000"), "idem-till-1")
+
+    assert result["count"]["expected"] == "40000.00", "what the books said"
+    assert result["count"]["counted"] == "45000.00", "what was found"
 
 
 async def test_tomorrow_opens_with_what_was_left(client):
@@ -391,9 +400,6 @@ async def test_a_retry_hands_over_once(client):
     assert second["duplicate"] is True
     assert second["count"]["handed_over"] == first["count"]["handed_over"]
     assert await db.fetchval("SELECT count(*) FROM till_counts") == 1
-    assert await db.fetchval(
-        "SELECT count(*) FROM cash_movements WHERE kind = 'withdrawal'"
-    ) == 1
 
 
 # -- the owner's correction ---------------------------------------------------
@@ -420,16 +426,23 @@ async def test_the_owners_correction_is_recorded_as_theirs(client):
     assert row["note"] == "վերահաշվարկ"
 
 
-async def test_correcting_an_open_shop_moves_its_till_too(client):
-    """Otherwise the figure on the page and the figure the shop is working from
-    disagree until closing time."""
+async def test_a_correction_never_touches_the_till(client):
+    """It used to book an adjustment when a session was open, on the reasoning that the
+    balance *is* the till while the shop is trading. That stopped being true when the
+    handover stopped being booked: the till is what the shop took and the balance is
+    what stays on the premises, so a correction to one is not a movement in the other.
+    """
     owner_id, store_id, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
 
     await till_service.set_by_owner(owner_id, store_id, Decimal("25000"))
 
-    assert await _till(await _session()) == Decimal("25000.00")
+    assert await _balance(store_id) == Decimal("25000.00")
+    assert await _till(await _session()) == Decimal("40000.00"), "the day's cash stands"
+    assert await db.fetchval(
+        "SELECT count(*) FROM cash_movements WHERE kind = 'adjustment'"
+    ) == 0
 
 
 async def test_correcting_a_closed_shop_touches_no_ledger(client):
@@ -579,11 +592,11 @@ async def test_the_handover_shows_on_the_report(client):
     assert "30,000.00" in page.text, "and what stayed in the shop"
 
 
-async def test_counting_after_locking_up_updates_the_closed_snapshot(client):
-    """The drawer is normally counted *after* the shift ends, so the session it
-    belongs to is already closed and carrying frozen totals. Leaving those alone
-    would show the report the cash as it stood before the handover — the ledger and
-    the report disagreeing about the same evening.
+async def test_the_header_no_longer_labels_the_drawer_as_cash_takings(client):
+    """The four figures across the top were «Կանխիկ · Քարտ · Վաճառք · Աշխատավարձ», where
+    the first was the drawer *balance* sitting beside two figures about takings. So
+    «Կանխիկ 2,500 · Քարտ 16,000 · Վաճառք 101,500» read as a payment split that does not
+    add up. Nothing was miscomputed; the labels described the wrong kinds of thing.
     """
     owner_id, _, item_id = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
@@ -593,15 +606,153 @@ async def test_counting_after_locking_up_updates_the_closed_snapshot(client):
     )
     session_id = await _session()
     await _lock_up(worker)
-    assert await db.fetchval(
-        "SELECT cash_at_close FROM store_sessions WHERE id = $1", session_id
-    ) == Decimal("47000.00"), "everything, before anybody counted"
-
     await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "Ղեկավարին" in page.text, "what the owner should get"
+    assert "Մնաց խանութում" in page.text, "and what stays behind"
+    assert "Վաճառքից՝ կանխիկ" in page.text, "with the takings split named as such"
+
+
+async def test_the_header_answers_a_session_nobody_counted(client):
+    """A shop closed without anybody counting the drawer. Both figures are unknown
+    rather than zero, but zero is the honest render: nothing was declared."""
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert page.status_code == 200
+
+
+# -- the owner correcting a count ---------------------------------------------
+
+async def test_the_owner_can_correct_what_was_left_in_the_shop(client):
+    """The figure a cashier types at the door is the one most often wrong — a nought
+    too many, a bundle counted twice — and the report used to show it and nothing
+    else."""
+    owner_id, store_id, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("300000"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+
+    await till_service.correct_a_count(owner_id, count_id, Decimal("30000"))
+
+    row = await db.fetchrow(
+        "SELECT counted, handed_over FROM till_counts WHERE id = $1", count_id
+    )
+    assert row["counted"] == Decimal("30000.00")
+    assert row["handed_over"] == Decimal("17000.00"), "the owner's share follows it"
+    assert await _balance(store_id) == Decimal("30000.00"), "and so does the shop's float"
+
+
+async def test_correcting_an_older_count_leaves_the_float_alone(client):
+    """Fixing yesterday for the record must not overwrite what today established about
+    the same drawer."""
+    owner_id, store_id, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker, "idem-lockup-1")
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    older = await db.fetchval("SELECT id FROM till_counts")
+    await _open(worker, "idem-open-2")
+    await _lock_up(worker, "idem-lockup-2")
+    await till_service.declare_close(worker, Decimal("25000"), "idem-till-2")
+
+    await till_service.correct_a_count(owner_id, older, Decimal("31000"))
 
     assert await db.fetchval(
-        "SELECT cash_at_close FROM store_sessions WHERE id = $1", session_id
-    ) == Decimal("30000.00"), "what is actually in the drawer"
+        "SELECT counted FROM till_counts WHERE id = $1", older
+    ) == Decimal("31000.00")
+    assert await _balance(store_id) == Decimal("25000.00"), "today still stands"
+
+
+async def test_a_negative_correction_to_a_count_is_refused(client):
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+
+    with pytest.raises(AppError):
+        await till_service.correct_a_count(owner_id, count_id, Decimal("-1"))
+
+
+async def test_another_owners_count_cannot_be_corrected(client):
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+    stranger = await make_owner("@stranger")
+
+    with pytest.raises(AppError):
+        await till_service.correct_a_count(stranger, count_id, Decimal("100"))
+
+
+async def test_the_report_offers_the_correction_box(client):
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert f"/till-counts/{count_id}/counted" in page.text
+
+
+async def test_correcting_a_count_from_the_report(client):
+    owner_id, store_id, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("300000"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+    await login(client, "@ownerhandle")
+    csrf = await db.fetchval(
+        "SELECT csrf_token FROM auth_sessions ORDER BY created_at DESC LIMIT 1"
+    )
+
+    response = await client.post(
+        f"/till-counts/{count_id}/counted",
+        data={"csrf_token": csrf, "counted": "30000"},
+    )
+
+    assert response.status_code in (200, 303)
+    assert await _balance(store_id) == Decimal("30000.00")
+
+
+async def test_a_forgotten_sale_can_be_added_without_hunting_for_the_form(client):
+    """It was collapsed behind «▸ Ավելացնել մոռացված վաճառք» and got reported as
+    missing. A triangle beside a heading does not read as "there is a form here"."""
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert f'action="/store-sessions/{session_id}/sales"' in page.text
+    assert 'class="sub-card" open' in page.text, "the form is open, not collapsed"
 
 
 async def test_the_session_rows_carry_the_handover(client):

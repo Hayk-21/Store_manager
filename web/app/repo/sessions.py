@@ -335,10 +335,10 @@ async def record_unpaid(
 async def resync_snapshot(conn, store_session_id: int) -> None:
     """Bring a closed session's snapshot back in line with its ledger.
 
-    An open session needs nothing: its totals are read live. A closed one has
-    frozen numbers on the row, and anything that books a movement into it after
-    the fact — an owner's correction, a drawer counted after locking up — leaves
-    those stale, so the report and the ledger disagree.
+    An open session needs nothing: its totals are read live. A closed one has frozen
+    numbers on the row, so anything that books a movement into it after the fact — every
+    correction an owner can make from a report — leaves those stale and the report then
+    disagrees with the ledger it was drawn from.
     """
     session = await conn.fetchrow(
         "SELECT closed_at FROM store_sessions WHERE id = $1", store_session_id

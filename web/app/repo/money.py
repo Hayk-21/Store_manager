@@ -129,8 +129,18 @@ _TOTALS_SQL = """
         SELECT coalesce(sum(amount) FILTER (WHERE method = 'cash'), 0)  AS cash,
                coalesce(sum(amount) FILTER (WHERE method = 'card'), 0)  AS card,
                coalesce(sum(amount) FILTER (WHERE kind = 'sale'), 0)    AS sales,
+               -- The takings split by how they were paid, which is *not* the two
+               -- balances above: those have wages, petty cash and the handover
+               -- already taken off them. An owner reading «cash 2,500 · card 16,000»
+               -- beside «sales 101,500» is being shown three numbers that cannot
+               -- all be about the same thing, and the cash sales were 85,500.
+               coalesce(sum(amount) FILTER (WHERE kind = 'sale' AND method = 'cash'), 0)
+                   AS sale_cash,
+               coalesce(sum(amount) FILTER (WHERE kind = 'sale' AND method = 'card'), 0)
+                   AS sale_card,
                coalesce(-sum(amount) FILTER (WHERE kind = 'void'), 0)   AS voided,
                coalesce(-sum(amount) FILTER (WHERE kind = 'salary'), 0) AS salaries,
+               coalesce(-sum(amount) FILTER (WHERE kind = 'bonus'), 0)  AS bonuses,
                coalesce(-sum(amount) FILTER (WHERE kind = 'withdrawal'), 0) AS withdrawn,
                coalesce(sum(amount) FILTER (WHERE kind = 'deposit'), 0) AS deposited
           FROM cash_movements
@@ -155,8 +165,18 @@ async def totals_for_session(store_session_id: int) -> asyncpg.Record:
         SELECT coalesce(sum(amount) FILTER (WHERE method = 'cash'), 0)  AS cash,
                coalesce(sum(amount) FILTER (WHERE method = 'card'), 0)  AS card,
                coalesce(sum(amount) FILTER (WHERE kind = 'sale'), 0)    AS sales,
+               -- The takings split by how they were paid, which is *not* the two
+               -- balances above: those have wages, petty cash and the handover
+               -- already taken off them. An owner reading «cash 2,500 · card 16,000»
+               -- beside «sales 101,500» is being shown three numbers that cannot
+               -- all be about the same thing, and the cash sales were 85,500.
+               coalesce(sum(amount) FILTER (WHERE kind = 'sale' AND method = 'cash'), 0)
+                   AS sale_cash,
+               coalesce(sum(amount) FILTER (WHERE kind = 'sale' AND method = 'card'), 0)
+                   AS sale_card,
                coalesce(-sum(amount) FILTER (WHERE kind = 'void'), 0)   AS voided,
                coalesce(-sum(amount) FILTER (WHERE kind = 'salary'), 0) AS salaries,
+               coalesce(-sum(amount) FILTER (WHERE kind = 'bonus'), 0)  AS bonuses,
                coalesce(-sum(amount) FILTER (WHERE kind = 'withdrawal'), 0) AS withdrawn,
                coalesce(sum(amount) FILTER (WHERE kind = 'deposit'), 0) AS deposited
           FROM cash_movements

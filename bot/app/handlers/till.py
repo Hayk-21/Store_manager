@@ -135,23 +135,22 @@ async def type_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 def _confirmation(count: dict) -> str:
     """What stays in the shop, and what goes to the owner.
 
-    The handover is the figure the worker is about to act on — they are holding that
-    money — so it is stated outright rather than left as a subtraction they do in
+    The owner's share is the figure the worker is about to act on — they are holding
+    that money — so it is stated outright rather than left as a subtraction they do in
     their head at the door.
 
     There is no "the books disagree" line, and there deliberately cannot be one: the
     worker says what they are *leaving*, not what the whole drawer holds, so there is
-    no second reading of the same quantity to compare. The one case worth naming is
-    leaving more than the till is supposed to contain, which means either an
-    unrecorded sale or a miscount, and either way the money stays put.
+    no second reading of the same quantity to compare. Nor a "found extra" line: the
+    server floors the owner's share at nothing, and a cashier told the drawer holds
+    5,000 more than expected can do nothing useful with that. It is on the owner's
+    report, where somebody can look into it.
     """
     handed = Decimal(count["handed_over"] or 0)
     body = texts.TILL_DONE_CLOSE.format(counted=format.money(count["counted"]))
 
     if handed > 0:
         return body + texts.TILL_HANDED_OVER.format(handed=format.money(handed))
-    if handed < 0:
-        return body + texts.TILL_FOUND_EXTRA.format(extra=format.money(-handed))
     return body + texts.TILL_NOTHING_TO_HAND
 
 

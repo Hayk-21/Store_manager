@@ -78,25 +78,44 @@
 <div class="card">
   <h2>{{ d.session.store_name }} · {{ d.session.opened_at | stamp }}</h2>
 
+  {# Four figures that are four different questions. They used to be «Կանխիկ · Քարտ ·
+     Վաճառք · Աշխատավարձ», where the first was the drawer *balance* — takings less
+     wages, petty cash and the handover — sitting next to two figures about takings. So
+     «Կանխիկ 2,500 · Քարտ 16,000 · Վաճառք 101,500» read as a payment split that does
+     not add up, when the cash sales were 85,500. Nothing was miscomputed; the labels
+     were describing the wrong kinds of thing. #}
   <div class="totals">
-    <div class="total">
-      <span class="total-label">Կանխիկ</span>
-      <span class="total-value {% if d.totals.cash < 0 %}negative{% endif %}">
-        {{ d.totals.cash | money }}</span>
-    </div>
-    <div class="total">
-      <span class="total-label">Քարտ</span>
-      <span class="total-value">{{ d.totals.card | money }}</span>
-    </div>
     <div class="total">
       <span class="total-label">Վաճառք</span>
       <span class="total-value">{{ d.totals.sales | money }}</span>
     </div>
     <div class="total">
+      <span class="total-label">Ղեկավարին</span>
+      <span class="total-value">{{ d.owed_to_owner | money }}</span>
+    </div>
+    <div class="total">
+      <span class="total-label">Մնաց խանութում</span>
+      <span class="total-value">{{ d.left_in_store | money }}</span>
+    </div>
+    <div class="total">
       <span class="total-label">Աշխատավարձ</span>
-      <span class="total-value">{{ d.totals.salaries | money }}</span>
+      <span class="total-value">{{ (d.totals.salaries + d.totals.bonuses) | money }}</span>
     </div>
   </div>
+  {# The line that lets an owner check the four above against each other. Without it
+     "the owner gets 75,000" is a number to take on faith. #}
+  <p class="muted small">
+    Վաճառքից՝ կանխիկ {{ d.totals.sale_cash | money }} · քարտով
+    {{ d.totals.sale_card | money }}
+    {%- if d.totals.voided %} · չեղարկված {{ d.totals.voided | money }}{% endif %}
+    {%- if d.totals.deposited %} · նախորդից մնացած {{ d.totals.deposited | money }}{% endif %}
+    <br>
+    Կանխիկից հանվել է՝ աշխատավարձ {{ d.totals.salaries | money }}
+    {%- if d.totals.bonuses %} · բոնուս {{ d.totals.bonuses | money }}{% endif %}
+    {%- if d.totals.withdrawn %} · վերցված {{ d.totals.withdrawn | money }}{% endif %}
+    · դրամարկղում մնացել է <b>{{ d.totals.cash | money }}</b>, որից
+    {{ d.left_in_store | money }} մնում է խանութում։
+  </p>
 
   <h3>Հերթափոխեր</h3>
   <div class="table-wrap">
@@ -257,7 +276,11 @@
   <p class="muted">Այս հերթափոխին վաճառք չի եղել։</p>
   {% endif %}
 
-  <details class="sub-card">
+  {# Open by default. It was collapsed behind «▸ Ավելացնել մոռացված վաճառք» and got
+     reported as missing — a triangle beside a heading does not read as "there is a
+     form here", and this is the correction an owner reaches for most: a sale the
+     cashier forgot. #}
+  <details class="sub-card" open>
     <summary><h3>Ավելացնել մոռացված վաճառք</h3></summary>
     <form method="post" action="/store-sessions/{{ d.session.id }}/sales">
       <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
@@ -363,7 +386,7 @@
       <thead>
         <tr><th>Ժամ</th><th>Ով</th>
             <th class="num">Դրամարկղում էր</th><th class="num">Մնաց խանութում</th>
-            <th class="num">Հանձնվեց</th></tr>
+            <th class="num">Ղեկավարին</th></tr>
       </thead>
       <tbody>
         {% for t in d.till_counts %}
@@ -373,23 +396,36 @@
             {% if t.kind == 'owner' %}ղեկավար{% else %}{{ t.worker_name or '—' }}{% endif %}
           </td>
           <td class="num muted" data-label="Դրամարկղում էր">{{ t.expected | money }}</td>
-          <td class="num" data-label="Մնաց խանութում">{{ t.counted | money }}</td>
-          <td class="num" data-label="Հանձնվեց">
-            {% if t.handed_over is none %}—
-            {% elif t.handed_over < 0 %}
-              <span class="positive">+{{ (-t.handed_over) | money }}</span>
-            {% else %}<b>{{ t.handed_over | money }}</b>{% endif %}
+          {# Editable, because the figure a cashier types at the door is the one most
+             often wrong — a nought too many, a bundle counted twice — and this row is
+             not a claim about what happened to any money, only somebody's reading of a
+             drawer. The owner's share and the shop's balance both follow from it. #}
+          <td class="num" data-label="Մնաց խանութում">
+            <input form="count-{{ t.id }}" name="counted"
+                   value="{{ t.counted | plain_money }}" inputmode="decimal"
+                   class="money-input" aria-label="Մնաց խանութում">
+            <button form="count-{{ t.id }}" type="submit" class="secondary tiny">✓</button>
+          </td>
+          <td class="num" data-label="Ղեկավարին">
+            {% if t.handed_over is none %}—{% else %}<b>{{ t.handed_over | money }}</b>{% endif %}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {# Outside the table: a form inside a <tr> is not valid HTML and browsers hoist it
+     out, which silently detaches the inputs from it. #}
+  {% for t in d.till_counts %}
+    <form id="count-{{ t.id }}" method="post" action="/till-counts/{{ t.id }}/counted">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    </form>
+  {% endfor %}
   <p class="muted small">
     «Մնաց խանութում» գումարը դուրս չի գալիս խանութից՝ հաջորդ հերթափոխի դրամարկղը
-    սկսվում է դրանով։ «Հանձնվեց» սյունակը ցույց է տալիս, թե որքան պետք է ստացած
-    լինեք։ Կանաչ թիվը նշանակում է, որ դրամարկղում սպասվածից ավելի կանխիկ է եղել՝
-    սովորաբար չգրանցված վաճառք։
+    սկսվում է դրանով, և կարող եք ուղղել այն այստեղ։ «Ղեկավարին» սյունակը ցույց է
+    տալիս, թե որքան պետք է ստացած լինեք՝ դրամարկղում եղածից հանած խանութում մնացածը։
+    Այդ գումարը դրամարկղից դուրս չի գրվում՝ սա հաշվարկ է, ոչ թե ծախս։
   </p>
   {% endif %}
 

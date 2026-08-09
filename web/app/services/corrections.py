@@ -58,8 +58,8 @@ ACTION_LABELS = {
 async def _resync_snapshot(conn, store_session_id: int) -> None:
     """Bring a closed session's snapshot back in line with its ledger.
 
-    Lives in the repo now, because counting the drawer after locking up needs the
-    same thing and two copies would be two chances to forget one.
+    A pass-through kept for the name: it follows nearly every correction below, and
+    ``_resync_snapshot(conn, …)`` reads as the step it is at ten call sites.
     """
     await sessions_repo.resync_snapshot(conn, store_session_id)
 
