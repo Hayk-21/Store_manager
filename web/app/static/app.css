@@ -371,43 +371,79 @@ table.items td.cell-actions button { margin: 1px 0; }
    `table.cards` gets the same treatment, but only once the screen is too
    narrow for the real thing.
 
+   Each row becomes a card, and the fields inside it *flow*: as many across as fit
+   at 180px each, wrapping when they run out. That is the part worth keeping in
+   mind when adding a column — nothing here needs a breakpoint chosen for it,
+   because no width is written down except the narrowest a field may be.
+
    The declarations are repeated inside the media query below rather than
    shared: plain CSS has no way to add a selector to an existing rule.
    ========================================================================== */
 
-table.stack, table.stack tbody, table.stack tfoot, table.stack tr, table.stack td {
-  display: block;
-  width: 100%;
-}
+table.stack, table.stack tbody, table.stack tfoot { display: block; width: 100%; }
 table.stack thead { display: none; }
+
+/* One row per field was costing about 370px per expense — seven labels in a narrow
+   column with a very wide input beside each, on a screen with room for all seven
+   side by side. The fields flow instead: as many across as fit, wrapping when they
+   do not, down to one on a phone. Same rule, one line of CSS, and it means the
+   layout uses whatever width the display has rather than a width decided here. */
 table.stack tr {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px 14px;
+  align-items: end;
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 10px 14px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 table.stack td {
-  display: grid;
-  grid-template-columns: minmax(120px, 180px) 1fr;
-  align-items: center;
-  gap: 12px;
+  display: block;
+  min-width: 0;
   border: 0;
-  padding: 5px 0;
+  padding: 0;
   text-align: left;
 }
+/* The label sits above its field rather than beside it. Beside costs a fixed
+   column of up to 180px per field, which is what made one field per row the only
+   thing that fitted. */
 table.stack td::before {
   content: attr(data-label);
+  display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: .3px;
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 table.stack td.empty-cell { display: none; }
 table.stack td input, table.stack td select { width: 100%; text-align: left; }
 table.stack td.num input { text-align: right; }
-table.stack .cell-actions { justify-content: flex-end; }
-table.stack .cell-actions::before { content: ""; }
+/* The purpose is the one field worth extra room: it holds a sentence, while the
+   rest hold a date, a choice or a number. */
+table.stack td.cell-name { grid-column: span 2; }
+/* Buttons, not a field: no label above them, and sized to their text rather than
+   stretched across a whole grid column. */
+table.stack .cell-actions {
+  display: flex;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 6px;
+}
+table.stack .cell-actions::before { content: none; }
+table.stack .cell-actions button { width: auto; flex: 0 0 auto; }
+
+@media (max-width: 520px) {
+  /* One field at a time, and the sentence stops claiming a second column it no
+     longer has. */
+  table.stack tr { grid-template-columns: 1fr; }
+  table.stack td.cell-name { grid-column: auto; }
+}
 
 /* ==========================================================================
    Narrow screens

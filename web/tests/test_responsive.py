@@ -78,3 +78,42 @@ def test_the_viewport_is_declared():
 
     assert 'name="viewport"' in base
     assert "width=device-width" in base
+
+
+def test_the_page_is_wide_enough_for_its_widest_table():
+    """The report list is nine columns and only folds into cards below 1200px, so
+    the page must be able to be wider than that — it was capped at 1100px, which
+    guaranteed a sideways scrollbar on every desktop with room to spare."""
+    css = CSS.read_text(encoding="utf-8")
+    caps = [int(n) for n in re.findall(r"^main \{[^}]*?max-width: (\d+)px", css, re.M | re.S)]
+
+    assert caps, "main has no width cap at all"
+    assert min(caps) > 1200, f"main is capped at {min(caps)}px, narrower than the card breakpoint"
+
+
+def test_nothing_can_scroll_the_whole_page_sideways():
+    """A table may overflow its own wrapper — that is what the wrapper is for. The
+    body may not, because then the layout slides and the fixed footer comes away
+    from the edge of the screen."""
+    css = CSS.read_text(encoding="utf-8")
+
+    assert "html, body { max-width: 100%; overflow-x: hidden; }" in css
+
+
+def test_an_always_stacked_card_flows_its_fields_rather_than_listing_them():
+    """One field per row cost about 370px per expense on a screen with room for
+    seven side by side. They flow now: as many across as fit, wrapping when not."""
+    css = CSS.read_text(encoding="utf-8")
+    rule = css.split("table.stack tr {", 1)[1].split("}", 1)[0]
+
+    assert "display: grid" in rule
+    assert "auto-fit" in rule, "a fixed column count would need a breakpoint per screen"
+
+
+def test_the_footer_is_short_enough_to_be_worth_its_place():
+    """It is on every page. Five lines per store was 92px of every screen spent
+    repeating what the store page says in full."""
+    css = CSS.read_text(encoding="utf-8")
+    height = int(re.search(r"--footer-h: (\d+)px", css).group(1))
+
+    assert height <= 64, f"the footer claims {height}px of every page"
