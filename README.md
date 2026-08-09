@@ -88,9 +88,27 @@ report. Neither touches the ledger — the balance is what stays on the premises
 the till is what the shop took, and since the handover stopped being booked those are
 no longer the same quantity.
 
-The report's per-session header answers six different questions and says so:
-**Վաճառք · Կանխիկ վաճառք · Քարտով վաճառք · Ղեկավարին · Մնաց խանութում ·
-Աշխատավարձ**, with a line beneath giving what came out of the cash in between.
+The report's per-session header answers seven different questions and says so:
+**Վաճառք · Կանխիկ վաճառք · Քարտով վաճառք · Ղեկավարին · Շահույթ · Մնաց խանութում ·
+Աշխատավարձ**, with two lines beneath breaking down the last two of those.
+
+**Շահույթ** is the point of the page and was missing from it. Revenue is the loudest
+figure there and the least useful alone — a shop can sell 101,500 of stock that cost
+90,000 and pay 7,000 in wages out of it. It is the same subtraction the statistics page
+makes over a period, applied to one evening:
+
+```
+gross    =  what the goods sold for  −  what they cost
+the day  =  gross  −  wages  −  petty cash  −  breakage
+```
+
+Breakage is in it because that stock was paid for and did not come back; it never
+touched the till, which is exactly why it would go missing unless taken off here. Voided
+sales are out, for the same reason the statistics leave them out.
+
+**Ղեկավարին** and **Շահույթ** are the two figures an owner is actually looking for, so
+those two are coloured and the rest are not. Two colours and no more — a page where
+every figure is coloured points at nothing.
 
 It used to read «Կանխիկ · Քարտ · Վաճառք · Աշխատավարձ», where the first was the drawer
 *balance* — takings less wages, petty cash and the handover — sitting beside two
@@ -100,10 +118,13 @@ miscomputed; the labels described the wrong kinds of thing. The split is still t
 and is now labelled «կանխիկ *վաճառք*», because a bare «Կանխիկ» beside «Վաճառք» is
 exactly what invited the wrong reading.
 
-**Ղեկավարին** is worked out from the ledger and the last count, not read from the
-figure stored on that count. So it follows a sale corrected next week, and rows written
-before the share was floored at nothing cannot put a negative in the header — the shop
-that closed on -4,500 has a count on it saying the owner is owed -7,000.
+**Ղեկավարին** is the last count's two readings subtracted, floored at nothing. From the
+count rather than from the live ledger because both of those readings are editable, and a
+header computed from the ledger instead would sit there contradicting the row the owner
+had just corrected. Floored because rows written before that rule exist: the shop that
+closed on -4,500 carries a count saying the owner is owed -7,000, and nobody can act on
+that. The ledger's own figure is printed beside it, and the report says plainly when the
+count has drifted from it.
 
 Several workers can share one store session. The first to arrive opens it; the
 others join. Each gets their own shift row and their own salary.
@@ -137,11 +158,15 @@ so:
 * **a sale the cashier forgot**, under «Ավելացնել մոռացված վաճառք», which is open
   rather than collapsed: it was behind a `▸` and got reported as missing, and a
   triangle beside a heading does not read as "there is a form here";
-* **«Մնաց խանութում»** on the drawer table, editable in place. That row is not a
-  claim about what happened to any money — it is one person's reading of a drawer at
-  the door, typed while locking up — so a wrong reading is worth replacing rather
-  than stacking a correction beside. The owner's share and the shop's float both
-  follow from it, and correcting an *older* count deliberately leaves the float alone;
+* **both figures on the drawer table**, editable in place with one ✓ for the pair.
+  Neither is a claim about what happened to any money: «Մնաց խանութում» is a reading
+  off a drawer at the door and «Դրամարկղում էր» a reading off the books at the same
+  moment, frozen there — so a sale voided afterwards leaves the second describing books
+  that have since changed, and the report says so when the two have drifted apart. The
+  owner's share is the difference, so it follows either; the shop's float follows the
+  count, and correcting an *older* count deliberately leaves the float alone. «Դրամարկղում
+  էր» may be negative, because under the old rules a drawer really was recorded as
+  holding less than nothing and a row saying so is a record of that evening;
 * **a whole count deleted**, for a reading that should never have been there: a
   duplicate, one against the wrong shop, a row left behind by a rule that has since
   changed. The float falls back to whatever count is now the latest, or to nothing if
@@ -152,8 +177,51 @@ so:
 * breakage and shelf corrections;
 * a ledger entry, added or removed.
 
-`Asia/Yerevan` is used for *displaying* times and for grouping report rows. It
-never decides which bucket money lands in.
+### The float, end to end
+
+`web/tests/test_the_float_carries_over.py` holds the chain rather than its links: what
+worker A leaves is what worker B finds, in the store's balance, in the till B's session
+opens with, in what the bot reads back to B, in the owner's share at the end of B's day,
+and in tomorrow's float again. Every link can be right and the chain still wrong — that
+is the exact shape of the bug that had somebody hand over 82,000 and then be paid out of
+an emptied drawer.
+
+One consequence worth knowing: **a skipped count leaves the balance alone.** A worker who
+goes home without counting has not said the drawer holds nothing, so the float stays at
+the last figure anybody actually gave, and that day's cash sits in the drawer uncredited
+until somebody counts. It surfaces on the next count as more in the till than the books
+expected — both readings are on the report — rather than being quietly absorbed.
+
+## Statistics
+
+`/statistics` over a preset period, or over **any range by date**: `?since=&until=`.
+That is what makes the chart clickable — each bar links to its own day, or to its own
+week once the range is long enough that the bars are buckets. "What happened on the 8th"
+is the question a chart provokes, and the only answer used to be to go and change the
+filter to something that happened to contain it. A range asked for by date calls itself
+`custom` and is listed in the period selector while you are looking at it, because
+leaving nothing selected showed «Այսօր» over a page about the 8th.
+
+Beyond the headline figures, the page answers:
+
+* **when** the shop sells — takings by hour of the trading day, over the whole period.
+  The one question the daily chart cannot answer and the one a rota is built from. All 24
+  hours are drawn, including the dead ones, for the same reason the daily chart fills its
+  gaps;
+* how the money arrived — the cash/card split, which matters because card takings are
+  already in the bank and cash is not;
+* **money given away at the counter** — sales at neither list price. Its own figure
+  rather than folded into retail, because the only way to notice a habit of it is to see
+  the total;
+* the best and worst *trading* day of the period, both linked. The worst is the worst day
+  the shop traded, not the worst bar: a range with a closed Sunday in it would otherwise
+  always answer "nothing, on the day you were shut". Days that sold nothing are counted
+  separately, which is the figure that says something about them;
+* **what broke** — the write-offs behind the breakage figure. It was the one third of
+  «Ծախսեր» with no way back to the things it was made of.
+
+`Asia/Yerevan` is used for *displaying* times, for grouping report rows and for deciding
+which hour a sale falls in. It never decides which bucket money lands in.
 
 ---
 

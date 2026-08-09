@@ -22,6 +22,7 @@ from app.repo import items as items_repo
 from app.repo import money as money_repo
 from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
+from app.repo import stats as stats_repo
 from app.repo import stores as stores_repo
 from app.repo import till as till_repo
 from app.repo import transfers as transfers_repo
@@ -611,6 +612,11 @@ async def reports_page(
             # rules — before the owner's share was floored at nothing — do not put a
             # negative in the header.
             **_the_owners_share(totals, counts),
+            # What the shop actually made, which is not what it took. Same definition
+            # as the statistics page — goods sold less what they cost, less wages,
+            # petty cash and breakage — so a session's figure and the period that
+            # contains it cannot disagree about the word "profit".
+            **await _what_the_day_made(store_session_id, totals),
         }
     return render(
         request,
@@ -629,14 +635,21 @@ async def statistics_page(
     request: Request,
     period: str | None = None,
     store_id: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
     user: CurrentUser = Depends(current_user),
 ):
     """What the business earned, and what that cost.
 
     ``store_id`` arrives as a string because the filter's «Բոլորը» option submits
     an empty one. See forms.optional_id.
+
+    ``since``/``until`` are how clicking a bar on the chart works: the link asks for that
+    one day, or that one week, by date. They win over ``period`` when present.
     """
-    since, until, preset = statistics.range_for(period)
+    since, until, preset = statistics.range_for(
+        period, forms.optional_day(since, "Սկիզբ"), forms.optional_day(until, "Ավարտ")
+    )
     store_id = forms.optional_id(store_id)
     if store_id is not None:
         await _store_or_404(user.id, store_id)
@@ -832,23 +845,59 @@ async def _session_of_sale(owner_id: int, sale_id: int) -> int | None:
     )
 
 
+async def _what_the_day_made(store_session_id: int, totals) -> dict:
+    """The bottom line for one session: what the shop earned, not what it took.
+
+    Revenue is the loudest figure on the page and the least useful on its own — a shop
+    can sell 101,500 of stock that cost 90,000 and pay 7,000 in wages out of it. This is
+    the same subtraction the statistics page makes over a period, applied to one evening:
+
+        gross   = what the goods sold for − what they cost
+        the day = gross − wages − petty cash − breakage
+
+    Breakage is in it because that stock was paid for and did not come back. It never
+    touched the till, which is exactly why it would go missing unless it is taken off
+    here.
+    """
+    gross = Decimal(await stats_repo.profit_for_session(store_session_id))
+    breakage = Decimal(await write_offs_repo.cost_for_session(store_session_id))
+    wages = Decimal(totals["salaries"]) + Decimal(totals["bonuses"])
+    return {
+        "gross_profit": gross,
+        "breakage_cost": breakage,
+        "day_profit": gross - wages - Decimal(totals["withdrawn"]) - breakage,
+    }
+
+
 def _the_owners_share(totals, counts) -> dict:
     """What the owner should have received, and what stayed on the premises.
 
-    Derived from the ledger and the last count rather than read from the figure stored
-    on that count. Two reasons: it then follows a sale corrected next week, and rows
-    written before the owner's share was floored at nothing do not put a negative in
-    the header — the shop that closed on -4,500 has a count saying the owner is owed
-    -7,000, and no owner can act on that.
+    From the last count's two readings, which is what makes the tile and the table agree
+    — both of those figures are editable, and a header computed from the live ledger
+    instead would sit there contradicting the row the owner had just corrected.
+
+    Floored at nothing, so rows written before that rule cannot put a negative up here:
+    the shop that closed on -4,500 has a count saying the owner is owed -7,000, and
+    nobody can act on that. ``till_now`` carries the ledger's own figure alongside, so a
+    count that has drifted from the books is visible rather than merely wrong.
 
     Nothing counted means nothing declared, and zero is the honest render of it.
     """
+    till_now = Decimal(totals["cash"])
     if not counts:
-        return {"owed_to_owner": Decimal(0), "left_in_store": Decimal(0)}
-    left = Decimal(counts[-1]["counted"])
+        return {
+            "owed_to_owner": Decimal(0),
+            "left_in_store": Decimal(0),
+            "till_now": till_now,
+            "count_is_stale": False,
+        }
+    last = counts[-1]
+    left, was = Decimal(last["counted"]), Decimal(last["expected"])
     return {
-        "owed_to_owner": max(Decimal(0), Decimal(totals["cash"]) - left),
+        "owed_to_owner": max(Decimal(0), was - left),
         "left_in_store": left,
+        "till_now": till_now,
+        "count_is_stale": was != till_now,
     }
 
 
@@ -888,18 +937,27 @@ async def set_till_balance(
 async def correct_a_till_count(
     count_id: int,
     counted: str = Form(""),
+    expected: str = Form(""),
     user: CurrentUser = Depends(require_csrf),
 ):
-    """Change what a count says was left in the shop.
+    """Change what a count says: what was left in the shop, and what the till held.
 
-    The figure a cashier types at the door is the one most often wrong — a nought too
-    many, a bundle counted twice — and until now the report showed it and nothing else.
-    Editing it in place because this row is not a claim about what happened to any
-    money, only one person's reading of a drawer, and the owner's share and the shop's
-    balance both follow from that reading.
+    Both are readings rather than claims about what happened to any money — one off a
+    drawer at the door, one off the books at the same moment — so both are edited in
+    place. The owner's share is the difference, so it follows either.
+
+    ``expected`` may be negative: the till genuinely could hold less than nothing under
+    the old rules, and a row saying so is a record of that evening.
     """
     row = await till_service.correct_a_count(
-        user.id, count_id, forms.money(counted, "Մնացորդ")
+        user.id,
+        count_id,
+        forms.money(counted, "Մնացորդ"),
+        # Optional, so a page cached from before this field existed still saves the
+        # count it does know about instead of failing on a field it cannot send.
+        forms.money(expected, "Դրամարկղում էր", allow_negative=True)
+        if expected.strip()
+        else None,
     )
     return _back_to_report(row["store_session_id"])
 

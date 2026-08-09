@@ -27,7 +27,20 @@ def text(value: str | None, field: str, *, max_length: int, required: bool = Tru
     return cleaned
 
 
-def money(value: str | None, field: str, *, default: Decimal | None = None) -> Decimal:
+def money(
+    value: str | None,
+    field: str,
+    *,
+    default: Decimal | None = None,
+    allow_negative: bool = False,
+) -> Decimal:
+    """An amount typed into a form.
+
+    Negative is refused by default, because almost every money field here is a quantity
+    of something and a negative one is a typo. ``allow_negative`` is for the few that
+    are readings rather than quantities — what the books said a till held, which under
+    the old rules genuinely could be less than nothing.
+    """
     raw = (value or "").strip().replace(",", ".").replace(" ", "")
     if not raw:
         if default is not None:
@@ -37,9 +50,9 @@ def money(value: str | None, field: str, *, default: Decimal | None = None) -> D
         amount = Decimal(raw).quantize(Decimal("0.01"))
     except (InvalidOperation, ValueError):
         raise AppError("validation_error", f"«{field}» դաշտը թիվ չէ։") from None
-    if amount < 0:
+    if amount < 0 and not allow_negative:
         raise AppError("validation_error", f"«{field}» դաշտը չի կարող բացասական լինել։")
-    if amount > MAX_MONEY:
+    if abs(amount) > MAX_MONEY:
         raise AppError("validation_error", f"«{field}» դաշտը չափազանց մեծ է։")
     return amount
 
@@ -112,6 +125,18 @@ def day(value: str | None, field: str) -> date:
         return date.fromisoformat(raw)
     except ValueError:
         raise AppError("validation_error", f"«{field}» դաշտը ամսաթիվ չէ։") from None
+
+
+def optional_day(value: str | None, field: str) -> date | None:
+    """A date that may be absent, where absent means "not asked for".
+
+    Distinct from ``day``, whose blank means today. A statistics filter needs the
+    difference: no date at all falls back to the chosen period, and defaulting to today
+    instead would silently ignore it.
+    """
+    if not (value or "").strip():
+        return None
+    return day(value, field)
 
 
 def coordinate(value: str | None, field: str, *, limit: float) -> float | None:

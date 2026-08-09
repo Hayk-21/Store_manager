@@ -100,13 +100,26 @@ async def restore(conn, owner_id: int, row: dict) -> None:
     )
 
 
-async def set_counted(
-    conn, count_id: int, counted: Decimal, handed_over: Decimal | None
+async def set_reading(
+    conn,
+    count_id: int,
+    counted: Decimal,
+    expected: Decimal,
+    handed_over: Decimal | None,
 ) -> None:
+    """Both halves of a count and the share that follows from them, in one write.
+
+    Together, because the share is the difference: setting one without the other would
+    leave a row whose three figures do not describe the same evening.
+    """
     await conn.execute(
-        "UPDATE till_counts SET counted = $2, handed_over = $3 WHERE id = $1",
+        """
+        UPDATE till_counts SET counted = $2, expected = $3, handed_over = $4
+         WHERE id = $1
+        """,
         count_id,
         counted,
+        expected,
         handed_over,
     )
 

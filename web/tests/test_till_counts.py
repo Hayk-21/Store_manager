@@ -28,6 +28,7 @@ from app.services import corrections as corrections_service
 from app.services import sales as sales_service
 from app.services import shifts as shifts_service
 from app.services import till as till_service
+from app.services import write_offs as write_offs_service
 from tests.factories import (
     YEREVAN_LAT,
     YEREVAN_LNG,
@@ -618,6 +619,109 @@ async def test_the_header_no_longer_labels_the_drawer_as_cash_takings(client):
     assert "Քարտով վաճառք" in page.text
 
 
+async def test_the_header_says_what_the_day_actually_made(client):
+    """Revenue is the loudest figure on the page and the least useful alone — a shop can
+    sell 7,000 of stock that cost 3,000 and pay a wage out of it. Sale of 2 at 3,500 with
+    a cost of 1,500 each is 4,000 gross, and the shift's wage comes off that."""
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker_id, _ = await make_worker(owner_id, "Անի", salary_amount="1000.00")
+    worker = shifts_service.Worker(
+        id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("1000.00")
+    )
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await worked_a_full_shift(worker.id)
+    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "Շահույթ" in page.text
+    assert "3,000.00" in page.text, "4,000 on the goods less a 1,000 wage"
+
+
+async def test_breakage_comes_off_the_day(client):
+    """That stock was paid for and did not come back. It never touched the till, which is
+    exactly why it would go missing unless it is taken off deliberately."""
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    await write_offs_service.record(worker, item_id, 1, "ընկավ", "idem-defect-1")
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "2,500.00" in page.text, "4,000 gross less 1,500 of breakage"
+
+
+async def test_a_voided_sale_is_not_counted_as_profit(client):
+    """The goods went back on the shelf, which is the same reason the statistics leave
+    them out."""
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    sale_id = await db.fetchval("SELECT id FROM sales")
+    await corrections_service.void_sale(owner_id, owner_id, sale_id)
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
+    assert "4,000" not in tiles
+
+
+async def test_the_two_figures_an_owner_looks_for_are_coloured(client):
+    """So the eye lands on them without reading six labels first. Two and no more — a
+    page where every figure is coloured points at nothing."""
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "accent-owner" in page.text
+    assert "accent-profit" in page.text or "negative" in page.text
+
+
+async def test_a_day_that_lost_money_says_so_in_red(client):
+    """A wage larger than the margin is a real evening, and «-1,000 ֏» is the answer."""
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker_id, _ = await make_worker(owner_id, "Անի", salary_amount="10000.00")
+    worker = shifts_service.Worker(
+        id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("10000.00")
+    )
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await worked_a_full_shift(worker.id)
+    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "-8,000.00" in page.text, "2,000 on one vape against a 10,000 wage"
+    tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
+    assert "negative" in tiles
+
+
 async def test_the_takings_split_is_a_figure_not_a_footnote(client):
     """At the same size as the total it belongs to, because it is the same kind of
     number. It was small print under the tiles, which is where a figure goes when it is
@@ -656,6 +760,101 @@ async def test_the_header_answers_a_session_nobody_counted(client):
 
 
 # -- the owner correcting a count ---------------------------------------------
+
+async def test_the_owner_can_correct_what_the_till_held(client):
+    """It was frozen at the moment of counting, so a sale voided afterwards leaves it
+    describing books that have since changed. The owner's share is the difference, so it
+    follows."""
+    owner_id, store_id, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+
+    await till_service.correct_a_count(
+        owner_id, count_id, Decimal("30000"), Decimal("47000")
+    )
+
+    row = await db.fetchrow(
+        "SELECT expected, counted, handed_over FROM till_counts WHERE id = $1", count_id
+    )
+    assert row["expected"] == Decimal("47000.00")
+    assert row["handed_over"] == Decimal("17000.00")
+    assert await _balance(store_id) == Decimal("30000.00"), "the float is about counted"
+
+
+async def test_the_till_reading_may_be_negative(client):
+    """Under the old rules a drawer really was recorded as holding less than nothing, and
+    a row saying so is a record of that evening. The *share* is what must never be
+    negative."""
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("2500"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+
+    await till_service.correct_a_count(
+        owner_id, count_id, Decimal("2500"), Decimal("-4500")
+    )
+
+    row = await db.fetchrow(
+        "SELECT expected, handed_over FROM till_counts WHERE id = $1", count_id
+    )
+    assert row["expected"] == Decimal("-4500.00")
+    assert row["handed_over"] == Decimal("0.00"), "and the owner is owed nothing, not -7,000"
+
+
+async def test_a_count_that_has_drifted_from_the_books_is_named(client):
+    """Two numbers on the same screen that ought to match is something to be spotted;
+    saying which one moved is something to act on."""
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+    await login(client, "@ownerhandle")
+
+    settled = await client.get(f"/reports?store_session_id={session_id}")
+    assert "Ուշադրություն" not in settled.text
+
+    await till_service.correct_a_count(
+        owner_id, count_id, Decimal("30000"), Decimal("99000")
+    )
+    drifted = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "Ուշադրություն" in drifted.text
+
+
+async def test_the_header_follows_a_corrected_count(client):
+    """Both readings are editable, so the tile has to come from them. A header computed
+    from the live ledger instead would sit there contradicting the row the owner had just
+    corrected."""
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    count_id = await db.fetchval("SELECT id FROM till_counts")
+    await till_service.correct_a_count(
+        owner_id, count_id, Decimal("20000"), Decimal("47000")
+    )
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "27,000.00" in page.text, "47,000 less the corrected 20,000"
+
 
 async def test_the_owner_can_correct_what_was_left_in_the_shop(client):
     """The figure a cashier types at the door is the one most often wrong — a nought
@@ -740,6 +939,8 @@ async def test_the_report_offers_the_correction_box(client):
     page = await client.get(f"/reports?store_session_id={session_id}")
 
     assert f"/till-counts/{count_id}/counted" in page.text
+    assert 'name="expected"' in page.text, "both readings are editable"
+    assert 'name="counted"' in page.text
 
 
 async def test_correcting_a_count_from_the_report(client):

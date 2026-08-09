@@ -32,6 +32,13 @@ a:hover { text-decoration: underline; }
 .small { font-size: 13px; }
 .negative { color: var(--bad); }
 .positive { color: var(--good); }
+
+/* The two figures on a report an owner is actually looking for: what they should have
+   received, and what the day made. Coloured so the eye lands on them without reading
+   six labels first. Two colours and no more — a page where every figure is coloured
+   points at nothing. */
+.accent-owner  { color: var(--warn); }
+.accent-profit { color: var(--good); }
 .nowrap { white-space: nowrap; }
 
 /* -- topbar ---------------------------------------------------------------- */
@@ -634,6 +641,17 @@ a.card.stat:hover .total-label { color: var(--text); }
   height: 100%;
   min-width: 26px;
 }
+/* The daily columns are links to their own day. Undo the anchor styling and say so on
+   hover instead -- a blue underlined bar chart would look broken. */
+a.chart-col { color: inherit; text-decoration: none; border-radius: 4px; }
+a.chart-col:hover { background: var(--panel-2); text-decoration: none; }
+a.chart-col:hover .chart-label { color: var(--text); }
+a.chart-col:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Twenty-four columns rather than a handful, so they get less room each and no value
+   printed above them -- the label and the tooltip carry it. */
+.chart-hours { height: 140px; gap: 2px; }
+.chart-hours .chart-col { flex: 1 0 10px; min-width: 10px; }
 .chart-value { font-size: 10px; color: var(--muted); height: 14px; }
 .bar-stack {
   position: relative;

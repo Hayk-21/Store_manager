@@ -125,6 +125,42 @@ async def delete_for_session(conn, owner_id: int, store_session_id: int) -> None
     )
 
 
+async def list_between(
+    owner_id: int, since, until, store_id: int | None = None, limit: int = 100
+) -> list[asyncpg.Record]:
+    """The breakage behind the period's figure, newest first.
+
+    Because the first question about a total is always "on what?", and «խոտան 12,000 ֏»
+    on the statistics page was a number with no way back to the things it was made of.
+    """
+    return await db.fetch(
+        f"""
+        SELECT wo.id, wo.quantity, wo.total_cost, wo.reason, wo.created_at,
+               i.name, s.name AS store_name, {DISPLAY_NAME} AS worker_name
+          FROM write_offs wo
+          JOIN items i ON i.id = wo.item_id
+          JOIN stores s ON s.id = wo.store_id
+          LEFT JOIN workers w ON w.id = wo.worker_id
+         WHERE wo.owner_id = $1
+           AND wo.created_at >= $2 AND wo.created_at < ($3::date + 1)
+           AND ($4::bigint IS NULL OR wo.store_id = $4)
+         ORDER BY wo.created_at DESC, wo.id DESC
+         LIMIT $5
+        """,
+        owner_id, since, until, store_id, limit,
+    )
+
+
+async def cost_for_session(store_session_id: int) -> Decimal:
+    """What breakage cost this session. Money the shop spent and did not get back — it
+    never touched the till, which is why it would go missing from a profit figure unless
+    it is subtracted deliberately."""
+    return await db.fetchval(
+        "SELECT coalesce(sum(total_cost), 0) FROM write_offs WHERE store_session_id = $1",
+        store_session_id,
+    )
+
+
 async def cost_between(owner_id: int, since, until, store_id: int | None = None) -> Decimal:
     """What breakage cost over a period — a real expense, just not a till one."""
     return await db.fetchval(

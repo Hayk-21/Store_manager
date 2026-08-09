@@ -37,13 +37,30 @@ PRESETS = {
 }
 DEFAULT_PRESET = "30"
 
+# What a range asked for by date calls itself. Not in PRESETS: it is not something to
+# pick from a list, it is what you get by clicking a day on the chart.
+CUSTOM = "custom"
+
 # Above this many days the per-day bars become slivers, so the chart switches to
 # weekly buckets. Chosen to keep a 90-day range readable.
 MAX_DAILY_BARS = 45
 
 
-def range_for(preset: str | None) -> tuple[date, date, str]:
-    """Resolve a preset to a concrete inclusive range."""
+def range_for(
+    preset: str | None, since: date | None = None, until: date | None = None
+) -> tuple[date, date, str]:
+    """Resolve a preset, or an explicit range, to concrete inclusive dates.
+
+    An explicit range wins and reports itself as the preset ``custom``, which is how
+    clicking a bar on the chart works: the link asks for that one day. Given back-to-
+    front the two are swapped rather than refused — a range is a pair of ends, and
+    "which is which" is not something to make somebody re-enter a form over.
+    """
+    if since is not None or until is not None:
+        first = since or until
+        last = until or since
+        return (last, first, CUSTOM) if last < first else (first, last, CUSTOM)
+
     key = preset if preset in PRESETS else DEFAULT_PRESET
     today = settings.local_day()
 
@@ -70,12 +87,20 @@ def _percent(value: Decimal, peak: Decimal) -> float:
 
 
 def _bucketed(rows: list) -> tuple[list[dict], bool]:
-    """Group days into weeks once there are too many to draw one bar each."""
+    """Group days into weeks once there are too many to draw one bar each.
+
+    Every bar carries ``day`` and ``until`` — the same date twice for a day, the ends of
+    the week for a bucket — so a bar can link to the period it stands for. A weekly bar's
+    ``until`` is the last day actually in the range, not Sunday: the newest bucket is
+    usually a part-week, and offering to open days that have not happened yet would draw
+    an empty chart.
+    """
     if len(rows) <= MAX_DAILY_BARS:
         return [
             {
                 "label": row["day"].strftime("%d.%m"),
                 "day": row["day"],
+                "until": row["day"],
                 "revenue": Decimal(row["revenue"]),
                 "profit": Decimal(row["profit"]),
                 "receipts": row["receipts"],
@@ -91,10 +116,12 @@ def _bucketed(rows: list) -> tuple[list[dict], bool]:
             weeks.append({
                 "label": start.strftime("%d.%m"),
                 "day": start,
+                "until": row["day"],
                 "revenue": ZERO,
                 "profit": ZERO,
                 "receipts": 0,
             })
+        weeks[-1]["until"] = row["day"]
         weeks[-1]["revenue"] += Decimal(row["revenue"])
         weeks[-1]["profit"] += Decimal(row["profit"])
         weeks[-1]["receipts"] += row["receipts"]
@@ -144,10 +171,20 @@ async def overview(
         # The individual entries behind the «Ծախսեր» figure. A total that cannot
         # be broken back down into the things it is made of is a number the owner
         # has to take on trust, and the first question about it is always "on
-        # what?". Wages and breakage are the other two parts of that figure and
-        # are shown beside these on the page — they are aggregates, not entries.
+        # what?". Wages are the other part of that figure and are an aggregate.
         "spending_rows": await expenses_repo.list_between(owner_id, since, until),
+        # And the breakage, for the same reason. It was the one third of «Ծախսեր»
+        # with no way back to what it was made of.
+        "breakage_rows": await write_offs_repo.list_between(
+            owner_id, since, until, store_id
+        ),
+        # When the shop sells, which the daily chart cannot answer and a rota is
+        # built from.
+        "hours": _shaped(await stats_repo.by_hour(owner_id, since, until, tz, store_id)),
         "stock": await stats_repo.stock_value(owner_id, store_id),
+        # Named on the hourly chart, because "when does this shop sell" has a different
+        # answer in a different timezone and the page should say which one it used.
+        "tzname": tz,
         "salaries": salaries,
         "spending": spending,
         "gross_profit": gross,
@@ -158,4 +195,40 @@ async def overview(
             if summary["receipts"] else ZERO
         ),
         "average_day": Decimal(summary["revenue"]) / days if days else ZERO,
+        # The best and worst of the period, and how many days sold nothing at all.
+        # All three are in the bars already, and all three are the kind of thing an
+        # owner reads a chart to find out — so they are said rather than eyeballed.
+        **_the_shape_of_the_period(bars),
+    }
+
+
+def _shaped(rows: list) -> list[dict]:
+    """Hourly rows with a bar height each, scaled to the busiest hour."""
+    revenues = [Decimal(row["revenue"]) for row in rows]
+    peak = max(revenues, default=ZERO)
+    return [
+        {
+            "hour": row["hour"],
+            "revenue": Decimal(row["revenue"]),
+            "receipts": row["receipts"],
+            "pct": _percent(Decimal(row["revenue"]), peak),
+        }
+        for row in rows
+    ]
+
+
+def _the_shape_of_the_period(bars: list[dict]) -> dict:
+    """Best day, worst trading day, and how many days sold nothing.
+
+    The worst is the worst day the shop *traded*, not the worst bar: a range with a
+    Sunday in it would otherwise always answer "nothing, on the day you were shut",
+    which is true and useless. Days that sold nothing are counted separately, which is
+    the figure that actually says something about them.
+    """
+    trading = [bar for bar in bars if bar["revenue"] > ZERO]
+    return {
+        "best_day": max(trading, key=lambda bar: bar["revenue"], default=None),
+        "worst_day": min(trading, key=lambda bar: bar["revenue"], default=None),
+        "quiet_days": len(bars) - len(trading),
+        "trading_days": len(trading),
     }

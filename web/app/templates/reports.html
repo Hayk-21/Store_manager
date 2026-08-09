@@ -101,9 +101,16 @@
       <span class="total-label">Քարտով վաճառք</span>
       <span class="total-value">{{ d.totals.sale_card | money }}</span>
     </div>
+    {# The two an owner actually looks for, so they are coloured and the rest are not.
+       Colour used sparingly or it stops pointing at anything. #}
     <div class="total">
       <span class="total-label">Ղեկավարին</span>
-      <span class="total-value">{{ d.owed_to_owner | money }}</span>
+      <span class="total-value accent-owner">{{ d.owed_to_owner | money }}</span>
+    </div>
+    <div class="total">
+      <span class="total-label">Շահույթ</span>
+      <span class="total-value {{ 'accent-profit' if d.day_profit >= 0 else 'negative' }}">
+        {{ d.day_profit | money }}</span>
     </div>
     <div class="total">
       <span class="total-label">Մնաց խանութում</span>
@@ -114,6 +121,16 @@
       <span class="total-value">{{ (d.totals.salaries + d.totals.bonuses) | money }}</span>
     </div>
   </div>
+  {# What the profit figure is made of. It is a subtraction, and a subtraction whose
+     parts are not shown is a number the owner has to take on trust. #}
+  <p class="muted small">
+    Շահույթը՝ ապրանքի վրա {{ d.gross_profit | money }}
+    {%- if d.totals.salaries + d.totals.bonuses %} · հանած աշխատավարձ
+      {{ (d.totals.salaries + d.totals.bonuses) | money }}{% endif %}
+    {%- if d.totals.withdrawn %} · հանած վերցված {{ d.totals.withdrawn | money }}{% endif %}
+    {%- if d.breakage_cost %} · հանած խոտան {{ d.breakage_cost | money }}{% endif %}։
+    Ապրանքի վրա շահույթը վաճառքի գինն է հանած ինքնարժեքը։
+  </p>
   {# What came out of the cash between the takings and the handover. Without it
      «Ղեկավարին 31,600» is a number to take on faith. #}
   <p class="muted small">
@@ -122,8 +139,16 @@
     {%- if d.totals.withdrawn %} · վերցված {{ d.totals.withdrawn | money }}{% endif %}
     {%- if d.totals.voided %} · չեղարկված {{ d.totals.voided | money }}{% endif %}
     {%- if d.totals.deposited %} · նախորդից մնացած {{ d.totals.deposited | money }}{% endif %}
-    · դրամարկղում մնացել է <b>{{ d.totals.cash | money }}</b>, որից
+    · ըստ գրքերի դրամարկղում մնացել է <b>{{ d.till_now | money }}</b>, որից
     {{ d.left_in_store | money }} մնում է խանութում։
+    {# Named rather than left as two numbers on the same screen to be spotted. The
+       count froze its reading at the moment of counting, so a sale voided or added
+       afterwards moves the books out from under it. #}
+    {% if d.count_is_stale %}
+      <br><b>Ուշադրություն.</b> հաշվարկի «Դրամարկղում էր» դաշտը այս թվին չի համապատասխանում՝
+      հաշվարկից հետո վաճառք է ուղղվել կամ ավելացվել։ Ուղղեք այն ներքևում, եթե
+      «Ղեկավարին» գումարը պետք է փոխվի։
+    {% endif %}
   </p>
 
   <h3>Հերթափոխեր</h3>
@@ -408,11 +433,17 @@
           <td data-label="Ով">
             {% if t.kind == 'owner' %}ղեկավար{% else %}{{ t.worker_name or '—' }}{% endif %}
           </td>
-          <td class="num muted" data-label="Դրամարկղում էր">{{ t.expected | money }}</td>
-          {# Editable, because the figure a cashier types at the door is the one most
-             often wrong — a nought too many, a bundle counted twice — and this row is
-             not a claim about what happened to any money, only somebody's reading of a
-             drawer. The owner's share and the shop's balance both follow from it. #}
+          {# Both figures editable. Neither is a claim about what happened to any money:
+             one is a reading off a drawer at the door, the other a reading off the books
+             at the same moment, frozen there — so a sale voided afterwards leaves it
+             describing books that have since changed. One ✓ for the pair, because the
+             owner's share is the difference and saving half of it would leave a row
+             whose three numbers are not about the same evening. #}
+          <td class="num" data-label="Դրամարկղում էր">
+            <input form="count-{{ t.id }}" name="expected"
+                   value="{{ t.expected | plain_money }}" inputmode="decimal"
+                   class="money-input" aria-label="Դրամարկղում էր">
+          </td>
           <td class="num" data-label="Մնաց խանութում">
             <input form="count-{{ t.id }}" name="counted"
                    value="{{ t.counted | plain_money }}" inputmode="decimal"
@@ -441,10 +472,11 @@
     </form>
   {% endfor %}
   <p class="muted small">
-    «Մնաց խանութում» գումարը դուրս չի գալիս խանութից՝ հաջորդ հերթափոխի դրամարկղը
-    սկսվում է դրանով, և կարող եք ուղղել այն այստեղ։ Որքան պետք է ստանաք՝ նշված է
-    վերևում՝ «Ղեկավարին» դաշտում։ Հաշվարկը ջնջելիս խանութի մնացորդը կվերադառնա
-    նախորդ հաշվարկի գումարին։
+    Երկու դաշտն էլ կարող եք ուղղել։ «Դրամարկղում էր»-ը գրանցվել է հաշվարկի պահին՝
+    ըստ գրքերի, «Մնաց խանութում»-ը՝ ըստ աշխատողի հաշվարկի։ Այդ գումարը դուրս չի
+    գալիս խանութից՝ հաջորդ հերթափոխի դրամարկղը սկսվում է դրանով։ Որքան պետք է
+    ստանաք՝ երկուսի տարբերությունն է՝ վերևում՝ «Ղեկավարին» դաշտում։
+    Հաշվարկը ջնջելիս խանութի մնացորդը կվերադառնա նախորդ հաշվարկի գումարին։
   </p>
   {% endif %}
 

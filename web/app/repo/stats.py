@@ -35,6 +35,24 @@ _REVENUE = "coalesce(sum(si.line_total), 0)"
 _PROFIT = "coalesce(sum((si.unit_price - si.unit_cost) * si.quantity), 0)"
 
 
+async def profit_for_session(store_session_id: int) -> Decimal:
+    """Gross profit on one store session: what the goods sold for, less what they cost.
+
+    The same expression the statistics page uses, so a session's figure and the period
+    that contains it cannot disagree about what profit means. Voided sales are excluded
+    for the same reason they are there — the goods went back on the shelf.
+    """
+    return await db.fetchval(
+        f"""
+        SELECT {_PROFIT}
+          FROM sale_items si
+          JOIN sales sa ON sa.id = si.sale_id
+         WHERE sa.store_session_id = $1 AND sa.voided_at IS NULL
+        """,
+        store_session_id,
+    )
+
+
 async def summary(
     owner_id: int, since: date, until: date, tz: str, store_id: int | None = None
 ) -> asyncpg.Record:
@@ -106,6 +124,42 @@ async def daily(
           FROM days d
           LEFT JOIN sold s ON s.day = d.day
          ORDER BY d.day
+        """,
+        owner_id, since, until, tz, store_id,
+    )
+
+
+async def by_hour(
+    owner_id: int, since: date, until: date, tz: str, store_id: int | None = None
+) -> list[asyncpg.Record]:
+    """Takings by hour of the trading day, over the whole period.
+
+    The one question the daily chart cannot answer: *when* does this shop sell. It is
+    what a rota is built from, and until now the only way to see it was to read a
+    session's receipts one row at a time.
+
+    Every hour of the 24 is returned, including the dead ones, for the same reason the
+    daily chart fills its gaps: dropping the quiet hours draws a shop that trades evenly
+    from open to close.
+    """
+    return await db.fetch(
+        f"""
+        WITH hours AS (SELECT generate_series(0, 23) AS hour),
+        sold AS (
+            SELECT extract(hour FROM sa.sold_at AT TIME ZONE $4)::int AS hour,
+                   sum(si.line_total) AS revenue,
+                   count(DISTINCT sa.id) AS receipts
+              FROM sale_items si
+              JOIN sales sa ON sa.id = si.sale_id
+            {_WHERE}
+             GROUP BY 1
+        )
+        SELECT h.hour,
+               coalesce(s.revenue, 0)  AS revenue,
+               coalesce(s.receipts, 0) AS receipts
+          FROM hours h
+          LEFT JOIN sold s ON s.hour = h.hour
+         ORDER BY h.hour
         """,
         owner_id, since, until, tz, store_id,
     )

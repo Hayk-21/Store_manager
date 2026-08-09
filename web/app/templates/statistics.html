@@ -12,6 +12,15 @@
     <div>
       <label for="st-period">Ժամանակահատված</label>
       <select id="st-period" name="period" onchange="this.form.submit()">
+        {# A range reached by clicking a bar is not one of the presets, and leaving none
+           selected would show «Այսօր» over a page about the 8th. It is listed only while
+           it is what you are looking at; choosing anything else drops it, because this
+           form does not carry the dates. #}
+        {% if preset == 'custom' %}
+          <option value="custom" selected>
+            {{ since | day }}{% if until != since %} — {{ until | day }}{% endif %}
+          </option>
+        {% endif %}
         {% for key, label in presets.items() %}
           <option value="{{ key }}" {% if key == preset %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
@@ -47,6 +56,18 @@
       {% else %}վաճառք չի եղել{% endif %}
     </span>
   </div>
+  {# How the money arrived. Card takings are already in the bank and cash is not, so
+     "how much of that was cash" is the difference between what the owner collects by
+     hand and what is simply there — and the page did not say. #}
+  <div class="card stat">
+    <span class="total-label">Կանխիկ · Քարտ</span>
+    <span class="total-value">{{ summary.cash | short_money }} · {{ summary.card | short_money }}</span>
+    <span class="muted small">
+      {% if summary.revenue > 0 %}
+        կանխիկ՝ հասույթի {{ (summary.cash / summary.revenue * 100) | round(1) }}%
+      {% else %}վաճառք չի եղել{% endif %}
+    </span>
+  </div>
   <div class="card stat">
     <span class="total-label">Մեծածախ</span>
     <span class="total-value">{{ summary.wholesale | money }}</span>
@@ -66,6 +87,18 @@
         {%- if summary.revenue > 0 %} · հասույթի
         {{ (summary.delivered / summary.revenue * 100) | round(1) }}%{% endif %}
       {% else %}առաքում չի եղել{% endif %}
+    </span>
+  </div>
+  {# Sold at neither list price: a haggle or a discount. Its own figure rather than
+     folded into retail, because it is money given away at the counter and the only
+     way to notice a habit of it is to see the total. #}
+  <div class="card stat">
+    <span class="total-label">Փոփոխված գնով</span>
+    <span class="total-value">{{ summary.custom_priced | money }}</span>
+    <span class="muted small">
+      {% if summary.revenue > 0 %}
+        հասույթի {{ (summary.custom_priced / summary.revenue * 100) | round(1) }}%
+      {% else %}վաճառք չի եղել{% endif %}
     </span>
   </div>
   {# Clickable, because the first question about a total is always "on what?"
@@ -104,10 +137,14 @@
   </div>
 
   {% if charted %}
-  <div class="chart" role="img"
-       aria-label="Հասույթի գծապատկեր {{ since | day }} — {{ until | day }}">
+  {# Each column is a link to its own day — or to its week, when the range is long
+     enough that the bars are buckets. "What happened on the 8th" is the question a
+     chart provokes, and until now the only answer was to go and change the filter. #}
+  <div class="chart">
     {% for b in bars %}
-    <div class="chart-col" title="{{ b.label }} · {{ b.revenue | money }} ({{ b.receipts }} վաճառք)">
+    <a class="chart-col"
+       href="/statistics?since={{ b.day }}&amp;until={{ b.until or b.day }}{% if store_id %}&amp;store_id={{ store_id }}{% endif %}"
+       title="{{ b.label }} · {{ b.revenue | money }} ({{ b.receipts }} վաճառք) — բացել">
       <span class="chart-value">{{ b.revenue | short_money }}</span>
       <div class="bar-stack">
         {# The profit bar sits in front of the revenue bar, not on top of it:
@@ -116,9 +153,10 @@
         <div class="bar bar-profit" style="height: {{ b.profit_pct }}%"></div>
       </div>
       <span class="chart-label">{{ b.label }}</span>
-    </div>
+    </a>
     {% endfor %}
   </div>
+  <p class="muted small">Սեղմեք սյունին՝ այդ {{ 'շաբաթվա' if weekly else 'օրվա' }} մանրամասները տեսնելու համար։</p>
   {% endif %}
 
   {% if peak > 0 %}
@@ -127,10 +165,49 @@
     միջինը օրական՝ {{ average_day | money }} ·{% endif %}
     միջին վաճառքը՝ {{ average_receipt | money }}
   </p>
+  {# The best and worst of the period. Both are in the bars already, and both are
+     what an owner reads a chart to find out — so they are said rather than eyeballed.
+     The worst is the worst day the shop *traded*: a range with a closed Sunday in it
+     would otherwise always answer "nothing, on the day you were shut". #}
+  {% if best_day and trading_days > 1 %}
+  <p class="muted small">
+    Ամենալավ {{ 'շաբաթը' if weekly else 'օրը' }}՝
+    <a href="/statistics?since={{ best_day.day }}&amp;until={{ best_day.until or best_day.day }}{% if store_id %}&amp;store_id={{ store_id }}{% endif %}">{{ best_day.label }}</a>
+    ({{ best_day.revenue | money }}) ·
+    ամենաթույլը՝
+    <a href="/statistics?since={{ worst_day.day }}&amp;until={{ worst_day.until or worst_day.day }}{% if store_id %}&amp;store_id={{ store_id }}{% endif %}">{{ worst_day.label }}</a>
+    ({{ worst_day.revenue | money }})
+    {%- if quiet_days %} · առանց վաճառքի՝ {{ quiet_days }} օր{% endif %}
+  </p>
+  {% endif %}
   {% else %}
   <p class="muted">Այս ժամանակահատվածում վաճառք չի եղել։</p>
   {% endif %}
 </div>
+
+{# -- when the shop sells ---------------------------------------------------
+   The one question the daily chart cannot answer, and what a rota is built from.
+   Hidden for a period with no sales rather than drawn as 24 empty columns. #}
+{% if peak > 0 %}
+<div class="card">
+  <h2>Ժամերի կտրվածքով</h2>
+  <div class="chart chart-hours">
+    {% for h in hours %}
+    <div class="chart-col"
+         title="{{ '%02d'|format(h.hour) }}:00 — {{ h.revenue | money }} ({{ h.receipts }} վաճառք)">
+      <div class="bar-stack">
+        <div class="bar bar-revenue" style="height: {{ h.pct }}%"></div>
+      </div>
+      {# Every third hour, or the axis is 24 labels wide on a phone and unreadable. #}
+      <span class="chart-label">{% if h.hour % 3 == 0 %}{{ '%02d'|format(h.hour) }}{% endif %}</span>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="muted small">
+    Ամբողջ ժամանակահատվածի վաճառքը՝ ըստ օրվա ժամի։ Հաշվարկը՝ {{ tzname }} գոտով։
+  </p>
+</div>
+{% endif %}
 
 {# -- what sells ------------------------------------------------------------ #}
 <div class="card">
@@ -334,4 +411,42 @@
     <a href="/expenses">Ավելացնել</a></p>
   {% endif %}
 </div>
+
+{# -- what broke ------------------------------------------------------------
+   The one third of «Ծախսեր» with no way back to what it was made of. Breakage was a
+   single figure in the table above, and the first question about it — which products —
+   had no answer on this page. #}
+{% if breakage_rows %}
+<div class="card">
+  <h2>Խոտան</h2>
+  <div class="table-wrap">
+    <table class="cards">
+      <thead>
+        <tr><th>Ամսաթիվ</th><th>Ապրանք</th><th class="num">Հատ</th>
+            <th>Խանութ</th><th>Ով</th><th>Պատճառը</th>
+            <th class="num">Ինքնարժեք</th></tr>
+      </thead>
+      <tbody>
+        {% for w in breakage_rows %}
+        <tr>
+          <td class="nowrap" data-label="Ամսաթիվ">{{ w.created_at | stamp }}</td>
+          <td class="cell-name" data-label="Ապրանք">{{ w.name }}</td>
+          <td class="num" data-label="Հատ">{{ w.quantity }}</td>
+          <td data-label="Խանութ">{{ w.store_name }}</td>
+          <td data-label="Ով">{{ w.worker_name or 'ղեկավար' }}</td>
+          <td data-label="Պատճառը">{{ w.reason or '—' }}</td>
+          <td class="num negative" data-label="Ինքնարժեք">{{ w.total_cost | money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="6">Ընդամենը</th>
+          <th class="num negative">{{ breakage | money }}</th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

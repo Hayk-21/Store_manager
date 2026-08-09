@@ -1,0 +1,277 @@
+"""What one worker leaves in the drawer is what the next one finds, everywhere.
+
+The whole point of the casa, checked end to end rather than a piece at a time. Worker A
+locks up and says they are leaving 30,000; worker B opens the shop tomorrow. Every figure
+B or the owner can see about that drawer has to be 30,000, and every calculation has to
+start from it:
+
+* the store's balance;
+* the till B's session opens with;
+* what the bot reads back to B before their shift ends;
+* the owner's share at the end of B's day, which is B's takings *on top of* the 30,000
+  less whatever B leaves;
+* and tomorrow's float again, from B's own count.
+
+Each of those has its own test elsewhere. This file is about the chain: every link
+correct and the chain still wrong is exactly the shape of the bug that had a worker hand
+over 82,000 and then be paid out of an empty drawer.
+"""
+
+from __future__ import annotations
+
+from decimal import Decimal
+
+from app.db import db
+from app.repo import money as money_repo
+from app.services import sales as sales_service
+from app.services import shifts as shifts_service
+from app.services import till as till_service
+from tests.factories import (
+    YEREVAN_LAT,
+    YEREVAN_LNG,
+    login,
+    make_item,
+    make_owner,
+    make_store,
+    make_worker,
+    worked_a_full_shift,
+)
+
+BASE = "/api/bot/v1"
+
+
+async def _a_shop():
+    owner_id = await make_owner("@ownerhandle")
+    store_id = await make_store(owner_id, "Նուբարաշեն", lat=YEREVAN_LAT, lng=YEREVAN_LNG)
+    item_id = await make_item(
+        owner_id, store_id, "HQD Cuvie", count=100,
+        self_price="1500.00", sell_price="3500.00",
+    )
+    return owner_id, store_id, item_id
+
+
+async def _worker(owner_id: int, name: str, salary: str = "0.00"):
+    worker_id, telegram_id = await make_worker(owner_id, name, salary_amount=salary)
+    return shifts_service.Worker(
+        id=worker_id, owner_id=owner_id, name=name, salary_amount=Decimal(salary)
+    ), telegram_id
+
+
+async def _a_days_work(worker, item_id: int | None, sold: int, key: str) -> int:
+    """Open, sell, lock up. Returns the store session that just closed.
+
+    Idempotency keys are padded to the eight characters the schema insists on — the
+    constraint is there so a bot cannot send a one-character key, and a test that trips
+    over it is the constraint working.
+    """
+    await shifts_service.open_store(
+        worker, YEREVAN_LAT, YEREVAN_LNG, 20, f"idem-open-{key}", 900
+    )
+    session_id = await db.fetchval(
+        "SELECT id FROM store_sessions ORDER BY id DESC LIMIT 1"
+    )
+    if sold:
+        await sales_service.record_sale(
+            worker, [{"item_id": item_id, "quantity": sold}], "cash", f"idem-sale-{key}"
+        )
+    await worked_a_full_shift(worker.id)
+    await shifts_service.close_out_shift(worker, [], f"idem-close-{key}")
+    return session_id
+
+
+async def _float(store_id: int) -> Decimal:
+    return await db.fetchval("SELECT till_balance FROM stores WHERE id = $1", store_id)
+
+
+async def _till(session_id: int) -> Decimal:
+    return Decimal((await money_repo.totals_for_session(session_id))["cash"])
+
+
+# -- the chain ----------------------------------------------------------------
+
+async def test_tomorrow_starts_with_exactly_what_last_night_left(client):
+    owner_id, store_id, item_id = await _a_shop()
+    anahit, _ = await _worker(owner_id, "Անի")
+    gor, _ = await _worker(owner_id, "Գոռ")
+
+    # Monday: 7,000 taken, 30,000 left behind.
+    await _a_days_work(anahit, item_id, 2, "mon")
+    await till_service.declare_close(anahit, Decimal("30000"), "idem-till-mon")
+
+    # Tuesday: Gor opens up.
+    tuesday = await _a_days_work(gor, None, 0, "tue")
+
+    assert await _float(store_id) == Decimal("30000.00")
+    assert await _till(tuesday) == Decimal("30000.00"), "found in the drawer, not zero"
+
+
+async def test_the_second_day_computes_from_the_first_days_leftovers(client):
+    """The owner's share on Tuesday is Monday's float plus Tuesday's takings, less what
+    Gor leaves. Not Tuesday's takings alone — the 30,000 was already in the drawer and
+    handing it over twice is exactly the sort of thing this checks."""
+    owner_id, store_id, item_id = await _a_shop()
+    anahit, _ = await _worker(owner_id, "Անի")
+    gor, _ = await _worker(owner_id, "Գոռ")
+
+    await _a_days_work(anahit, item_id, 2, "mon")
+    await till_service.declare_close(anahit, Decimal("30000"), "idem-till-mon")
+    await _a_days_work(gor, item_id, 3, "tue")
+
+    result = await till_service.declare_close(gor, Decimal("25000"), "idem-till-tue")
+
+    assert result["count"]["expected"] == "40500.00", "30,000 carried + 10,500 sold"
+    assert result["count"]["handed_over"] == "15500.00", "less the 25,000 left behind"
+    assert await _float(store_id) == Decimal("25000.00"), "and tomorrow starts at 25,000"
+
+
+async def test_a_worker_who_leaves_nothing_leaves_the_next_one_nothing(client):
+    """The honest end of the same rule, and the one worth stating: an empty drawer is a
+    real answer and the next session must not invent a float."""
+    owner_id, store_id, item_id = await _a_shop()
+    anahit, _ = await _worker(owner_id, "Անի")
+    gor, _ = await _worker(owner_id, "Գոռ")
+
+    await _a_days_work(anahit, item_id, 2, "mon")
+    await till_service.declare_close(anahit, Decimal("0"), "idem-till-mon")
+    tuesday = await _a_days_work(gor, None, 0, "tue")
+
+    assert await _float(store_id) == Decimal("0.00")
+    assert await _till(tuesday) == Decimal("0.00")
+    assert await db.fetchval(
+        "SELECT count(*) FROM cash_movements WHERE store_session_id = $1", tuesday
+    ) == 0, "no deposit of nothing"
+
+
+async def test_a_night_nobody_counted_carries_the_old_float_unchanged(client):
+    """A skipped count is not a count of zero. The money is still in the drawer, and
+    the shop's balance is the last thing anybody actually said about it."""
+    owner_id, store_id, item_id = await _a_shop()
+    anahit, _ = await _worker(owner_id, "Անի")
+    gor, _ = await _worker(owner_id, "Գոռ")
+
+    await _a_days_work(anahit, item_id, 2, "mon")
+    await till_service.declare_close(anahit, Decimal("30000"), "idem-till-mon")
+    await _a_days_work(gor, item_id, 1, "tue")  # goes home without counting
+
+    assert await _float(store_id) == Decimal("30000.00")
+
+    wednesday = await _a_days_work(anahit, None, 0, "wed")
+    assert await _till(wednesday) == Decimal("30000.00")
+
+
+async def test_three_days_running_never_lose_or_duplicate_the_float(client):
+    """The arithmetic that matters, over enough days for a leak to show. Each morning
+    starts at last night's figure, and each evening's share is that morning's float plus
+    the day's cash less what is left."""
+    owner_id, store_id, item_id = await _a_shop()
+    anahit, _ = await _worker(owner_id, "Անի")
+
+    await _a_days_work(anahit, item_id, 2, "d1")     # 7,000
+    first = await till_service.declare_close(anahit, Decimal("5000"), "idem-till-d1")
+    await _a_days_work(anahit, item_id, 2, "d2")     # 5,000 + 7,000
+    second = await till_service.declare_close(anahit, Decimal("4000"), "idem-till-d2")
+    await _a_days_work(anahit, item_id, 2, "d3")     # 4,000 + 7,000
+    third = await till_service.declare_close(anahit, Decimal("3000"), "idem-till-d3")
+
+    assert first["count"]["handed_over"] == "2000.00"
+    assert second["count"]["expected"] == "12000.00"
+    assert second["count"]["handed_over"] == "8000.00"
+    assert third["count"]["expected"] == "11000.00"
+    assert third["count"]["handed_over"] == "8000.00"
+    # Three days took 21,000 in cash. The owner has 18,000 of it and the shop has the
+    # 3,000 still in its drawer.
+    assert (
+        Decimal(first["count"]["handed_over"])
+        + Decimal(second["count"]["handed_over"])
+        + Decimal(third["count"]["handed_over"])
+        + await _float(store_id)
+    ) == Decimal("21000.00")
+
+
+async def test_a_wage_comes_out_before_the_owners_share(client):
+    """The ordering the whole redesign is about. Anahit is paid 6,000 from a drawer
+    holding 30,000 carried plus 7,000 taken, and the owner gets what is left over the
+    float — not the wage as well."""
+    owner_id, store_id, item_id = await _a_shop()
+    anahit, _ = await _worker(owner_id, "Անի", salary="6000.00")
+    gor, _ = await _worker(owner_id, "Գոռ")
+
+    await _a_days_work(gor, None, 0, "setup")
+    await till_service.declare_close(gor, Decimal("30000"), "idem-till-setup")
+    await _a_days_work(anahit, item_id, 2, "mon")
+
+    result = await till_service.declare_close(anahit, Decimal("30000"), "idem-till-mon")
+
+    assert result["count"]["expected"] == "31000.00", "30,000 + 7,000 − a 6,000 wage"
+    assert result["count"]["handed_over"] == "1000.00"
+
+
+# -- what each side is shown --------------------------------------------------
+
+async def test_the_bot_shows_the_next_worker_the_float_it_starts_with(client, bot_headers):
+    """Gor opens up and reads the shift back before ending it. The drawer he is about to
+    count has to be the one Anahit left, not an empty one."""
+    owner_id, store_id, item_id = await _a_shop()
+    anahit, _ = await _worker(owner_id, "Անի")
+    gor, gor_tg = await _worker(owner_id, "Գոռ")
+
+    await _a_days_work(anahit, item_id, 2, "mon")
+    await till_service.declare_close(anahit, Decimal("30000"), "idem-till-mon")
+    await shifts_service.open_store(gor, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-tue", 900)
+    await sales_service.record_sale(
+        gor, [{"item_id": item_id, "quantity": 1}], "cash", "idem-sale-tue"
+    )
+
+    review = (await client.get(
+        f"{BASE}/shift/review", params={"telegram_id": gor_tg}, headers=bot_headers
+    )).json()
+
+    assert review["store_float"] == "30000.00", "what the shop keeps"
+    assert review["till"]["cash"] == "33500.00", "carried over, plus what he sold"
+
+
+async def test_the_owner_sees_the_float_on_a_shut_shop(client):
+    """It is there whether or not anybody is standing at it, which is the difference
+    between the float and the till."""
+    owner_id, store_id, item_id = await _a_shop()
+    anahit, _ = await _worker(owner_id, "Անի")
+
+    await _a_days_work(anahit, item_id, 2, "mon")
+    await till_service.declare_close(anahit, Decimal("30000"), "idem-till-mon")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/stores/{store_id}")
+
+    assert "Խանութի դրամարկղը" in page.text
+    assert "30,000.00" in page.text
+    assert "Անի" in page.text, "and who last said so"
+
+
+async def test_an_owners_correction_is_what_tomorrow_opens_with(client):
+    """The last word on the drawer, whoever said it. An owner who recounts a shop in
+    person and fixes the figure has to be the one the next shift starts from."""
+    owner_id, store_id, item_id = await _a_shop()
+    anahit, _ = await _worker(owner_id, "Անի")
+    gor, _ = await _worker(owner_id, "Գոռ")
+
+    await _a_days_work(anahit, item_id, 2, "mon")
+    await till_service.declare_close(anahit, Decimal("30000"), "idem-till-mon")
+    await till_service.set_by_owner(owner_id, store_id, Decimal("12000"), "վերահաշվարկ")
+
+    tuesday = await _a_days_work(gor, None, 0, "tue")
+
+    assert await _till(tuesday) == Decimal("12000.00")
+
+
+async def test_two_shops_do_not_share_a_float(client):
+    """Obvious, and worth a test: the balance is a column on the store, and a query
+    that forgot the store id would pass every other test in this file."""
+    owner_id, store_id, item_id = await _a_shop()
+    other = await make_store(owner_id, "Կենտրոն", lat=YEREVAN_LAT, lng=YEREVAN_LNG)
+    anahit, _ = await _worker(owner_id, "Անի")
+
+    await _a_days_work(anahit, item_id, 2, "mon")
+    await till_service.declare_close(anahit, Decimal("30000"), "idem-till-mon")
+
+    assert await _float(store_id) == Decimal("30000.00")
+    assert await _float(other) == Decimal("0.00"), "the other shop is untouched"

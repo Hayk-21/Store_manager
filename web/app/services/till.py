@@ -228,20 +228,26 @@ async def set_by_owner(
 
 
 async def correct_a_count(
-    owner_id: int, count_id: int, counted: Decimal
+    owner_id: int, count_id: int, counted: Decimal, expected: Decimal | None = None
 ) -> asyncpg.Record:
-    """Change what a count says was left in the shop.
+    """Change what a count says: what was left in the shop, and what the till held.
 
-    The figure a cashier types at the door is the one an owner most often needs to
-    fix — a nought too many, a bundle counted twice, a number typed while locking up.
-    Editing it in place rather than stacking a correction beside it, because unlike a
-    wage or a sale this row is not a claim about what happened to any money: it is one
-    person's reading of a drawer, and a wrong reading is worth replacing.
+    Both are readings rather than claims about what happened to any money — one taken
+    off a drawer at the door, one off the books at the same moment — so a wrong one is
+    worth replacing rather than stacking a correction beside, which is what a wage or a
+    sale would get.
 
-    The owner's share moves with it, since it is that reading subtracted from the
-    till. So does the shop's balance, when this is the count the balance came from.
+    ``counted`` is the figure most often wrong: a nought too many, a bundle counted
+    twice, a number typed while locking up. ``expected`` needs fixing less often but does
+    need it, because it was frozen at the moment of counting and a sale voided afterwards
+    leaves it describing books that have since changed.
+
+    The owner's share is the difference, so it moves with either. The shop's float moves
+    with ``counted``, but only when this is the count the float came from.
     """
     if counted < ZERO or counted > MAX_COUNT:
+        raise AppError("validation_error", "Սխալ գումար։")
+    if expected is not None and abs(expected) > MAX_COUNT:
         raise AppError("validation_error", "Սխալ գումար։")
 
     async with db.transaction() as conn:
@@ -249,9 +255,13 @@ async def correct_a_count(
         if row is None:
             raise AppError("not_found", "Հաշվարկը չի գտնվել։")
 
-        expected = Decimal(row["expected"])
-        await till_repo.set_counted(
-            conn, count_id, counted, _owners_share(expected, counted)
+        # Not floored at zero, unlike the count. The till genuinely could hold less than
+        # nothing under the old rules, and a row saying so is a record of that evening;
+        # the *share* is what must never be negative, and that is floored below.
+        if expected is None:
+            expected = Decimal(row["expected"])
+        await till_repo.set_reading(
+            conn, count_id, counted, expected, _owners_share(expected, counted)
         )
         # Only if this is still the shop's latest word on its drawer. An older count
         # being fixed for the record must not overwrite what a later one established.
@@ -259,7 +269,10 @@ async def correct_a_count(
         if latest is not None and latest["id"] == count_id:
             await stores_repo.set_till_balance(conn, owner_id, row["store_id"], counted)
 
-    log.info("owner %s corrected count %s to %s", owner_id, count_id, counted)
+    log.info(
+        "owner %s corrected count %s to counted=%s expected=%s",
+        owner_id, count_id, counted, expected,
+    )
     return row
 
 
