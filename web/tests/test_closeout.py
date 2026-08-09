@@ -24,9 +24,15 @@ BASE = "/api/bot/v1"
 TG = 555000777
 
 
-async def _on_shift(stock: int = 20, salary: str = "8000.00"):
+async def _on_shift(stock: int = 20, salary: str = "8000.00", till: str = "0.00"):
     owner_id = await make_owner()
     store_id = await make_store(owner_id, lat=YEREVAN_LAT, lng=YEREVAN_LNG, radius_m=120)
+    if Decimal(till) > 0:
+        # The drawer pays a wage as far as it reaches and the rest is owed, so a test
+        # that expects one paid in cash has to put the cash there.
+        await db.execute(
+            "UPDATE stores SET till_balance = $2 WHERE id = $1", store_id, Decimal(till)
+        )
     _, telegram_id = await make_worker(
         owner_id, "Անի", telegram_id=TG, salary_amount=salary
     )
@@ -78,7 +84,7 @@ async def test_the_shift_lists_what_is_already_recorded(client, bot_headers):
         )
 
     body = (await client.get(
-        f"{BASE}/shift/sold", params={"telegram_id": telegram_id}, headers=bot_headers
+        f"{BASE}/shift/review", params={"telegram_id": telegram_id}, headers=bot_headers
     )).json()
 
     # Rolled up per product, not per receipt: the worker is checking their own day
@@ -105,7 +111,7 @@ async def test_a_voided_sale_is_not_in_the_list(client, bot_headers):
     )
 
     body = (await client.get(
-        f"{BASE}/shift/sold", params={"telegram_id": telegram_id}, headers=bot_headers
+        f"{BASE}/shift/review", params={"telegram_id": telegram_id}, headers=bot_headers
     )).json()
 
     assert body["sold"] == []
@@ -116,7 +122,7 @@ async def test_a_quiet_shift_lists_nothing(client, bot_headers):
     await _open(client, bot_headers, telegram_id)
 
     body = (await client.get(
-        f"{BASE}/shift/sold", params={"telegram_id": telegram_id}, headers=bot_headers
+        f"{BASE}/shift/review", params={"telegram_id": telegram_id}, headers=bot_headers
     )).json()
 
     assert body["sold"] == []
@@ -127,7 +133,7 @@ async def test_the_list_needs_an_open_shift(client, bot_headers):
     _, _, telegram_id, _, _ = await _on_shift()
 
     response = await client.get(
-        f"{BASE}/shift/sold", params={"telegram_id": telegram_id}, headers=bot_headers
+        f"{BASE}/shift/review", params={"telegram_id": telegram_id}, headers=bot_headers
     )
 
     assert response.status_code == 409
@@ -153,7 +159,7 @@ async def test_one_workers_sales_are_not_in_anothers_list(client, bot_headers):
     )
 
     theirs = (await client.get(
-        f"{BASE}/shift/sold", params={"telegram_id": second_tg}, headers=bot_headers
+        f"{BASE}/shift/review", params={"telegram_id": second_tg}, headers=bot_headers
     )).json()
 
     assert theirs["sold"] == []
@@ -350,7 +356,7 @@ async def test_asking_to_close_the_store_is_refused_while_a_colleague_works(
 
 
 async def test_the_last_one_out_closing_the_store_pays_everybody(client, bot_headers):
-    owner_id, store_id, tg, item_id, _ = await _on_shift()
+    owner_id, store_id, tg, item_id, _ = await _on_shift(till="50000.00")
     _, second_tg = await make_worker(owner_id, "Բ", salary_amount="6000.00")
     await _open(client, bot_headers, tg)
     await client.post(

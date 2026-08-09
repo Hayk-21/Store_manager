@@ -226,6 +226,25 @@ async def ledger_for_session(store_session_id: int) -> list[asyncpg.Record]:
     )
 
 
+async def taken_out_during_shift(work_session_id: int) -> list[asyncpg.Record]:
+    """What the worker took out of the drawer during this shift, and what for.
+
+    Only their own withdrawals: a salary, a handover and the float carried in are
+    all movements on the same shift, and none of them is the worker answering for
+    petty cash. The reason matters more than the amount here — this is read back to
+    them before they end the shift so they can spot the one they forgot.
+    """
+    return await db.fetch(
+        """
+        SELECT id, -amount AS amount, note, created_at
+          FROM cash_movements
+         WHERE work_session_id = $1 AND kind = 'withdrawal' AND created_by = 'worker'
+         ORDER BY created_at, id
+        """,
+        work_session_id,
+    )
+
+
 async def withdrawn_by_worker_on(conn, work_session_id: int) -> Decimal:
     """What this worker has already taken out during this shift, as a positive
     number. Read on the caller's connection because it decides whether the write

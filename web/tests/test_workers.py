@@ -302,7 +302,13 @@ async def test_a_deactivated_worker_is_refused_and_not_renamed(client, bot_heade
 
 async def test_a_per_shift_worker_is_paid_out_of_the_till(client, bot_headers):
     owner_id, token = await _signed_in(client)
-    await make_store(owner_id, lat=YEREVAN_LAT, lng=YEREVAN_LNG, radius_m=120)
+    store_id = await make_store(owner_id, lat=YEREVAN_LAT, lng=YEREVAN_LNG, radius_m=120)
+    # The drawer has to have the money in it. A wage is paid as far as the till
+    # reaches and owed beyond that, which test_unpaid_wages.py is about; here the
+    # question is only whether a per-shift wage touches the till at all.
+    await db.execute(
+        "UPDATE stores SET till_balance = 50000 WHERE id = $1", store_id
+    )
     await _register(client, token, salary="8000", period="shift")
     await client.post(
         f"{BASE}/store/open",
@@ -321,7 +327,7 @@ async def test_a_per_shift_worker_is_paid_out_of_the_till(client, bot_headers):
     )).json()
 
     assert body["summary"]["salary_deducted"] == "8000.00"
-    assert await db.fetchval("SELECT cash_at_close FROM store_sessions") == Decimal("-8000.00")
+    assert await db.fetchval("SELECT cash_at_close FROM store_sessions") == Decimal("42000.00")
 
 
 async def test_a_monthly_worker_costs_the_till_nothing_at_shift_end(client, bot_headers):

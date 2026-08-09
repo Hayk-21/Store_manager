@@ -38,6 +38,13 @@ ERROR_MESSAGES: dict[str, str] = {
     "session_already_open": "Դուք արդեն հերթափոխի մեջ եք։",
     "no_open_session": "Դուք հերթափոխի մեջ չեք։ Նախ բացեք խանութը։",
     "store_not_open": "Խանութը բաց չէ։",
+    # The drawer is the shop's, not a shift's. Counting it while the shop is still
+    # trading hands the owner the change the next few hours need, and the count is
+    # stale on the very next sale.
+    "store_still_open": (
+        "Խանութը դեռ բաց է։ Դրամարկղը հաշվում է վերջինը դուրս եկողը՝ "
+        "հերթափոխն ավարտելուց հետո։"
+    ),
     # Always overridden with the names of whoever is still working, but a
     # sensible sentence has to exist for the code on its own.
     "others_on_shift": (

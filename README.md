@@ -44,10 +44,22 @@ takings and it is not the owner's yet: it is the change the next person needs to
 open up with. A session seeds its till from that column as an ordinary `deposit`,
 which keeps "how much is in the till" a sum over one table.
 
-One person sets it, once, at the end of their shift. The worker locking up says
-how much they are leaving — `💰 Դրամարկղի մնացորդ`, offered on the working
-keyboard and again after the shift write-up — and that figure becomes the store's
-balance. Everything else in the drawer goes to the owner:
+One person sets it, once, and it is **whoever locks up**. `💰 Դրամարկղի մնացորդ` is
+offered on the message that ends the last shift and on the off-shift keyboard, and
+the server refuses a count while the session is open (`store_still_open`). Both the
+button's position and the refusal are the same rule: the count is the closing act.
+
+That ordering is not decoration. The count hands the owner everything above the
+float, so anything still to come out of the till — a wage above all — has to come out
+first. It used to be on the working keyboard, and a worker counted up at 21:07,
+handed over 82,000, and was paid at 21:10 out of a drawer that no longer had it: the
+shop closed showing cash of **-4,500** and their next count reported 7,000 more in
+the drawer than expected. A mid-shift count is also stale on the very next sale, and
+one of two cashiers going home cannot hand over the change the other needs for the
+next four hours.
+
+What they leave becomes the store's balance. Everything else in the drawer goes to
+the owner:
 
 ```
 handed to the owner  =  what the till held  −  what was left behind
@@ -79,6 +91,19 @@ Closing the shop is not a button a cashier has. «Ավարտել իմ հերթա
 and nobody else's. The session closes on its own once the last of them has left,
 so no cashier can end a colleague's day by mistake. The owner can still force one
 closed from `/reports`.
+
+Before the write-up the shift is **read back in full** (`GET /shift/review`): what
+went out, what was thrown away, what was corrected on the shelf, what moved to or
+from another shop, what came out of the drawer for petty cash, what the drawer holds
+now and what the shift is about to pay. This is the last moment any of it can be
+fixed without the owner, so showing only the sales — which is what it did — was
+showing one of the things it settles.
+
+Sections with nothing in them are left out; a heading with nothing under it reads as
+something that failed to load. Sections are also cut off past 25 rows, and say so:
+Telegram *rejects* a message over 4096 characters rather than trimming it, so an
+unbounded list does not make a long screen but an empty one, on exactly the shifts
+that most need reading back.
 
 `Asia/Yerevan` is used for *displaying* times and for grouping report rows. It
 never decides which bucket money lands in.
@@ -160,6 +185,25 @@ late start into an argument about four minutes. Applied in
 ending their own shift, the write-up, the last one out, the owner forcing it and
 the auto-close — so the five cannot disagree about what a day's work is. The bot
 tells the worker why the number is half.
+
+**The drawer pays what it has.** A shop that took the whole day on card cannot
+settle a cash wage out of a thin float, and for a while it tried: 1,000 in the
+till, a 3,500 wage, and a session closing with cash of **-2,500** — a drawer
+holding negative money. Everything downstream then computed from that fiction; the
+worker who left 5,000 in the shop was told the drawer had held 7,500 more than
+expected.
+
+So the till pays as far as it reaches and the rest is a debt, on
+`work_sessions.salary_unpaid` (and `bonus_unpaid`). The wage first, then the
+bonus — when there is not enough for both, what is owed for the day should be the
+part in the worker's hand.
+
+`salary_paid` keeps its meaning throughout: **what the shift cost.** The wage bill
+in the statistics and the box the owner edits on the report do not change because
+the cash happened to be short that night, and the unpaid part is carried beside it
+rather than subtracted from it. Netting the two would answer neither "what did this
+shift cost" nor "what is this person still waiting for". The bot says both, and the
+report shows a `պարտք` badge beside the wage.
 
 ---
 
@@ -340,7 +384,7 @@ services cannot drift apart on what a failure means.
 | POST | `/sale/void` | undo the worker's last receipt in this shift |
 | POST | `/write-off` | stock that broke or expired, off the shelf without a sale → 201 |
 | POST | `/cash/withdraw` | cash out of the till, with the reason → 201 |
-| GET | `/shift/sold` | what this worker has already rung up this shift, per product |
+| GET | `/shift/review` | the whole open shift: sales, breakage, shelf corrections, cash out, the drawer, the wage due |
 | POST | `/shift/till` | what the worker leaves in the drawer; the rest is booked as handed over → 201 |
 | POST | `/shift/close-out` | declare the day's sales and end the shift, in one transaction |
 | POST | `/shift/end` | end the shift, pay the salary, close the store if last out |

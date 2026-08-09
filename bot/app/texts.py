@@ -165,20 +165,51 @@ CLOSEOUT_ASK_PRICE = (
     "Սեղմեք ներքևի կոճակը կամ գրեք գինը թվով (օրինակ՝ {suggested})։"
 )
 CLOSEOUT_BAD_PRICE = "Գրեք գինը թվով, օրինակ՝ 3500։"
-# Shown on the way into the write-up: the worker's own day as the books already
-# have it. The write-up is only for what is *not* in this list, and without seeing
-# it the only thing telling the two apart is memory — a product declared twice
-# comes off the shelf twice.
-SHIFT_SOLD_ALREADY = (
-    "🧾 <b>Այս հերթափոխին արդեն գրանցված է</b>\n\n{rows}\n\n"
+
+# -- the shift, read back before it ends -------------------------------------
+#
+# One message, in sections, with the empty sections left out. Everything the shift
+# accounts for: what went out, what was thrown away, what was corrected on the
+# shelf, what came out of the drawer, what the drawer holds and what the shift
+# pays. This is the last moment the worker can fix anything without the owner.
+
+REVIEW_HEADER = "📋 <b>Հերթափոխի ստուգում</b> — {store}\n"
+REVIEW_SOLD = (
+    "🧾 <b>Գրանցված վաճառք</b>\n{rows}\n"
     "Չեկեր՝ {receipts} · Կանխիկ՝ {cash} · Քարտ՝ {card}\n"
-    "Ընդամենը՝ <b>{total}</b>\n\n"
-    "<i>Ստուգեք ցուցակը։ Ներքևում գրեք միայն այն, ինչ այստեղ չկա։</i>"
+    "Ընդամենը՝ <b>{total}</b>\n"
 )
-SHIFT_SOLD_ROW = "• {name} ×{quantity} — {total}"
-SHIFT_SOLD_NOTHING_YET = (
-    "🧾 Այս հերթափոխին դեռ վաճառք գրանցված չէ։\n"
-    "Գրեք ամբողջ օրվա վաճառքը ներքևում։"
+REVIEW_SOLD_ROW = "• {name} ×{quantity} — {total}"
+REVIEW_SOLD_NOTHING = (
+    "🧾 <b>Գրանցված վաճառք</b>\nԴեռ ոչինչ գրանցված չէ։\n"
+)
+REVIEW_WRITTEN_OFF = "🗑 <b>Խոտան</b>\n{rows}\n"
+REVIEW_WRITTEN_OFF_ROW = "• {name} ×{quantity} — {reason}"
+REVIEW_STOCK_FIXED = "📦 <b>Պահեստի ուղղումներ</b>\n{rows}\n"
+REVIEW_STOCK_FIXED_ROW = "• {name}՝ {delta} → {count} հատ"
+REVIEW_TAKEN_OUT = "💸 <b>Վերցված դրամարկղից</b>\n{rows}\n"
+REVIEW_TAKEN_OUT_ROW = "• {amount} — {purpose}"
+REVIEW_TRANSFERS = "🔄 <b>Փոխանցումներ</b>\n{rows}\n"
+# The arrow points at this shop or away from it, so the direction is readable at a
+# glance rather than worked out from the shop name.
+REVIEW_TRANSFER_IN = "• ⬅️ {name} ×{quantity} — «{store}»-ից"
+REVIEW_TRANSFER_OUT = "• ➡️ {name} ×{quantity} — «{store}»-ին"
+REVIEW_NO_REASON = "առանց նշման"
+# Said when a section was too long to print in full. Never left silent: a list that
+# quietly stops looks like a complete list.
+REVIEW_AND_MORE = "<i>… և ևս {more} տող։ Ամբողջը տեսանելի է ղեկավարի էջում։</i>"
+REVIEW_TILL = (
+    "💰 <b>Դրամարկղը հիմա</b>\n"
+    "Կանխիկ՝ <b>{cash}</b> · Քարտ՝ {card}\n"
+    "Խանութի մնացորդը վերջին հաշվարկով՝ {float_}\n"
+)
+REVIEW_SALARY = "👤 <b>Ձեր աշխատավարձը</b>՝ {salary}\n"
+REVIEW_SALARY_HALVED = (
+    "<i>Դեռ {hours} ժամ չեք աշխատել, ուստի հաշվարկված է կիսով չափ։</i>\n"
+)
+REVIEW_FOOTER = (
+    "\n<i>Ստուգեք ամեն ինչ։ Ներքևում գրեք միայն այն վաճառքը, որը վերևի "
+    "ցուցակում չկա։</i>"
 )
 
 CLOSEOUT_ROW = "{index}. {name} ×{quantity} × {price} = <b>{total}</b> ({method}{kind})"
@@ -191,6 +222,13 @@ CLOSEOUT_SUMMARY = (
     "Կանխիկ՝ <b>{cash}</b>\nՔարտ՝ <b>{card}</b>\nԸնդամենը՝ <b>{total}</b>"
 )
 CLOSEOUT_EMPTY_BASKET = "Ցուցակը դատարկ է։ Այսօր վաճառք չի՞ եղել։"
+# The same empty list, when the day is already in the books. Asking "was there no
+# sale today?" over a screenful of receipts rung up an hour ago reads as the bot
+# having lost them.
+CLOSEOUT_NOTHING_TO_ADD = (
+    "Նոր վաճառք չեք ավելացրել։\n"
+    "Այս հերթափոխին արդեն գրանցված է {receipts} չեկ՝ <b>{total}</b>։"
+)
 CLOSEOUT_CONFIRM_PROMPT = (
     "Ամեն ինչ ճի՞շտ է։ Հաստատելուց հետո փոփոխություն կարող է անել միայն ղեկավարը։"
 )
@@ -217,9 +255,9 @@ VOID_DONE = (
 STATUS = (
     "<b>{store}</b>\n"
     "Հերթափոխը՝ {since}-ից ({duration})\n\n"
-    "Ձեր վաճառքը՝ {receipts} չեկ, {sold}\n"
-    "Խանութի կանխիկը՝ {cash}\n"
-    "Խանութի քարտը՝ {card}"
+    "Ձեր վաճառքը՝ {receipts} չեկ, {sold}\n\n"
+    "Դրամարկղում կանխիկ՝ {cash}\n"
+    "Քարտով մուտք՝ {card}"
 )
 STATUS_NO_SHIFT = "Դուք հերթափոխի մեջ չեք։ Սեղմեք «{open_button}»։"
 
@@ -233,12 +271,27 @@ SHIFT_ENDED = (
 # will ask why, and the answer should already be on the screen.
 SALARY_HALVED = (
     "\n<i>Հերթափոխը տևել է {hours} ժամից պակաս, ուստի աշխատավարձը հաշվվել է "
-    "կիսով չափ։</i>"
+    "կիսով չափ։</i>\n"
+)
+# Said when the drawer was too thin to pay the whole wage — a day taken mostly on
+# card. Without it the wage above looks like a mistake or a deduction; it is
+# neither, and the worker should not have to work that out.
+WAGE_STILL_OWED = (
+    "\n⚠️ Դրամարկղում բավարար կանխիկ չկար։ Ձեռքին ստացել եք ավելի քիչ, "
+    "մնացած <b>{owed}</b>-ը ղեկավարը կվճարի։\n"
 )
 STORE_STILL_OPEN = "\nԽանութը մնում է բաց՝ գործընկերները դեռ աշխատում են։"
 STORE_CLOSED = (
     "\n🔴 Խանութը փակված է։\n"
-    "Կանխիկ՝ {cash} · Քարտ՝ {card}"
+    "Դրամարկղում կանխիկ՝ {cash} · Քարտով մուտք՝ {card}"
+)
+# The same line with the cash left out. A drawer cannot hold less than nothing, so a
+# negative figure there is a bookkeeping artefact and not something a cashier can act
+# on — «Կանխիկ՝ -4,500 ֏» is the one a worker saw and reported. The card figure is
+# still true and still worth saying.
+STORE_CLOSED_NO_CASH = (
+    "\n🔴 Խանութը փակված է։\n"
+    "Քարտով մուտք՝ {card}"
 )
 
 # -- failures ---------------------------------------------------------------
@@ -331,8 +384,9 @@ BTN_TILL_COUNT = "💰 Դրամարկղի մնացորդ"
 BTN_TILL_CLOSE = "💰 Գրել դրամարկղի մնացորդը"
 TILL_ASK_CLOSE = (
     "💰 <b>Դրամարկղի մնացորդը</b>\n\n"
-    "Որքա՞ն կանխիկ եք թողնում դրամարկղում։ Գրեք գումարը թվով։\n"
-    "Այդ գումարը մնում է խանութում, մնացածը՝ ղեկավարին։"
+    "Հաշվեք դրամարկղում մնացած կանխիկը և գրեք գումարը թվով։\n"
+    "Այդքանը մնում է խանութում՝ հաջորդ հերթափոխի համար, "
+    "մնացածը հանձնվում է ղեկավարին։"
 )
 TILL_BAD_AMOUNT = "Գրեք գումարը թվով, օրինակ՝ 40000։"
 TILL_DONE_CLOSE = "💰 Գրանցվեց՝ դրամարկղում մնում է <b>{counted}</b>։\n"
@@ -348,9 +402,11 @@ TILL_DONE_PLAINLY = "💰 Դրամարկղի մնացորդը գրանցվեց։
 TILL_SKIPPED = (
     "Դրամարկղի հաշվարկը բաց թողնվեց։ Խանութի մնացորդը մնում է նույնը։"
 )
+# The invitation, carrying the button. Short on purpose: the full explanation
+# belongs on the screen that asks for the number, and saying it twice in a row made
+# the second message look like the bot repeating itself.
 TILL_HANDOVER_PROMPT = (
-    "Հաշվեք դրամարկղում մնացած կանխիկը։ Այդ գումարը մնում է խանութում "
-    "և հաջորդ հերթափոխը կսկսվի դրանով։"
+    "Մնաց մեկ բան՝ գրեք, թե որքան կանխիկ եք թողնում խանութի դրամարկղում։"
 )
 
 # -- moving stock between shops ----------------------------------------------

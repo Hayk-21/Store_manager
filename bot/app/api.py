@@ -277,10 +277,10 @@ class Api:
             },
         )
 
-    async def sold_this_shift(self, telegram_id: int) -> dict:
-        """What this worker has already rung up during the open shift."""
+    async def review_shift(self, telegram_id: int) -> dict:
+        """The whole open shift: sales, breakage, corrections, cash, the drawer."""
         return await self._call(
-            "GET", "/shift/sold", params={"telegram_id": telegram_id}
+            "GET", "/shift/review", params={"telegram_id": telegram_id}
         )
 
     async def transfer_sources(self, telegram_id: int) -> dict:

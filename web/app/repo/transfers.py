@@ -124,6 +124,32 @@ async def pending_for_store(owner_id: int, store_id: int) -> list[asyncpg.Record
     )
 
 
+async def settled_for_store_since(
+    owner_id: int, store_id: int, since
+) -> list[asyncpg.Record]:
+    """Stock that came in or went out of this shop while a shift was running.
+
+    Both directions. An arrival was decided by somebody at the *other* shop, so it is
+    not this worker's action — but it changed the shelf they are about to be held to,
+    which is the thing that matters when a shift is read back.
+
+    Bounded by time rather than by shift, because a transfer belongs to two shops and
+    cannot be attached to one person's shift without picking a side.
+    """
+    return await db.fetch(
+        _SELECT
+        + """
+         WHERE t.owner_id = $1 AND t.status = 'approved'
+           AND (t.from_store_id = $2 OR t.to_store_id = $2)
+           AND t.decided_at >= $3
+         ORDER BY t.decided_at, t.id
+        """,
+        owner_id,
+        store_id,
+        since,
+    )
+
+
 async def recent_for_owner(owner_id: int, limit: int = 50) -> list[asyncpg.Record]:
     """The history, newest first — what the owner sees on the transfers page."""
     return await db.fetch(

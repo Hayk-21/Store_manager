@@ -302,6 +302,65 @@ async def close_work_session(
     )
 
 
+async def is_open(conn, store_session_id: int) -> bool:
+    """Whether the shop is still trading, read on the caller's connection.
+
+    Pooled would be wrong: the callers ask inside a transaction that has just closed
+    the session or is about to, and a second connection would not see it.
+    """
+    return await conn.fetchval(
+        "SELECT closed_at IS NULL FROM store_sessions WHERE id = $1", store_session_id
+    ) or False
+
+
+async def record_unpaid(
+    conn, work_session_id: int, salary_unpaid: Decimal, bonus_unpaid: Decimal
+) -> None:
+    """What the drawer could not cover, so the owner still owes it.
+
+    Written after the payment attempt rather than with the close, because how much
+    the till could pay is only known once it has been asked.
+    """
+    await conn.execute(
+        """
+        UPDATE work_sessions SET salary_unpaid = $2, bonus_unpaid = $3
+         WHERE id = $1
+        """,
+        work_session_id,
+        salary_unpaid,
+        bonus_unpaid,
+    )
+
+
+async def resync_snapshot(conn, store_session_id: int) -> None:
+    """Bring a closed session's snapshot back in line with its ledger.
+
+    An open session needs nothing: its totals are read live. A closed one has
+    frozen numbers on the row, and anything that books a movement into it after
+    the fact — an owner's correction, a drawer counted after locking up — leaves
+    those stale, so the report and the ledger disagree.
+    """
+    session = await conn.fetchrow(
+        "SELECT closed_at FROM store_sessions WHERE id = $1", store_session_id
+    )
+    if session is None or session["closed_at"] is None:
+        return
+
+    # Imported here rather than at module scope: money's own reads live one layer
+    # up, and a top-level import would tie two repos together for one query.
+    from app.repo import money as money_repo
+
+    totals = await money_repo.totals_on(conn, store_session_id)
+    await conn.execute(
+        """
+        UPDATE store_sessions
+           SET cash_at_close = $2, card_at_close = $3, salaries_at_close = $4
+         WHERE id = $1
+        """,
+        store_session_id, totals["cash"], totals["card"], totals["salaries"],
+    )
+
+
 async def open_shifts_in_session(conn, store_session_id: int) -> list[asyncpg.Record]:
     """Every shift still open in a store session, locked — used when closing.
 
@@ -340,7 +399,8 @@ async def by_end_idem(owner_id: int, idem_key: str) -> asyncpg.Record | None:
     return await db.fetchrow(
         """
         SELECT ws.id, ws.store_id, ws.store_session_id, ws.started_at, ws.ended_at,
-               ws.salary_paid, s.name AS store_name
+               ws.salary_paid, ws.salary_unpaid, ws.bonus_paid, ws.bonus_unpaid,
+               s.name AS store_name
           FROM work_sessions ws
           JOIN stores s ON s.id = ws.store_id
          WHERE ws.owner_id = $1 AND ws.end_idem_key = $2
@@ -355,7 +415,8 @@ async def shifts_in_session(store_session_id: int) -> list[asyncpg.Record]:
         f"""
         SELECT ws.id, ws.worker_id, {DISPLAY_NAME} AS worker_name,
                ws.started_at, ws.ended_at,
-               ws.salary_paid, ws.bonus_paid, ws.start_distance_m, ws.closed_by
+               ws.salary_paid, ws.salary_unpaid, ws.bonus_paid, ws.bonus_unpaid,
+               ws.start_distance_m, ws.closed_by
           FROM work_sessions ws
           JOIN workers w ON w.id = ws.worker_id
          WHERE ws.store_session_id = $1

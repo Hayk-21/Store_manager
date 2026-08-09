@@ -36,7 +36,7 @@ def _basket(context) -> list[dict]:
 
 def _clear(context) -> None:
     for key in (BASKET, "co_item", "co_qty", "co_price", "co_key", "co_candidates",
-                "co_delivery", "co_price_kind", "co_kind_pending"):
+                "co_delivery", "co_price_kind", "co_kind_pending", "co_recorded"):
         context.user_data.pop(key, None)
 
 
@@ -53,8 +53,20 @@ def _kind_suffix(kind: str | None) -> str:
     return ""
 
 
-def _summary(basket: list[dict]) -> str:
+def _summary(basket: list[dict], recorded: dict | None = None) -> str:
+    """The list the worker has typed, which is not the same as their day.
+
+    With nothing typed the honest thing to say depends on whether the day is
+    already in the books. Asking "was there no sale today?" over a screenful of
+    receipts rung up an hour ago reads as the bot having lost them, and it was the
+    question a cashier saw after a perfectly ordinary day.
+    """
     if not basket:
+        if recorded and int(recorded.get("receipts") or 0) > 0:
+            return texts.CLOSEOUT_NOTHING_TO_ADD.format(
+                receipts=recorded["receipts"],
+                total=format.money(recorded.get("total", 0)),
+            )
         return texts.CLOSEOUT_EMPTY_BASKET
 
     cash = sum(Decimal(line["unit_price"]) * line["quantity"]
@@ -96,12 +108,12 @@ async def _fail(update: Update, exc: Exception) -> int:
 # -- entry -------------------------------------------------------------------
 
 async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """"End my shift" pressed. Ask what was sold before ending anything."""
+    """"End my shift" pressed. Read the shift back before ending anything."""
     _clear(context)
     # One key for the whole close-out, minted now and reused for every retry, so
     # a flaky connection at the very end cannot double the day's takings.
     context.user_data["co_key"] = new_idempotency_key()
-    await _show_what_is_already_recorded(update)
+    await _show_the_shift_so_far(update, context)
     await update.effective_message.reply_text(
         texts.CLOSEOUT_START, parse_mode=ParseMode.HTML,
         reply_markup=keyboards.closeout_menu(empty=True),
@@ -109,51 +121,163 @@ async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return PICK_ITEM
 
 
-async def _show_what_is_already_recorded(update: Update) -> None:
-    """The worker's own day, before they add anything to it.
+async def _show_the_shift_so_far(update: Update, context) -> None:
+    """Everything the shift accounts for, before the worker adds to it.
 
-    Two ways a sale reaches the books — rung up as it happened, or written up now —
-    and the write-up is only for the second. Without seeing the first list the only
-    thing telling them apart is memory, and a product declared twice comes off the
-    shelf twice.
+    Not just the sales. This is the last moment anything can be corrected without
+    going to the owner, so it has to be the whole picture: what went out, what was
+    thrown away, what was put back on the shelf, what came out of the drawer, what
+    the drawer holds, and what ending the shift will pay.
 
-    Best effort. This is a courtesy on the way into the write-up, so a failure here
-    must not stop the worker ending their shift; the write-up itself is what has to
-    work.
+    The sales list earns its place twice over. There are two ways a sale reaches the
+    books — rung up as it happened, or written up now — and the write-up is only for
+    the second. Without seeing the first list the only thing telling them apart is
+    memory, and a product declared twice comes off the shelf twice.
+
+    Best effort. A failure here must not stop the worker ending their shift; the
+    write-up itself is what has to work.
     """
     try:
-        result = await api.sold_this_shift(update.effective_user.id)
-        sold, totals = result["sold"], result["totals"]
+        shift = await api.review_shift(update.effective_user.id)
     except (ApiError, ApiUnavailable) as exc:
-        log.info("could not list this shift's sales: %s", exc)
+        log.info("could not read the shift back: %s", exc)
         return
     except Exception:  # noqa: BLE001
-        log.exception("could not list this shift's sales")
+        log.exception("could not read the shift back")
         return
 
-    if not sold:
-        await update.effective_message.reply_text(
-            texts.SHIFT_SOLD_NOTHING_YET, parse_mode=ParseMode.HTML
-        )
-        return
-
+    # Remembered so the confirmation can say what is actually being confirmed. An
+    # empty list is not an empty day if the sales were rung up as they happened,
+    # and telling somebody "no sales today?" over a day of receipts reads as the
+    # bot having lost them.
+    context.user_data["co_recorded"] = shift.get("totals") or {}
     await update.effective_message.reply_text(
-        texts.SHIFT_SOLD_ALREADY.format(
-            rows="\n".join(
-                texts.SHIFT_SOLD_ROW.format(
+        _shift_so_far(shift), parse_mode=ParseMode.HTML
+    )
+
+
+# A section is cut off past this many rows. Telegram *rejects* a message over 4096
+# characters rather than trimming it, so an unbounded list does not make a long
+# screen — it makes an empty one, on the busiest shifts, which are the ones that
+# most need reading back. What is cut is always said out loud.
+MAX_ROWS = 25
+
+
+def _rows(items: list, render) -> str:
+    listed = "\n".join(render(row) for row in items[:MAX_ROWS])
+    if len(items) <= MAX_ROWS:
+        return listed
+    return listed + "\n" + texts.REVIEW_AND_MORE.format(more=len(items) - MAX_ROWS)
+
+
+def _shift_so_far(shift: dict) -> str:
+    """Lay the shift out as sections, and leave out the ones that are empty.
+
+    A heading with nothing under it reads as a thing that failed to load. Sections
+    that have nothing to report simply are not there — except the sales, whose
+    absence is itself worth stating, because a whole day with no sale recorded is
+    the mistake this screen exists to catch.
+    """
+    parts = [texts.REVIEW_HEADER.format(store=format.esc(shift.get("store_name", "")))]
+    sold, totals = shift.get("sold") or [], shift.get("totals") or {}
+
+    if sold:
+        parts.append(
+            texts.REVIEW_SOLD.format(
+                rows=_rows(sold, lambda row: texts.REVIEW_SOLD_ROW.format(
                     name=format.esc(row["name"]),
                     quantity=row["quantity"],
                     total=format.money(row["total"]),
+                )),
+                receipts=totals.get("receipts", 0),
+                cash=format.money(totals.get("cash", 0)),
+                card=format.money(totals.get("card", 0)),
+                total=format.money(totals.get("total", 0)),
+            )
+        )
+    else:
+        parts.append(texts.REVIEW_SOLD_NOTHING)
+
+    if shift.get("written_off"):
+        parts.append(
+            texts.REVIEW_WRITTEN_OFF.format(
+                rows=_rows(
+                    shift["written_off"],
+                    lambda row: texts.REVIEW_WRITTEN_OFF_ROW.format(
+                        name=format.esc(row["name"]),
+                        quantity=row["quantity"],
+                        reason=format.esc(row["reason"] or texts.REVIEW_NO_REASON),
+                    ),
                 )
-                for row in sold
-            ),
-            receipts=totals["receipts"],
-            cash=format.money(totals["cash"]),
-            card=format.money(totals["card"]),
-            total=format.money(totals["total"]),
-        ),
-        parse_mode=ParseMode.HTML,
+            )
+        )
+
+    if shift.get("stock_fixed"):
+        parts.append(
+            texts.REVIEW_STOCK_FIXED.format(
+                rows=_rows(
+                    shift["stock_fixed"],
+                    lambda row: texts.REVIEW_STOCK_FIXED_ROW.format(
+                        name=format.esc(row["name"]),
+                        delta=f"{row['delta']:+d}",
+                        count=row["count_after"],
+                    ),
+                )
+            )
+        )
+
+    if shift.get("taken_out"):
+        parts.append(
+            texts.REVIEW_TAKEN_OUT.format(
+                rows=_rows(
+                    shift["taken_out"],
+                    lambda row: texts.REVIEW_TAKEN_OUT_ROW.format(
+                        amount=format.money(row["amount"]),
+                        purpose=format.esc(row["purpose"] or texts.REVIEW_NO_REASON),
+                    ),
+                )
+            )
+        )
+
+    if shift.get("transfers"):
+        parts.append(
+            texts.REVIEW_TRANSFERS.format(
+                rows=_rows(
+                    shift["transfers"],
+                    lambda row: (
+                        texts.REVIEW_TRANSFER_IN if row["incoming"]
+                        else texts.REVIEW_TRANSFER_OUT
+                    ).format(
+                        name=format.esc(row["name"]),
+                        quantity=row["quantity"],
+                        store=format.esc(row["other_store"]),
+                    ),
+                )
+            )
+        )
+
+    till = shift.get("till") or {}
+    parts.append(
+        texts.REVIEW_TILL.format(
+            cash=format.money(till.get("cash", 0)),
+            card=format.money(till.get("card", 0)),
+            float_=format.money(shift.get("store_float", 0)),
+        )
     )
+
+    salary = shift.get("salary") or {}
+    due = Decimal(str(salary.get("due", "0")))
+    if due > 0:
+        parts.append(texts.REVIEW_SALARY.format(salary=format.money(due)))
+        if due < Decimal(str(salary.get("full", "0"))):
+            parts.append(
+                texts.REVIEW_SALARY_HALVED.format(
+                    hours=salary.get("full_shift_hours", 8)
+                )
+            )
+
+    parts.append(texts.REVIEW_FOOTER)
+    return "\n".join(parts)
 
 
 async def prompt_item(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -374,7 +498,9 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show the whole day back before anything is written."""
     basket = _basket(context)
     await update.effective_message.reply_text(
-        _summary(basket) + "\n\n" + texts.CLOSEOUT_CONFIRM_PROMPT,
+        _summary(basket, context.user_data.get("co_recorded"))
+        + "\n\n"
+        + texts.CLOSEOUT_CONFIRM_PROMPT,
         parse_mode=ParseMode.HTML,
         reply_markup=keyboards.closeout_confirm(),
     )
@@ -390,7 +516,8 @@ async def drop_last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         if removed else texts.CLOSEOUT_NOTHING_TO_REMOVE
     )
     await update.effective_message.reply_text(
-        message + "\n\n" + _summary(basket), parse_mode=ParseMode.HTML,
+        message + "\n\n" + _summary(basket, context.user_data.get("co_recorded")),
+        parse_mode=ParseMode.HTML,
         reply_markup=keyboards.closeout_menu(empty=not basket),
     )
     return PICK_ITEM

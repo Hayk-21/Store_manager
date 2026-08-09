@@ -33,9 +33,20 @@ async def _worker_of(owner_id: int, worker_id: int, salary: str = "8000.00"):
     )
 
 
-async def _setup(salary: str = "8000.00", radius_m: int = 120):
+async def _setup(salary: str = "8000.00", radius_m: int = 120, till: str = "0.00"):
+    """A shop and somebody who works there.
+
+    ``till`` is the shop's own float, and a wage test has to set it: the drawer pays
+    a wage only as far as it reaches, so a shift ending in a shop with nothing in the
+    till is owed its wage rather than paid it. That is the point of
+    test_unpaid_wages.py; here it would just be a setup that cannot pay.
+    """
     owner_id = await make_owner()
     store_id = await make_store(owner_id, lat=YEREVAN_LAT, lng=YEREVAN_LNG, radius_m=radius_m)
+    if Decimal(till) > 0:
+        await db.execute(
+            "UPDATE stores SET till_balance = $2 WHERE id = $1", store_id, Decimal(till)
+        )
     worker_id, telegram_id = await make_worker(owner_id, salary_amount=salary)
     return owner_id, store_id, await _worker_of(owner_id, worker_id, salary), telegram_id
 
@@ -107,7 +118,7 @@ async def test_two_workers_share_one_store_session(client):
 
 async def test_ending_a_shift_takes_the_salary_out_of_cash(client):
     """Requirement 5."""
-    _, _, worker, _ = await _setup(salary="8000.00")
+    _, _, worker, _ = await _setup(salary="8000.00", till="50000.00")
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
     await worked_a_full_shift(worker.id)
 
@@ -137,7 +148,7 @@ async def test_the_salary_is_snapshotted_and_survives_a_later_rate_change(client
 async def test_a_shift_can_only_ever_pay_its_salary_once(client):
     import asyncpg
 
-    _, _, worker, _ = await _setup()
+    _, _, worker, _ = await _setup(till="50000.00")
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
     await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
     shift = await db.fetchrow("SELECT * FROM work_sessions")
@@ -218,7 +229,7 @@ async def test_a_worker_cannot_close_the_store_on_a_colleague(client):
 
 
 async def test_the_last_one_out_closes_the_store_and_every_salary_is_paid(client):
-    owner_id, store_id, first, _ = await _setup(salary="8000.00")
+    owner_id, store_id, first, _ = await _setup(salary="8000.00", till="50000.00")
     second_id, _ = await make_worker(owner_id, salary_amount="6000.00")
     second = await _worker_of(owner_id, second_id, "6000.00")
     await shifts_service.open_store(first, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa", 900)
@@ -291,15 +302,25 @@ async def test_the_store_can_be_opened_again_and_starts_from_zero(client):
     assert row["cash"] == Decimal("0"), "yesterday's takings must not follow the store around"
 
 
-async def test_cash_is_allowed_to_go_negative(client):
-    """A store can genuinely owe wages it has not taken in. Clamping would hide it."""
+async def test_a_wage_the_drawer_cannot_pay_becomes_a_debt_not_negative_cash(client):
+    """This used to assert cash of -8,000, on the reasoning that a store can genuinely
+    owe wages it has not taken in and that clamping would hide the debt. The debt was
+    real; encoding it as negative cash was the mistake. That figure is also read as
+    "how much is in the drawer", so it drove the handover too — a worker leaving 5,000
+    in a shop whose till said -2,500 was told the drawer held 7,500 more than expected.
+
+    Nothing is hidden now, it is named: the drawer holds nothing, and 8,000 is owed.
+    """
     _, _, worker, _ = await _setup(salary="8000.00")
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
     await worked_a_full_shift(worker.id)
 
     await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
 
-    assert await db.fetchval("SELECT cash_at_close FROM store_sessions") == Decimal("-8000.00")
+    assert await db.fetchval("SELECT cash_at_close FROM store_sessions") == Decimal("0.00")
+    row = await db.fetchrow("SELECT salary_paid, salary_unpaid FROM work_sessions")
+    assert row["salary_paid"] == Decimal("8000.00"), "what the shift cost"
+    assert row["salary_unpaid"] == Decimal("8000.00"), "and none of it was in the till"
 
 
 # -- housekeeping ------------------------------------------------------------
@@ -320,7 +341,7 @@ async def test_the_owner_can_force_close_a_forgotten_shift(client):
 
 async def test_a_forgotten_store_is_auto_closed_and_the_salary_still_paid(client):
     """Without this, a worker who never pressed "close" could not start tomorrow."""
-    _, _, worker, _ = await _setup(salary="8000.00")
+    _, _, worker, _ = await _setup(salary="8000.00", till="50000.00")
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
     await worked_a_full_shift(worker.id, hours=17)
     await db.execute("UPDATE store_sessions SET opened_at = now() - interval '17 hours'")

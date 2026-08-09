@@ -24,10 +24,21 @@ FAR_LAT = YEREVAN_LAT + 0.0072
 BASE = "/api/bot/v1"
 
 
-async def _world(salary: str = "8000.00", stock: int = 10):
+async def _world(salary: str = "8000.00", stock: int = 10, till: str = "0.00"):
+    """A shop and somebody who works there.
+
+    ``till`` is the shop's own float, opt-in because most of these tests assert an
+    exact cash figure and a float would move all of them. It matters for the wage: the
+    drawer pays as far as it reaches and the rest is owed, so a shop with nothing in it
+    settles a shift without paying any cash. That behaviour has its own file.
+    """
     owner_id = await make_owner()
     store_id = await make_store(owner_id, "Խանութ 1", lat=YEREVAN_LAT, lng=YEREVAN_LNG,
                                 radius_m=120)
+    if Decimal(till) > 0:
+        await db.execute(
+            "UPDATE stores SET till_balance = $2 WHERE id = $1", store_id, Decimal(till)
+        )
     worker_id, telegram_id = await make_worker(owner_id, "Անի", salary_amount=salary)
     item_id = await make_item(owner_id, store_id, "HQD Cuvie", count=stock,
                               self_price="1500.00", sell_price="3500.00")
@@ -435,7 +446,7 @@ async def test_closing_the_store_is_refused_while_a_colleague_is_on_shift(client
 
 
 async def test_the_last_one_out_closes_the_store_for_everyone(client, bot_headers):
-    owner_id, _, _, first_tg, _ = await _world(salary="8000.00")
+    owner_id, _, _, first_tg, _ = await _world(salary="8000.00", till="50000.00")
     _, second_tg = await make_worker(owner_id, "Բ", salary_amount="6000.00")
     await _open(client, bot_headers, first_tg, "idem-key-open-aa")
     await _open(client, bot_headers, second_tg, "idem-key-open-bb")

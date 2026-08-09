@@ -62,8 +62,20 @@ CB_DISMISS = "d"
 
 
 def off_shift() -> ReplyKeyboardMarkup:
+    """Open the shop, or record the drawer for the shift that just ended.
+
+    The drawer belongs here rather than on the working keyboard. It was there, and a
+    worker who counted up at 21:07 handed the owner everything above the float and was
+    then paid at 21:10 out of a drawer that no longer had it — the shop closed showing
+    cash of -4,500. A count made mid-shift also goes stale on the very next sale.
+
+    Counting is the last act of a day, so it is offered where the day has ended. It
+    stays on the keyboard afterwards, not only on the message that ends the shift, so a
+    worker who scrolled past that prompt can still get back to it.
+    """
     return ReplyKeyboardMarkup(
-        [[KeyboardButton(texts.BTN_OPEN)]], resize_keyboard=True
+        [[KeyboardButton(texts.BTN_OPEN)], [KeyboardButton(texts.BTN_TILL_COUNT)]],
+        resize_keyboard=True,
     )
 
 
@@ -115,7 +127,7 @@ def on_shift() -> ReplyKeyboardMarkup:
         [
             [KeyboardButton(texts.BTN_SELL)],
             [KeyboardButton(texts.BTN_STOCK), KeyboardButton(texts.BTN_DEFECT)],
-            [KeyboardButton(texts.BTN_TAKE_CASH), KeyboardButton(texts.BTN_TILL_COUNT)],
+            [KeyboardButton(texts.BTN_TAKE_CASH)],
             [KeyboardButton(texts.BTN_ADD_ITEM), KeyboardButton(texts.BTN_TRANSFERS)],
             [KeyboardButton(texts.BTN_STATUS)],
             [KeyboardButton(texts.BTN_END_SHIFT)],

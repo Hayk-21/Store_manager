@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from telegram import ReplyKeyboardRemove, Update
 from telegram.constants import ParseMode
@@ -276,28 +277,30 @@ async def report_end(update: Update, summary: dict) -> None:
         message += texts.SALARY_HALVED.format(
             hours=summary.get("full_shift_hours", 8)
         )
+    message += _what_the_till_could_not_pay(summary)
     if summary.get("store_closed"):
-        message += texts.STORE_CLOSED.format(
-            cash=format.money(summary["store_totals_after"]["cash"]),
-            card=format.money(summary["store_totals_after"]["card"]),
-        )
+        message += _the_closing_figures(summary["store_totals_after"])
     else:
         message += texts.STORE_STILL_OPEN
 
+    # Two messages, not three. The reply keyboard rides on this one — it used to be
+    # restored by re-sending the welcome, which greeted a worker who had just
+    # finished with «Բարև, ։» and instructions for opening a shop they had closed.
     await update.effective_message.reply_text(
-        message, parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardRemove()
+        message, parse_mode=ParseMode.HTML, reply_markup=keyboards.off_shift()
     )
-    # The welcome first, because it carries the reply keyboard and a message cannot
-    # carry both kinds at once.
-    await update.effective_message.reply_text(
-        texts.WELCOME.format(name="", open_button=texts.BTN_OPEN).strip(),
-        reply_markup=keyboards.off_shift(),
-    )
-    # The drawer goes out last, and that ordering is the whole point. It was the
-    # middle of three, and the message after it pushed the button up off the top of
-    # a phone screen — the worker was told to count the till and then shown
-    # something else, so they never saw the button and reasonably reported it
-    # missing. Last means it is what they are looking at.
+
+    # Only whoever locked up is asked. The drawer belongs to the shop, not to a shift:
+    # one of two cashiers going home cannot hand over the change their colleague needs
+    # for the next four hours, and a count made while the shop is trading is stale on
+    # the very next sale.
+    if not summary.get("store_closed"):
+        return
+
+    # The drawer goes out last, and that ordering is the whole point: it was in the
+    # middle once, and the message after it pushed the button up off the top of a
+    # phone screen — the worker was told to count the till and then shown something
+    # else, so they never saw the button and reasonably reported it missing.
     #
     # Whatever cash is left stays in the shop and is the float the next shift opens
     # with, so somebody has to say how much, and the person who just locked up is
@@ -308,3 +311,35 @@ async def report_end(update: Update, summary: dict) -> None:
         parse_mode=ParseMode.HTML,
         reply_markup=keyboards.count_the_till(),
     )
+
+
+def _the_closing_figures(totals: dict) -> str:
+    """What the shop closed with — leaving the cash out if it came to less than nothing.
+
+    A drawer cannot hold negative money, so that figure is a bookkeeping artefact
+    rather than something a cashier can act on. «Կանխիկ՝ -4,500 ֏» is the one a worker
+    saw and reported, and the honest answer to "how much cash is there" in that state
+    is not a smaller negative number — it is nothing, and the line is better unsaid
+    than said wrongly. Anything the till could not pay is named a few lines above.
+    """
+    cash = Decimal(str(totals.get("cash") or "0"))
+    if cash < 0:
+        return texts.STORE_CLOSED_NO_CASH.format(card=format.money(totals["card"]))
+    return texts.STORE_CLOSED.format(
+        cash=format.money(cash), card=format.money(totals["card"])
+    )
+
+
+def _what_the_till_could_not_pay(summary: dict) -> str:
+    """The part of the wage the drawer was too thin to cover.
+
+    Worth its own sentence. A worker whose shop took the whole day on card goes home
+    with less cash in hand than the wage they were quoted, and if nothing says so
+    the number above looks like a mistake or a deduction. It is neither: it is money
+    the owner owes them.
+    """
+    owed = Decimal(str(summary.get("salary_unpaid") or "0"))
+    owed += Decimal(str(summary.get("bonus_unpaid") or "0"))
+    if owed <= 0:
+        return ""
+    return texts.WAGE_STILL_OWED.format(owed=format.money(owed))

@@ -91,8 +91,16 @@ async def declare_close(
     of the till as handed to the owner. Any two of those without the third leaves the
     drawer, the ledger and the balance telling different stories.
 
-    Allowed after the shift has already ended, which is when it is asked for. The
-    shop comes from the worker's most recent shift there.
+    Only once the shop is shut, and that restriction is the whole ordering. The count
+    hands the owner everything above the float, so anything still to be paid out of the
+    till has to be paid first. A worker who counted up at 21:07 mid-shift handed over
+    82,000 and was then paid at 21:10 out of a drawer that no longer had it: the shop
+    closed showing cash of -4,500 and the next count reported 7,000 more in the drawer
+    than expected. A mid-shift count also goes stale on the very next sale.
+
+    It is the *session* that has to be shut, not just this worker's shift. The drawer is
+    shared — one of two cashiers going home cannot hand over the change their colleague
+    needs for the next four hours.
     """
     if counted < ZERO or counted > MAX_COUNT:
         raise BotError("validation_error", "Սխալ գումար։")
@@ -106,6 +114,8 @@ async def declare_close(
             shift = await sessions_repo.latest_for_worker(conn, worker.id)
             if shift is None:
                 raise BotError("no_open_session")
+            if await sessions_repo.is_open(conn, shift["store_session_id"]):
+                raise BotError("store_still_open")
 
             # What the books said at this moment, frozen beside the count. A sale
             # amended next week must not rewrite what was handed over tonight.
@@ -131,6 +141,10 @@ async def declare_close(
             await stores_repo.set_till_balance(
                 conn, worker.owner_id, shift["store_id"], counted
             )
+            # The drawer is normally counted after locking up, so the session it
+            # belongs to is already closed and carrying frozen totals. Without this
+            # the report would show the cash as it stood before the handover.
+            await sessions_repo.resync_snapshot(conn, shift["store_session_id"])
     except asyncpg.exceptions.UniqueViolationError:
         original = await till_repo.by_external_id(worker.owner_id, idem_key)
         if original is None:  # pragma: no cover - some other constraint
@@ -177,7 +191,11 @@ async def _book_the_handover(conn, worker, shift, handed_over: Decimal) -> None:
         work_session_id=shift["id"],
         worker_id=worker.id,
         note=NOTE_HANDED_OVER if going_out else NOTE_FOUND_EXTRA,
-        created_by="worker",
+        # 'system', not 'worker': that flag means money taken from the till at the
+        # counter, and this is the settlement the count implies rather than petty
+        # cash anybody spent. Who counted is on the ``till_counts`` row and on
+        # ``worker_id`` here, so nothing about attribution is lost.
+        created_by="system",
     )
 
 

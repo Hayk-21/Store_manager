@@ -23,9 +23,15 @@ from tests.factories import (
 )
 
 
-async def _open_store(salary: str = "0.00"):
+async def _open_store(salary: str = "0.00", till: str = "0.00"):
     owner_id = await make_owner("@ownerhandle")
     store_id = await make_store(owner_id, lat=YEREVAN_LAT, lng=YEREVAN_LNG, radius_m=120)
+    if Decimal(till) > 0:
+        # A wage is paid as far as the drawer reaches and owed beyond that, so a test
+        # that expects one paid has to put the money there first.
+        await db.execute(
+            "UPDATE stores SET till_balance = $2 WHERE id = $1", store_id, Decimal(till)
+        )
     worker_id, _ = await make_worker(owner_id, "Անի", salary_amount=salary)
     worker = shifts_service.Worker(
         id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal(salary)
@@ -193,7 +199,9 @@ async def test_the_status_block_shows_who_is_working_and_the_till(client):
 
 
 async def test_the_owner_can_force_close_from_the_page(client):
-    owner_id, store_id, _, session_id = await _open_store(salary="8000.00")
+    owner_id, store_id, _, session_id = await _open_store(
+        salary="8000.00", till="50000.00"
+    )
     await login(client, "@ownerhandle")
     token = await db.fetchval("SELECT csrf_token FROM auth_sessions WHERE user_id = $1", owner_id)
 

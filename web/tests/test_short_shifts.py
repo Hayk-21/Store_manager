@@ -29,9 +29,15 @@ from tests.factories import (
 WAGE = "8000.00"
 
 
-async def _on_shift(salary: str = WAGE, period: str = "shift"):
+async def _on_shift(salary: str = WAGE, period: str = "shift", till: str = "50000.00"):
+    """A shop with money in the drawer, because these tests are about the *size* of a
+    wage rather than about whether the till can cover it. A shop with nothing in it
+    owes the wage instead of paying it — see test_unpaid_wages.py."""
     owner_id = await make_owner("@ownerhandle")
     store_id = await make_store(owner_id, "Խանութ 1", lat=YEREVAN_LAT, lng=YEREVAN_LNG)
+    await db.execute(
+        "UPDATE stores SET till_balance = $2 WHERE id = $1", store_id, Decimal(till)
+    )
     worker_id, telegram_id = await make_worker(
         owner_id, "Անի", salary_amount=salary, salary_period=period
     )

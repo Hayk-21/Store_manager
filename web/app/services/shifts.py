@@ -47,6 +47,10 @@ ZERO = Decimal("0.00")
 FULL_SHIFT_HOURS = 8
 SHORT_SHIFT_FRACTION = Decimal("0.5")
 
+# What a bonus row says on the owner's ledger. Armenian, like every other note there.
+BONUS_NOTE = "Բոնուս՝ {period} վաճառքը {sold} ֏ (նպատակը՝ {threshold} ֏)"
+BONUS_PERIODS = {"day": "օրվա", "month": "ամսվա"}
+
 
 def salary_for_hours_worked(full: Decimal, started_at, ended_at=None) -> Decimal:
     """What a shift wage actually comes to, given how long the shift ran.
@@ -319,7 +323,8 @@ async def _pay_and_close_shift(
 ) -> Decimal:
     """Requirement 5: end one shift and take its salary out of the till.
 
-    Returns what was actually paid.
+    Returns what the till actually paid, which is not always what the shift cost —
+    see ``_pay_from_the_till``.
 
     Every way a shift can end comes through here — the worker pressing "end my
     shift", the write-up, the last one out closing the store, the owner forcing it
@@ -332,13 +337,43 @@ async def _pay_and_close_shift(
         conn, shift["id"], salary, lat, lng, idem_key, closed_by
     )
 
-    # The bonus is judged whatever the wage is. A worker paid monthly costs the
-    # till nothing when their shift ends, but they can still have beaten their
-    # target today, and that is money they have earned.
-    await pay_bonus_if_earned(conn, shift)
+    # The wage first, then the bonus, and both only as far as the drawer reaches.
+    # The order is the priority: a wage is owed for work done, a bonus is on top
+    # of it, and when there is not enough cash for both the wage is the one that
+    # should be in the worker's hand.
+    unpaid_salary = await _pay_from_the_till(conn, shift, "salary", salary, note=None)
+    unpaid_bonus = await pay_bonus_if_earned(conn, shift)
+    if unpaid_salary or unpaid_bonus:
+        await sessions_repo.record_unpaid(conn, shift["id"], unpaid_salary, unpaid_bonus)
+    return salary - unpaid_salary
 
-    if salary <= ZERO:
+
+async def _pay_from_the_till(conn, shift, kind: str, amount: Decimal, note) -> Decimal:
+    """Take a wage out of the drawer, as far as the drawer goes. Returns the rest.
+
+    Cash in a drawer cannot be negative, and a till that says it is makes every
+    figure downstream describe money that is not there — a closing snapshot below
+    zero, a handover of a negative amount, a worker told the drawer held more than
+    expected when in fact the wage had overdrawn it.
+
+    So what the till cannot cover is not booked against the till. It is a debt:
+    the owner settles it from the card money or their own pocket, and the shift
+    row carries the figure so nobody has to remember.
+    """
+    if amount <= ZERO:
         return ZERO
+
+    in_the_till = Decimal(
+        (await money_repo.totals_on(conn, shift["store_session_id"]))["cash"]
+    )
+    payable = min(amount, max(ZERO, in_the_till))
+    if payable <= ZERO:
+        log.info(
+            "the till at store %s could not cover %s of %s for shift %s",
+            shift["store_id"], kind, amount, shift["id"],
+        )
+        return amount
+
     try:
         await money_repo.insert_movement(
             conn,
@@ -346,17 +381,24 @@ async def _pay_and_close_shift(
             store_id=shift["store_id"],
             store_session_id=shift["store_session_id"],
             method="cash",
-            kind="salary",
-            amount=-salary,
+            kind=kind,
+            amount=-payable,
             work_session_id=shift["id"],
             worker_id=shift["worker_id"],
+            note=note,
         )
     except asyncpg.exceptions.UniqueViolationError:
         # one_salary_per_work_session fired: a concurrent close already paid this
         # shift. Nothing to do, and nothing wrong.
-        log.warning("shift %s was already paid; skipping duplicate salary", shift["id"])
+        log.warning("shift %s was already paid; skipping duplicate %s", shift["id"], kind)
         return ZERO
-    return salary
+
+    if payable < amount:
+        log.info(
+            "the till at store %s paid %s of a %s of %s for shift %s",
+            shift["store_id"], payable, kind, amount, shift["id"],
+        )
+    return amount - payable
 
 
 async def pay_bonus_if_earned(conn, shift) -> Decimal:
@@ -369,6 +411,8 @@ async def pay_bonus_if_earned(conn, shift) -> Decimal:
     Once per period, not per shift: somebody who crosses the target in the
     morning and works again in the evening has earned it once. The evening shift
     finds it already paid and adds nothing.
+
+    Returns whatever the drawer could not cover, which the caller records as owed.
     """
     worker = await conn.fetchrow(
         """
@@ -392,23 +436,19 @@ async def pay_bonus_if_earned(conn, shift) -> Decimal:
         return ZERO
 
     bonus = Decimal(worker["bonus_amount"])
-    try:
-        await money_repo.insert_movement(
-            conn,
-            owner_id=shift["owner_id"],
-            store_id=shift["store_id"],
-            store_session_id=shift["store_session_id"],
-            method="cash",
-            kind="bonus",
-            amount=-bonus,
-            work_session_id=shift["id"],
-            worker_id=shift["worker_id"],
-            note=f"{worker['bonus_period']}: {sold:,.0f} ≥ {worker['bonus_threshold']:,.0f}",
-        )
-    except asyncpg.exceptions.UniqueViolationError:
-        # A concurrent close already paid this shift's bonus.
-        return ZERO
-
+    unpaid = await _pay_from_the_till(
+        conn, shift, "bonus", bonus,
+        # In Armenian, like every other note. This one is read on the owner's ledger
+        # page beside «Հանձված» and «Աշխատավարձ», where `day: 101,500 ≥ 100,000` was
+        # the only row in English and read as a debug line.
+        note=BONUS_NOTE.format(
+            period=BONUS_PERIODS.get(worker["bonus_period"], worker["bonus_period"]),
+            sold=f"{sold:,.0f}",
+            threshold=f"{worker['bonus_threshold']:,.0f}",
+        ),
+    )
+    # Earned is earned. The column says what the target was worth, and whether the
+    # drawer had it on the night is a separate fact, kept separately.
     await conn.execute(
         "UPDATE work_sessions SET bonus_paid = $2 WHERE id = $1", shift["id"], bonus
     )
@@ -416,7 +456,7 @@ async def pay_bonus_if_earned(conn, shift) -> Decimal:
         "worker %s earned a %s bonus of %s (sold %s)",
         shift["worker_id"], worker["bonus_period"], bonus, sold,
     )
-    return bonus
+    return unpaid
 
 
 def _period_start(period: str, day_start_hour: int):
@@ -663,6 +703,13 @@ async def _end_payload(row, *, duplicate: bool, store_closed: bool = True) -> di
                 "total": f"{sales['total']:.2f}",
             },
             "salary_deducted": f"{Decimal(row['salary_paid'] or 0):.2f}",
+            # What the drawer could not cover, and so the owner still owes. Sent
+            # separately from the wage rather than netted off it: the worker needs
+            # to know both what they earned and what they are still waiting for,
+            # and a single smaller number would answer neither question.
+            "salary_unpaid": f"{Decimal(row['salary_unpaid'] or 0):.2f}",
+            "bonus_paid": f"{Decimal(row['bonus_paid'] or 0):.2f}",
+            "bonus_unpaid": f"{Decimal(row['bonus_unpaid'] or 0):.2f}",
             # So the bot can say *why* the wage is half what the worker expects.
             # A number that is quietly wrong is worse than a number with a reason
             # attached, and the reason is not something the bot should re-derive.

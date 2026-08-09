@@ -310,9 +310,13 @@ async def test_a_recorded_count_is_never_reported_as_a_failure():
 
 # -- which keyboard is left behind -------------------------------------------
 
-async def test_a_count_mid_shift_hands_the_working_menu_back():
-    """Which keyboard is taken from how the flow was entered, not asked of the
-    server — the entry point already knows."""
+async def test_the_keyboard_menu_hands_back_the_off_shift_one():
+    """Both ways in are post-shift now, so there is only one right answer.
+
+    The button used to sit on the working keyboard, and that is what let a worker count
+    up at 21:07, hand the owner everything above the float, and be paid at 21:10 out of
+    a drawer that no longer had it — the shop closed showing cash of -4,500.
+    """
     markups = []
 
     async def fake_count(**kwargs):
@@ -330,8 +334,18 @@ async def test_a_count_mid_shift_hands_the_working_menu_back():
         await till.type_amount(_typed("30000"), context)
 
     labels = {b.text for row in markups[-1].keyboard for b in row}
-    assert texts.BTN_SELL in labels, "the worker is still on shift"
-    assert texts.BTN_TILL_COUNT in labels, "and can count again"
+    assert texts.BTN_SELL not in labels, "the shift is over"
+    assert labels == {texts.BTN_OPEN, texts.BTN_TILL_COUNT}
+
+
+def test_counting_is_not_offered_while_the_shop_is_trading():
+    """The keyboard is the guard people actually meet; the server refuses it too."""
+    assert texts.BTN_TILL_COUNT not in {
+        button.text for row in keyboards.on_shift().keyboard for button in row
+    }, "counting mid-shift hands over the change the shift still needs"
+    assert texts.BTN_TILL_COUNT in {
+        button.text for row in keyboards.off_shift().keyboard for button in row
+    }, "but a worker who scrolled past the prompt can still get back to it"
 
 
 async def test_a_count_after_the_shift_ended_does_not_hand_it_back():
@@ -359,7 +373,8 @@ async def test_a_count_after_the_shift_ended_does_not_hand_it_back():
         await till.type_amount(_typed("30000"), context)
 
     labels = {b.text for row in markups[-1].keyboard for b in row}
-    assert labels == {texts.BTN_OPEN}
+    assert labels == {texts.BTN_OPEN, texts.BTN_TILL_COUNT}
+    assert texts.BTN_SELL not in labels
 
 
 # -- failures ----------------------------------------------------------------

@@ -31,6 +31,7 @@ from app.pricing import resolve_price
 from app.repo import audit as audit_repo
 from app.repo import money as money_repo
 from app.repo import sales as sales_repo
+from app.repo import sessions as sessions_repo
 
 log = logging.getLogger("storemanager.corrections")
 
@@ -57,24 +58,10 @@ ACTION_LABELS = {
 async def _resync_snapshot(conn, store_session_id: int) -> None:
     """Bring a closed session's snapshot back in line with its ledger.
 
-    A correction to an open session needs nothing: its totals are read live. A
-    closed one has frozen numbers on the row, and leaving those stale would mean
-    the report and the ledger disagreed.
+    Lives in the repo now, because counting the drawer after locking up needs the
+    same thing and two copies would be two chances to forget one.
     """
-    session = await conn.fetchrow(
-        "SELECT closed_at FROM store_sessions WHERE id = $1", store_session_id
-    )
-    if session is None or session["closed_at"] is None:
-        return
-    totals = await money_repo.totals_on(conn, store_session_id)
-    await conn.execute(
-        """
-        UPDATE store_sessions
-           SET cash_at_close = $2, card_at_close = $3, salaries_at_close = $4
-         WHERE id = $1
-        """,
-        store_session_id, totals["cash"], totals["card"], totals["salaries"],
-    )
+    await sessions_repo.resync_snapshot(conn, store_session_id)
 
 
 async def _owned_sale(conn, owner_id: int, sale_id: int):
@@ -597,8 +584,12 @@ async def set_salary(
 
 
 async def _replace_salary(conn, owner_id: int, shift, salary: Decimal) -> None:
+    # The owner's figure is taken at face value, debt and all: they are saying what
+    # this shift was paid, and if the till was short on the night they have settled
+    # it by the time they are editing the row.
     await conn.execute(
-        "UPDATE work_sessions SET salary_paid = $2 WHERE id = $1", shift["id"], salary
+        "UPDATE work_sessions SET salary_paid = $2, salary_unpaid = 0 WHERE id = $1",
+        shift["id"], salary,
     )
     # one_salary_per_work_session means there is at most one to replace.
     await conn.execute(

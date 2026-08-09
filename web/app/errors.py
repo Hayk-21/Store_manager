@@ -32,6 +32,9 @@ STATUS_BY_CODE: dict[str, int] = {
     "session_already_open": 409,
     "no_open_session": 409,
     "store_not_open": 409,
+    # The drawer is counted by whoever locks up. Counting while the shop is still
+    # trading hands the owner the change the shift still needs.
+    "store_still_open": 409,
     "others_on_shift": 409,
     "unknown_item": 404,
     "insufficient_stock": 409,

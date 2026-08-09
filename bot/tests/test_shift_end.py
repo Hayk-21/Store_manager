@@ -1,6 +1,6 @@
 """The messages a worker gets when their shift ends.
 
-Three of them, and the drawer is the last — deliberately. It goes out from
+Two of them, and the drawer is the last — deliberately. It goes out from
 ``report_end``, which every way of ending a shift funnels through: the worker
 pressing the button, the write-up, and the last one out closing the shop. So
 neither the offer to count the till nor its position can depend on which route
@@ -10,19 +10,25 @@ Written because "I still cannot see the button" is not something a screenshot ca
 settle. It turned out to be true and to be my fault — the prompt was the middle
 message and the one after it pushed the button off the screen — and the only way to
 know where the code puts it is to run the code.
+
+There were three. The middle one was the welcome, sent only to restore the reply
+keyboard, which greeted a worker who had just finished with «Բարև, ։» and told them
+how to open a shop they had closed. The keyboard rides on the summary now.
 """
 
 from __future__ import annotations
 
 from unittest import mock
 
-from telegram import Chat, Message, ReplyKeyboardRemove, Update, User
+from telegram import Chat, Message, Update, User
 
 from app import keyboards, texts
 from app.handlers import shift
 
 
-def _summary(store_closed: bool = True, halved: bool = False) -> dict:
+def _summary(
+    store_closed: bool = True, halved: bool = False, unpaid: str = "0.00"
+) -> dict:
     """What the web service sends back for a finished shift."""
     return {
         "session_id": 3,
@@ -34,6 +40,9 @@ def _summary(store_closed: bool = True, halved: bool = False) -> dict:
         "sales": {"receipts": 1, "cash_total": "500000.00",
                   "card_total": "0.00", "total": "500000.00"},
         "salary_deducted": "8000.00",
+        "salary_unpaid": unpaid,
+        "bonus_paid": "0.00",
+        "bonus_unpaid": "0.00",
         "salary_halved": halved,
         "full_shift_hours": 8,
         "store_closed": store_closed,
@@ -79,14 +88,18 @@ async def test_ending_a_shift_offers_to_count_the_drawer():
     assert keyboards.CB_TILL in tapped, "no way to record the till"
 
 
-async def test_the_drawer_is_offered_whether_or_not_the_shop_closed():
-    """One worker of two going home still leaves cash in a drawer, and the shift
-    that ends is still theirs to account for."""
-    for store_closed in (True, False):
-        sent = await _sent(_summary(store_closed=store_closed))
-        assert any(
-            hasattr(markup, "inline_keyboard") for _, markup in sent
-        ), f"store_closed={store_closed} got no till button"
+async def test_only_whoever_locked_up_is_asked_to_count():
+    """This asserted the opposite, on the reasoning that a shift ending is a shift to
+    account for. But the drawer belongs to the shop, not to a shift: one of two
+    cashiers going home cannot hand the owner the change their colleague needs for the
+    next four hours, and the count would be stale on their very next sale.
+    """
+    closed = await _sent(_summary(store_closed=True))
+    assert any(hasattr(markup, "inline_keyboard") for _, markup in closed)
+
+    still_open = await _sent(_summary(store_closed=False))
+    assert not any(hasattr(markup, "inline_keyboard") for _, markup in still_open)
+    assert len(still_open) == 1, "nothing about the drawer at all"
 
 
 async def test_the_drawer_prompt_is_the_last_thing_on_screen():
@@ -97,11 +110,18 @@ async def test_the_drawer_prompt_is_the_last_thing_on_screen():
     """
     sent = await _sent(_summary())
 
-    assert len(sent) == 3
-    assert isinstance(sent[0][1], ReplyKeyboardRemove), "the summary is first"
-    assert texts.BTN_OPEN in str(sent[1][1]), "the welcome carries the reply keyboard"
+    assert len(sent) == 2
     assert sent[-1][0] == texts.TILL_HANDOVER_PROMPT
     assert hasattr(sent[-1][1], "inline_keyboard"), "and the button is on it"
+
+
+async def test_the_reply_keyboard_comes_back_without_a_second_hello():
+    """It used to ride on a re-sent welcome, which greeted somebody who had just
+    gone home and told them how to open the shop they had locked."""
+    sent = await _sent(_summary())
+
+    assert texts.BTN_OPEN in str(sent[0][1]), "the summary carries the keyboard"
+    assert not any("Բարև" in text for text, _ in sent), "no greeting at the end of a day"
 
 
 async def test_the_prompt_says_the_money_stays_in_the_shop():
@@ -109,7 +129,45 @@ async def test_the_prompt_says_the_money_stays_in_the_shop():
     "how much are you handing over?" and empties the drawer."""
     sent = await _sent(_summary())
 
-    assert "խանութում" in sent[-1][0]
+    assert "թողնում" in sent[-1][0], "it is money they leave, not money they hand over"
+    assert "խանութ" in sent[-1][0], "and it stays in the shop"
+
+
+async def test_a_wage_the_drawer_could_not_cover_is_explained():
+    """A shop that took the day on card cannot pay a cash wage out of an empty
+    drawer. The worker goes home with less in hand than the figure above, and
+    without a sentence saying so that reads as a deduction."""
+    sent = await _sent(_summary(unpaid="2500.00"))
+
+    assert "2,500" in sent[0][0]
+    assert "ղեկավարը" in sent[0][0], "and who owes it"
+
+
+async def test_a_fully_paid_wage_says_nothing_about_a_debt():
+    sent = await _sent(_summary(unpaid="0.00"))
+
+    assert "ղեկավարը կվճարի" not in sent[0][0]
+
+
+async def test_a_negative_closing_cash_is_not_shown_at_all():
+    """«Կանխիկ՝ -4,500 ֏» is what a worker saw and reported. A drawer cannot hold less
+    than nothing, so that figure is a bookkeeping artefact rather than anything they can
+    act on, and the honest answer is not a smaller negative number. The card takings are
+    still true and still said."""
+    summary = _summary()
+    summary["store_totals_after"] = {"cash": "-4500.00", "card": "16000.00"}
+
+    sent = await _sent(summary)
+
+    assert "-4,500" not in sent[0][0]
+    assert "4,500" not in sent[0][0], "not without its sign either"
+    assert "16,000" in sent[0][0]
+
+
+async def test_a_positive_closing_cash_is_still_shown():
+    sent = await _sent(_summary())
+
+    assert "492,000" in sent[0][0]
 
 
 def test_something_actually_handles_the_drawer_button():

@@ -71,6 +71,20 @@ async def for_session(store_session_id: int) -> list[asyncpg.Record]:
     )
 
 
+async def for_work_session(work_session_id: int) -> list[asyncpg.Record]:
+    """What this worker added to or took off the shelf during this shift."""
+    return await db.fetch(
+        """
+        SELECT sa.id, sa.delta, sa.count_after, sa.created_at, i.name
+          FROM stock_adjustments sa
+          JOIN items i ON i.id = sa.item_id
+         WHERE sa.work_session_id = $1
+         ORDER BY sa.created_at, sa.id
+        """,
+        work_session_id,
+    )
+
+
 async def delete_for_session(conn, owner_id: int, store_session_id: int) -> None:
     """Deleting a report takes its corrections with it.
 

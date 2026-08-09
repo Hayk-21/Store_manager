@@ -131,6 +131,17 @@
             {% if w.bonus_paid %}
               <span class="badge positive" title="Բոնուս">+{{ w.bonus_paid | short_money }}</span>
             {% endif %}
+            {# What the drawer was too thin to pay, and so is still owed. A day taken
+               on card cannot settle a cash wage, and the figure in the box above is
+               what the shift cost rather than what the worker went home with. #}
+            {% set owed = (w.salary_unpaid or 0) + (w.bonus_unpaid or 0) %}
+            {% if owed %}
+            {# In full, not abbreviated. ``short_money`` renders 2,500 as «2հզ»,
+               which reads as two thousand — fine for a round bonus, wrong for a
+               figure somebody is owed to the dram. #}
+              <span class="badge negative" title="Դրամարկղում կանխիկ չկար — այս գումարը դեռ պարտք է">
+                պարտք {{ owed | money }}</span>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}

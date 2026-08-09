@@ -7,9 +7,15 @@ and is what the next shift opens with — and everything above it goes to the ow
 Nobody is asked at the *start* of a shift. That asked a worker to answer for a
 drawer somebody else had filled, and the answer bound nobody to anything.
 
-Reachable two ways: the button on the message that ends a shift, and «Դրամարկղի
-մնացորդ» on the working keyboard, so it can be recorded while the notes are still in
-hand rather than from memory once the door is locked.
+Reachable two ways, both of them after the shift has ended: the button on the message
+that ends it, and «Դրամարկղի մնացորդ» on the off-shift keyboard for anyone who
+scrolled past that prompt.
+
+Deliberately *not* on the working keyboard, where it used to be. A worker counted up
+at 21:07, which handed the owner everything above the float, and was paid at 21:10 out
+of a drawer that no longer had it — the shop closed showing cash of -4,500 and the next
+count reported 7,000 more in the till than expected. A count made mid-shift also goes
+stale on the very next sale. Counting is the last act of a day.
 """
 
 from __future__ import annotations
@@ -37,17 +43,14 @@ def _clear(context) -> None:
 
 
 def _keyboard_after(context):
-    """The keyboard to leave behind.
+    """The keyboard to leave behind — always the off-shift one now.
 
-    Taken from how the flow was entered rather than asked of the server. The entry
-    point already knows: the working keyboard means the shift is still running, the
-    message that ends one means it is not.
+    Both ways in are post-shift, so there is nothing to decide. Kept as a function
+    because the alternative is the same call written out at two exits, and the last
+    time those two disagreed the worker was told they were off shift when they were
+    not.
     """
-    return (
-        keyboards.on_shift()
-        if context.user_data.get("till_back") == "on_shift"
-        else keyboards.off_shift()
-    )
+    return keyboards.off_shift()
 
 
 async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -55,7 +58,6 @@ async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     _clear(context)
-    context.user_data["till_back"] = "off_shift"
 
     # The button is gone once used, so a second tap cannot open a second count that
     # the server would then refuse under a different key.
@@ -65,17 +67,13 @@ async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def begin_from_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """«Դրամարկղի մնացորդ» on the working keyboard, mid-shift.
+    """«Դրամարկղի մնացորդ» on the off-shift keyboard.
 
-    The same question as at the end of a shift, asked whenever the worker has the
-    notes in their hand. Counting up before locking the door and recording it then is
-    the natural order; waiting for the shift-end prompt means doing it from memory.
-
-    A later count replaces an earlier one, so counting twice costs nothing and
-    counting early is never wrong.
+    For the worker who scrolled past the prompt, or who wants to correct a figure they
+    typed wrong. A later count replaces an earlier one, so counting twice costs
+    nothing.
     """
     _clear(context)
-    context.user_data["till_back"] = "on_shift"
     await update.effective_message.reply_text(
         texts.TILL_ASK_CLOSE,
         parse_mode=ParseMode.HTML,

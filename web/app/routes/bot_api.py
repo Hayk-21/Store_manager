@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 
 from app.deps import require_bot_secret
 from app.errors import BotError
+from app.repo import adjustments as adjustments_repo
 from app.repo import items as items_repo
 from app.repo import money as money_repo
 from app.repo import sales as sales_repo
@@ -27,6 +28,7 @@ from app.repo import stores as stores_repo
 from app.repo import transfers as transfers_repo
 from app.repo import users as users_repo
 from app.repo import workers as workers_repo
+from app.repo import write_offs as write_offs_repo
 from app.schemas import (
     AdjustStockRequest,
     CheckinRequest,
@@ -485,15 +487,20 @@ async def count_the_till(body: TillCountRequest) -> dict:
     )
 
 
-@router.get("/shift/sold")
-async def sold_this_shift(telegram_id: int = Query(gt=0)) -> dict:
-    """What this worker has already rung up during the open shift.
+@router.get("/shift/review")
+async def review_this_shift(telegram_id: int = Query(gt=0)) -> dict:
+    """The worker's whole shift, read back to them before they end it.
 
-    Shown before the write-up so they can check their own day before anything is
-    settled. Sales entered as they happened are already in the books, and the
-    write-up is only for what was not — without seeing the first list, the only way
-    to tell the two apart is memory, and a product declared twice is a real loss of
-    stock on the shelf.
+    Not just the sales. A shift accounts for everything that moved while they were
+    on it — what went out at the counter, what was thrown away, what was corrected
+    on the shelf, what came out of the drawer and what the drawer holds now — and a
+    review that showed one of those and settled all of them is not a review. This
+    is the last moment anything can be corrected without the owner, so it has to be
+    the whole picture.
+
+    Sales already rung up matter twice over: the write-up is only for what is *not*
+    in that list, and without seeing it the only thing telling the two apart is
+    memory — a product declared twice comes off the shelf twice.
     """
     worker = await _worker(telegram_id)
     shift = await sessions_repo.open_for_worker(worker.id)
@@ -502,9 +509,12 @@ async def sold_this_shift(telegram_id: int = Query(gt=0)) -> dict:
 
     lines = await sales_repo.lines_in_work_session(shift["id"])
     totals = await sales_repo.summary_for_work_session(shift["id"])
+    store = await stores_repo.get(worker.owner_id, shift["store_id"])
+    till = await money_repo.totals_for_session(shift["store_session_id"])
     return {
         "ok": True,
         "store_name": shift["store_name"],
+        "started_at": shift["started_at"].isoformat(),
         "sold": [
             {
                 "name": row["name"],
@@ -518,6 +528,53 @@ async def sold_this_shift(telegram_id: int = Query(gt=0)) -> dict:
             "cash": f"{totals['cash_total']:.2f}",
             "card": f"{totals['card_total']:.2f}",
             "total": f"{totals['total']:.2f}",
+        },
+        "written_off": [
+            {"name": row["name"], "quantity": row["quantity"], "reason": row["reason"]}
+            for row in await write_offs_repo.for_work_session(shift["id"])
+        ],
+        "stock_fixed": [
+            {"name": row["name"], "delta": row["delta"], "count_after": row["count_after"]}
+            for row in await adjustments_repo.for_work_session(shift["id"])
+        ],
+        "taken_out": [
+            {"amount": f"{Decimal(row['amount']):.2f}", "purpose": row["note"]}
+            for row in await money_repo.taken_out_during_shift(shift["id"])
+        ],
+        # Stock that moved between shops while they were on. An arrival was decided by
+        # somebody at the other shop rather than by them, but it changed the shelf they
+        # are about to be held to.
+        "transfers": [
+            {
+                "name": row["item_name"],
+                "quantity": row["quantity"],
+                "incoming": row["to_store_id"] == shift["store_id"],
+                "other_store": (
+                    row["from_store_name"] if row["to_store_id"] == shift["store_id"]
+                    else row["to_store_name"]
+                ),
+            }
+            for row in await transfers_repo.settled_for_store_since(
+                worker.owner_id, shift["store_id"], shift["started_at"]
+            )
+        ],
+        # The drawer as it stands: the whole store session's cash, not this
+        # worker's share of it. That is the money they are about to count, and
+        # splitting it per person would describe a drawer that does not exist.
+        "till": {
+            "cash": f"{Decimal(till['cash']):.2f}",
+            "card": f"{Decimal(till['card']):.2f}",
+        },
+        # What the shop keeps when the day is settled. Quoted here so the count
+        # that follows is an informed number rather than a guess.
+        "store_float": f"{Decimal(store['till_balance'] if store else 0):.2f}",
+        # What ending the shift will cost, worked out here rather than in the bot:
+        # the halving rule for a short shift lives on this side and must not be
+        # reimplemented on a phone.
+        "salary": {
+            "due": f"{shifts_service.salary_for_hours_worked(worker.salary_due_at_shift_end, shift['started_at']):.2f}",
+            "full": f"{worker.salary_due_at_shift_end:.2f}",
+            "full_shift_hours": shifts_service.FULL_SHIFT_HOURS,
         },
     }
 

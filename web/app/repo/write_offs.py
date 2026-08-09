@@ -81,6 +81,26 @@ async def for_session(store_session_id: int) -> list[asyncpg.Record]:
     )
 
 
+async def for_work_session(work_session_id: int) -> list[asyncpg.Record]:
+    """What this worker wrote off during this shift.
+
+    No cost. This is read back to the cashier before they end the shift, and what
+    the shop paid for a vape is the owner's business — the loss shows on the
+    owner's report. What the cashier needs is that it was recorded, and for how
+    many.
+    """
+    return await db.fetch(
+        """
+        SELECT wo.id, wo.quantity, wo.reason, wo.created_at, i.name
+          FROM write_offs wo
+          JOIN items i ON i.id = wo.item_id
+         WHERE wo.work_session_id = $1
+         ORDER BY wo.created_at, wo.id
+        """,
+        work_session_id,
+    )
+
+
 async def delete(conn, owner_id: int, write_off_id: int) -> bool:
     """Remove one write-off row. Takes a connection because the caller is putting
     the stock back in the same transaction."""
