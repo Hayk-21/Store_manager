@@ -12,7 +12,8 @@
   --bad: #ff6b6b;
   --warn: #f0b429;
   --radius: 10px;
-  --footer-h: 92px;
+  /* Two lines of chip plus its padding. Was 92px, when a chip was five lines. */
+  --footer-h: 58px;
 }
 
 * { box-sizing: border-box; }
@@ -55,10 +56,22 @@ a:hover { text-decoration: underline; }
 
 /* -- layout ---------------------------------------------------------------- */
 
+/* The page uses the width the display actually has.
+
+   It was capped at 1100px while tables only fold into cards below 1200px, so on
+   every desktop wider than that the report table — nine columns — overflowed a
+   container narrower than the screen and grew a horizontal scrollbar with empty
+   space on both sides of it. The cap is now generous enough for the widest table
+   to fit, and still short enough that a line of prose on an ultrawide monitor
+   does not run away from the eye.
+
+   The sideways scrollbar is not gone, and should not be: below the point where a
+   table folds into cards there is genuinely not room, and scrolling beats
+   truncating. It is a last resort now rather than the normal case. */
 main {
-  max-width: 1100px;
+  max-width: 1720px;
   margin: 0 auto;
-  padding: 24px 20px 32px;
+  padding: 24px clamp(12px, 2vw, 28px) 32px;
 }
 main.with-footer { padding-bottom: calc(var(--footer-h) + 24px); }
 
@@ -173,24 +186,42 @@ footer {
   align-items: center;
 }
 .footer-inner {
-  max-width: 1100px;
+  max-width: 1720px;
   width: 100%;
   margin: 0 auto;
-  padding: 10px 20px;
+  padding: 6px clamp(12px, 2vw, 28px);
   display: flex;
-  gap: 10px;
+  gap: 8px;
   overflow-x: auto;
 }
+/* Two lines, not five. This sits on every page and was taking 92px of every
+   screen to repeat what the store page says in full — a glance at "is it open and
+   how much is in it" does not need one row per figure. */
 .chip {
   flex: 0 0 auto;
-  min-width: 170px;
+  min-width: 132px;
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 8px 12px;
+  padding: 5px 10px;
+  line-height: 1.35;
 }
-.chip .chip-name { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
-.chip .chip-row { display: flex; justify-content: space-between; font-size: 13px; gap: 12px; }
+.chip .chip-name {
+  font-weight: 600;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.chip .chip-figures {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.chip .chip-figures .muted { font-size: 11px; }
 .chip .chip-row span:first-child { color: var(--muted); }
 .chip .chip-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .chip.closed { opacity: .6; }
@@ -478,7 +509,7 @@ table.stack .cell-actions::before { content: ""; }
 /* Phones held in one hand. */
 @media (max-width: 420px) {
   :root { --footer-h: 84px; }
-  .chip { min-width: 148px; }
+  .chip { min-width: 124px; }
   .topbar nav { font-size: 14px; }
   .total-value { font-size: 20px; }
 }
@@ -603,10 +634,23 @@ a.card.stat:hover .total-label { color: var(--text); }
   .chart { height: 160px; }
 }
 
-/* The till figure sits under the day's takings and reads as secondary to it:
-   one is what the shop sold, the other is what is in the drawer right now. */
-.chip .chip-row.chip-till { border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 4px; }
-.chip .chip-row.chip-till span:first-child { color: var(--muted); }
+/* ==========================================================================
+   Nothing scrolls sideways unless the screen genuinely cannot hold it.
+
+   A table is allowed to overflow its wrapper — that is what the wrapper is for —
+   but nothing may push the *page* wider than the viewport, because then the whole
+   layout slides and the fixed footer detaches from the edge. These are the belts
+   for that: the body never scrolls horizontally, and the things most likely to
+   force it (long product names, wide inputs, the chart) are told they may shrink.
+   ========================================================================== */
+html, body { max-width: 100%; overflow-x: hidden; }
+
+/* A flex or grid child will not shrink below its content unless told it may.
+   Long product names in a table cell were doing exactly that. */
+.table-wrap, .chart, .stat-grid, .split, .form-row { min-width: 0; }
+.cell-name { overflow-wrap: anywhere; }
+
+img, svg { max-width: 100%; height: auto; }
 
 /* Below the card breakpoint the fixed layout is meaningless -- each row is a
    list of labelled fields, so the widths above must not survive. */

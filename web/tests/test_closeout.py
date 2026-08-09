@@ -60,6 +60,105 @@ async def _close_out(client, headers, telegram_id, lines, key="idem-key-close-01
     )
 
 
+# -- what the worker sees before they write anything up -----------------------
+
+async def test_the_shift_lists_what_is_already_recorded(client, bot_headers):
+    """Shown on the way into the write-up. Two ways a sale reaches the books — rung
+    up as it happened, or declared now — and the write-up is only for the second.
+    Without this list the only thing telling them apart is memory, and a product
+    declared twice comes off the shelf twice."""
+    _, _, telegram_id, item_id, other = await _on_shift()
+    await _open(client, bot_headers, telegram_id)
+    for key, item, qty in (("s1", item_id, 2), ("s2", item_id, 1), ("s3", other, 3)):
+        await client.post(
+            f"{BASE}/sale",
+            json={"telegram_id": telegram_id, "items": [{"item_id": item, "quantity": qty}],
+                  "payment_method": "cash", "idempotency_key": f"idem-key-sale-{key}"},
+            headers=bot_headers,
+        )
+
+    body = (await client.get(
+        f"{BASE}/shift/sold", params={"telegram_id": telegram_id}, headers=bot_headers
+    )).json()
+
+    # Rolled up per product, not per receipt: the worker is checking their own day
+    # against what they remember selling, and "three HQD Cuvie" is that.
+    sold = {row["name"]: row for row in body["sold"]}
+    assert sold["HQD Cuvie"]["quantity"] == 3
+    assert sold["HQD Cuvie"]["total"] == "10500.00"
+    assert sold["Elf Bar"]["quantity"] == 3
+    assert body["totals"]["receipts"] == 3
+
+
+async def test_a_voided_sale_is_not_in_the_list(client, bot_headers):
+    """It was taken back. Showing it would invite the worker to declare it again."""
+    _, _, telegram_id, item_id, _ = await _on_shift()
+    await _open(client, bot_headers, telegram_id)
+    await client.post(
+        f"{BASE}/sale",
+        json={"telegram_id": telegram_id, "items": [{"item_id": item_id, "quantity": 2}],
+              "payment_method": "cash", "idempotency_key": "idem-key-sale-01"},
+        headers=bot_headers,
+    )
+    await client.post(
+        f"{BASE}/sale/void", json={"telegram_id": telegram_id}, headers=bot_headers
+    )
+
+    body = (await client.get(
+        f"{BASE}/shift/sold", params={"telegram_id": telegram_id}, headers=bot_headers
+    )).json()
+
+    assert body["sold"] == []
+
+
+async def test_a_quiet_shift_lists_nothing(client, bot_headers):
+    _, _, telegram_id, _, _ = await _on_shift()
+    await _open(client, bot_headers, telegram_id)
+
+    body = (await client.get(
+        f"{BASE}/shift/sold", params={"telegram_id": telegram_id}, headers=bot_headers
+    )).json()
+
+    assert body["sold"] == []
+    assert body["totals"]["total"] == "0.00"
+
+
+async def test_the_list_needs_an_open_shift(client, bot_headers):
+    _, _, telegram_id, _, _ = await _on_shift()
+
+    response = await client.get(
+        f"{BASE}/shift/sold", params={"telegram_id": telegram_id}, headers=bot_headers
+    )
+
+    assert response.status_code == 409
+
+
+async def test_one_workers_sales_are_not_in_anothers_list(client, bot_headers):
+    """Each cashier checks their own day. A shared shift would otherwise have both
+    of them declaring the same receipts."""
+    owner_id, _, first_tg, item_id, _ = await _on_shift()
+    _, second_tg = await make_worker(owner_id, "Բ", salary_amount="0.00")
+    await _open(client, bot_headers, first_tg)
+    await client.post(
+        f"{BASE}/store/open",
+        json={"telegram_id": second_tg, "lat": YEREVAN_LAT, "lng": YEREVAN_LNG,
+              "accuracy_m": 20, "idempotency_key": "idem-key-open-02", "live_period": 900},
+        headers=bot_headers,
+    )
+    await client.post(
+        f"{BASE}/sale",
+        json={"telegram_id": first_tg, "items": [{"item_id": item_id, "quantity": 2}],
+              "payment_method": "cash", "idempotency_key": "idem-key-sale-01"},
+        headers=bot_headers,
+    )
+
+    theirs = (await client.get(
+        f"{BASE}/shift/sold", params={"telegram_id": second_tg}, headers=bot_headers
+    )).json()
+
+    assert theirs["sold"] == []
+
+
 # -- the happy path ----------------------------------------------------------
 
 async def test_declaring_the_day_moves_stock_money_and_closes_the_shift(client, bot_headers):

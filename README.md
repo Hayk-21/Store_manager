@@ -38,6 +38,15 @@ session. There is no running-balance column anywhere, which is why closing the
 store resets the till with nothing running at midnight, and why every past
 session stays readable at `/reports`.
 
+**The cash in the drawer does carry over, though.** A shop that keeps 40,000 in
+the till overnight still has it in the morning. So the worker locking up counts
+the drawer, and the next session to open seeds itself with that figure as an
+ordinary `deposit` — which keeps "how much is in the till" a sum over one table.
+The arriving worker counts again to confirm it, and both counts are kept in
+`till_counts` beside what the books expected at that moment. Neither figure ever
+corrects the other: the gap between them is the only thing there that cannot be
+worked out from anything else, and it is the reason for counting at all.
+
 Several workers can share one store session. The first to arrive opens it; the
 others join. Each gets their own shift row and their own salary.
 
@@ -171,6 +180,7 @@ web/app/
     shifts.py      open / end shift / close store / auto-close
     sales.py       record_sale, void_last_sale — the atomic ones
     stock.py       counts corrected by hand, logged with a name against them
+    till.py        hand counts of the drawer, and the float carried to next shift
     transfers.py   stock moved between two of one owner's shops
   routes/        auth · pages · partials · bot_api
   templates/     Jinja2; base.html carries the fixed footer
@@ -306,6 +316,8 @@ services cannot drift apart on what a failure means.
 | POST | `/sale/void` | undo the worker's last receipt in this shift |
 | POST | `/write-off` | stock that broke or expired, off the shelf without a sale → 201 |
 | POST | `/cash/withdraw` | cash out of the till, with the reason → 201 |
+| GET | `/shift/sold` | what this worker has already rung up this shift, per product |
+| POST | `/shift/till` | a hand count of the drawer, `kind` open or close → 201 |
 | POST | `/shift/close-out` | declare the day's sales and end the shift, in one transaction |
 | POST | `/shift/end` | end the shift, pay the salary, close the store if last out |
 | POST | `/store/close` | close the store for everyone. Owner-side only — the bot never calls it |

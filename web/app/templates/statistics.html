@@ -85,15 +85,25 @@
   </div>
 </div>
 
-{# -- revenue over time ----------------------------------------------------- #}
+{# -- revenue over time -----------------------------------------------------
+   Only when there is more than one bar to compare. A single day drawn as a chart
+   is one column at 100% of itself, which says nothing the figure above it has not
+   already said — and it takes a third of the screen to say it. The averages stay,
+   because "the average receipt" is worth knowing for one day too. #}
+{% set charted = bars | length > 1 and peak > 0 %}
 <div class="card">
   <div class="status-head">
-    <h2>{% if weekly %}Շաբաթական{% else %}Օրական{% endif %} հասույթ</h2>
+    <h2>
+      {% if charted %}{% if weekly %}Շաբաթական{% else %}Օրական{% endif %} հասույթ
+      {% else %}Օրվա ցուցանիշները{% endif %}
+    </h2>
+    {% if charted %}
     <span class="legend"><i class="swatch-revenue"></i> հասույթ
       <i class="swatch-profit"></i> շահույթ</span>
+    {% endif %}
   </div>
 
-  {% if peak > 0 %}
+  {% if charted %}
   <div class="chart" role="img"
        aria-label="Հասույթի գծապատկեր {{ since | day }} — {{ until | day }}">
     {% for b in bars %}
@@ -109,9 +119,12 @@
     </div>
     {% endfor %}
   </div>
+  {% endif %}
+
+  {% if peak > 0 %}
   <p class="muted small">
-    Ամենաբարձր սյունը՝ {{ peak | money }} ·
-    միջինը օրական՝ {{ average_day | money }} ·
+    {% if charted %}Ամենաբարձր սյունը՝ {{ peak | money }} ·
+    միջինը օրական՝ {{ average_day | money }} ·{% endif %}
     միջին վաճառքը՝ {{ average_receipt | money }}
   </p>
   {% else %}

@@ -175,6 +175,27 @@ class AdjustStockRequest(IdempotentRequest):
     note: str | None = Field(default=None, max_length=300)
 
 
+class TillCountRequest(IdempotentRequest):
+    """A hand count of the cash drawer, at the start or the end of a shift."""
+
+    kind: str
+    counted: Decimal = Field(ge=0)
+
+    @field_validator("kind")
+    @classmethod
+    def _known_kind(cls, value: str) -> str:
+        if value not in {"open", "close"}:
+            raise ValueError("kind must be 'open' or 'close'")
+        return value
+
+    @field_validator("counted", mode="before")
+    @classmethod
+    def _string_money(cls, value):
+        if isinstance(value, float):
+            raise ValueError("send money as a decimal string, not a float")
+        return value
+
+
 class TransferRequest(IdempotentRequest):
     """A cashier asking another of the owner's shops for stock.
 

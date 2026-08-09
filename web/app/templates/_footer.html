@@ -1,15 +1,21 @@
-{# Requirement 4. One chip per store.
+{# Requirement 4. One chip per store, two lines each.
 
-   Two figures, and they answer different questions. "Այսօր" is what the shop
-   has sold since its own day started, and stays there after a worker closes up
-   — the money was still taken. "Դրամարկղ" is what is in the till of the open
-   session, which closing settles, so it only appears while the store is open. #}
+   It was five lines and sat on every page, which cost 92px of every screen to
+   repeat what the store page says in full. A glance wants "is it open, and how
+   much is in it"; the rest is one click away, and the figures keep their names in
+   a tooltip.
+
+   «Այսօր» is what the shop has sold since its own day started, and stays after a
+   worker closes up — the money was still taken. «Դրամարկղ» is what is in the till
+   of the open session, which closing settles, so it only shows while it is open. #}
 <div class="footer-inner">
   {% if not stores %}
     <span class="muted">Խանութներ դեռ չկան։</span>
   {% endif %}
   {% for s in stores %}
-    <a class="chip {% if not s.store_session_id %}closed{% endif %}" href="/stores/{{ s.id }}">
+    <a class="chip {% if not s.store_session_id %}closed{% endif %}"
+       href="/stores/{{ s.id }}"
+       title="{% if s.store_session_id %}Բաց · {{ s.on_shift }} հերթափոխի մեջ · {{ s.opened_at | clock }}-ից{% else %}Փակ · օրը՝ {{ '%02d:00' % s.day_start_hour }}-ից{% endif %}">
       <div class="chip-name">
         {{ s.name }}
         {% if s.store_session_id %}
@@ -18,27 +24,22 @@
           <span class="badge">փակ</span>
         {% endif %}
       </div>
-      <div class="chip-row">
-        <span>Այսօր կանխիկ</span>
-        <span class="{% if s.day_cash < 0 %}negative{% endif %}">{{ s.day_cash | money }}</span>
+      <div class="chip-figures">
+        <span title="Այսօր կանխիկ">
+          <span class="muted">Կ</span>
+          <span class="{% if s.day_cash < 0 %}negative{% endif %}">{{ s.day_cash | money }}</span>
+        </span>
+        <span title="Այսօր քարտ">
+          <span class="muted">Ք</span>
+          <span class="{% if s.day_card < 0 %}negative{% endif %}">{{ s.day_card | money }}</span>
+        </span>
+        {% if s.store_session_id %}
+          <span title="Դրամարկղում հիմա">
+            <span class="muted">Դ</span>
+            <span class="{% if s.cash < 0 %}negative{% endif %}">{{ s.cash | money }}</span>
+          </span>
+        {% endif %}
       </div>
-      <div class="chip-row">
-        <span>Այսօր քարտ</span>
-        <span class="{% if s.day_card < 0 %}negative{% endif %}">{{ s.day_card | money }}</span>
-      </div>
-      {% if s.store_session_id %}
-        <div class="chip-row chip-till">
-          <span>Դրամարկղ</span>
-          <span class="{% if s.cash < 0 %}negative{% endif %}">{{ s.cash | money }}</span>
-        </div>
-        <div class="chip-meta">
-          {{ s.on_shift }} հերթափոխի մեջ · {{ s.opened_at | clock }}-ից
-        </div>
-      {% else %}
-        <div class="chip-meta">
-          Փակ · օրը՝ {{ '%02d:00' % s.day_start_hour }}-ից
-        </div>
-      {% endif %}
     </a>
   {% endfor %}
 </div>

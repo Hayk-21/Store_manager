@@ -34,6 +34,7 @@ from app.handlers import (
     sell,
     shift,
     stock,
+    till,
     transfer,
 )
 
@@ -353,6 +354,27 @@ def build() -> Application:
     )
     application.add_handler(transfer_flow)
 
+    # Counting the drawer. One question, entered by a button on a message rather
+    # than a keyboard label — at the end of a shift the worker is locking up, and at
+    # the start there is often a queue, so the tap may come minutes later.
+    till_flow = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(till.begin, pattern=f"^{keyboards.CB_TILL}:")
+        ],
+        states={
+            till.ASK_AMOUNT: [MessageHandler(_free_text, till.type_amount)],
+        },
+        fallbacks=[
+            MessageHandler(_exact(texts.BTN_CANCEL), till.cancel),
+            CommandHandler("cancel", till.cancel),
+            CommandHandler("start", till.escape(shift.start)),
+            *_escapes(till),
+            MessageHandler(_exact(texts.BTN_END_SHIFT), till.cancel),
+        ],
+        conversation_timeout=600,
+        per_message=False,
+    )
+    application.add_handler(till_flow)
     application.add_handler(closeout_flow)
 
     # Undoing a sale is not part of entering one: the receipt is finished, and

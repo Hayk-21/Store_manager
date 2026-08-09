@@ -209,6 +209,26 @@ async def open_for_worker(worker_id: int) -> asyncpg.Record | None:
     )
 
 
+async def latest_for_worker(conn, worker_id: int) -> asyncpg.Record | None:
+    """This worker's current shift, or the one they have just finished.
+
+    For the things asked of them *after* their shift ends — counting the drawer is
+    the one — where requiring an open shift would refuse the question at exactly the
+    moment it is being answered. Open shifts first, so a worker who has already
+    started another one counts against that.
+    """
+    return await conn.fetchrow(
+        """
+        SELECT id, owner_id, worker_id, store_id, store_session_id, started_at, ended_at
+          FROM work_sessions
+         WHERE worker_id = $1
+         ORDER BY (ended_at IS NULL) DESC, started_at DESC, id DESC
+         LIMIT 1
+        """,
+        worker_id,
+    )
+
+
 async def lock_open_for_worker(conn, worker_id: int) -> asyncpg.Record | None:
     """The worker's open shift, locked.
 

@@ -261,6 +261,27 @@ class Api:
             payload["wholesale_price"] = wholesale_price
         return await self._call("POST", "/items", json=payload)
 
+    async def count_till(
+        self, telegram_id: int, kind: str, counted: str, key: str
+    ) -> dict:
+        """A hand count of the drawer. Amount as a decimal string, never a float."""
+        return await self._call(
+            "POST",
+            "/shift/till",
+            json={
+                "telegram_id": telegram_id,
+                "kind": kind,
+                "counted": counted,
+                "idempotency_key": key,
+            },
+        )
+
+    async def sold_this_shift(self, telegram_id: int) -> dict:
+        """What this worker has already rung up during the open shift."""
+        return await self._call(
+            "GET", "/shift/sold", params={"telegram_id": telegram_id}
+        )
+
     async def transfer_sources(self, telegram_id: int) -> dict:
         """The owner's other shops — the ones a box could be asked for from."""
         return await self._call(

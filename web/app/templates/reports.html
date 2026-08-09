@@ -341,6 +341,42 @@
   </p>
   {% endif %}
 
+  {% if d.till_counts %}
+  {# What was in the drawer against what the books expected. Neither figure is
+     corrected to match the other: the difference is the only thing here that
+     cannot be worked out from anywhere else, and it is the reason for counting. #}
+  <h3>Դրամարկղի հաշվարկ</h3>
+  <div class="table-wrap">
+    <table class="cards">
+      <thead>
+        <tr><th>Ժամ</th><th>Երբ</th><th>Աշխատող</th>
+            <th class="num">Հաշվված</th><th class="num">Ըստ համակարգի</th>
+            <th class="num">Տարբերություն</th></tr>
+      </thead>
+      <tbody>
+        {% for t in d.till_counts %}
+        <tr>
+          <td class="nowrap" data-label="Ժամ">{{ t.created_at | clock }}</td>
+          <td data-label="Երբ">{{ 'Բացման' if t.kind == 'open' else 'Փակման' }}</td>
+          <td data-label="Աշխատող">{{ t.worker_name or '—' }}</td>
+          <td class="num" data-label="Հաշվված">{{ t.counted | money }}</td>
+          <td class="num muted" data-label="Ըստ համակարգի">{{ t.expected | money }}</td>
+          <td class="num {% if t.difference < 0 %}negative{% elif t.difference > 0 %}positive{% endif %}"
+              data-label="Տարբերություն">
+            {% if t.difference == 0 %}—{% else %}{{ t.difference | money }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small">
+    Փակման պահին հաշվված գումարը մնում է խանութում և հաջորդ հերթափոխի դրամարկղը
+    սկսվում է դրանով։ Բացասական տարբերությունը նշանակում է, որ դրամարկղում ավելի
+    քիչ է, քան համակարգը սպասում էր՝ դրականը սովորաբար չգրանցված վաճառք է։
+  </p>
+  {% endif %}
+
   {% if d.adjustments %}
   {# Counts a cashier corrected by hand: a delivery nobody entered, a return, a
      miscount. Neither a sale nor breakage, and shown because a number that can be

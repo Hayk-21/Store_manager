@@ -165,6 +165,22 @@ CLOSEOUT_ASK_PRICE = (
     "Սեղմեք ներքևի կոճակը կամ գրեք գինը թվով (օրինակ՝ {suggested})։"
 )
 CLOSEOUT_BAD_PRICE = "Գրեք գինը թվով, օրինակ՝ 3500։"
+# Shown on the way into the write-up: the worker's own day as the books already
+# have it. The write-up is only for what is *not* in this list, and without seeing
+# it the only thing telling the two apart is memory — a product declared twice
+# comes off the shelf twice.
+SHIFT_SOLD_ALREADY = (
+    "🧾 <b>Այս հերթափոխին արդեն գրանցված է</b>\n\n{rows}\n\n"
+    "Չեկեր՝ {receipts} · Կանխիկ՝ {cash} · Քարտ՝ {card}\n"
+    "Ընդամենը՝ <b>{total}</b>\n\n"
+    "<i>Ստուգեք ցուցակը։ Ներքևում գրեք միայն այն, ինչ այստեղ չկա։</i>"
+)
+SHIFT_SOLD_ROW = "• {name} ×{quantity} — {total}"
+SHIFT_SOLD_NOTHING_YET = (
+    "🧾 Այս հերթափոխին դեռ վաճառք գրանցված չէ։\n"
+    "Գրեք ամբողջ օրվա վաճառքը ներքևում։"
+)
+
 CLOSEOUT_ROW = "{index}. {name} ×{quantity} × {price} = <b>{total}</b> ({method}{kind})"
 # Appended to a write-up row when the line did not go out at the shelf price.
 KIND_WHOLESALE = ", մեծածախ"
@@ -305,6 +321,43 @@ CASH_DONE = (
     "Դրամարկղում մնաց՝ {cash}"
 )
 CASH_DONE_PLAINLY = "💸 Գումարի վերցնումը գրանցվեց։"
+
+# -- counting the drawer -----------------------------------------------------
+
+BTN_TILL_CLOSE = "💰 Գրել դրամարկղի մնացորդը"
+BTN_TILL_OPEN = "💰 Գրել դրամարկղում եղած գումարը"
+TILL_ASK_CLOSE = (
+    "💰 <b>Դրամարկղի մնացորդը</b>\n\n"
+    "Հաշվեք դրամարկղում մնացած կանխիկը և գրեք գումարը թվով։\n"
+    "Այդ գումարը մնում է խանութում և կփոխանցվի հաջորդ հերթափոխին։"
+)
+TILL_ASK_OPEN = (
+    "💰 <b>Դրամարկղում որքա՞ն կանխիկ կա</b>\n\n"
+    "Հաշվեք դրամարկղում եղած կանխիկը և գրեք գումարը թվով։"
+)
+TILL_BAD_AMOUNT = "Գրեք գումարը թվով, օրինակ՝ 40000։"
+TILL_DONE_CLOSE = "💰 Գրանցվեց՝ դրամարկղում մնաց <b>{counted}</b>։\n"
+TILL_DONE_OPEN = "💰 Գրանցվեց՝ դրամարկղում կա <b>{counted}</b>։\n"
+# Said plainly, and never called a mistake: a drawer can be over as easily as
+# short, and the worker standing there is the only one who can still explain it.
+TILL_MATCHES = "✅ Համակարգի հաշվարկի հետ համընկնում է։"
+TILL_OVER = (
+    "Համակարգի հաշվարկով՝ {expected}։\n"
+    "Ավելի է <b>{difference}</b>-ով։ Հնարավոր է՝ վաճառք գրանցված չէ։"
+)
+TILL_SHORT = (
+    "Համակարգի հաշվարկով՝ {expected}։\n"
+    "Պակաս է <b>{difference}</b>-ով։ Տեղեկացրեք ղեկավարին։"
+)
+TILL_DONE_PLAINLY = "💰 Դրամարկղի մնացորդը գրանցվեց։"
+TILL_SKIPPED = "Դրամարկղի հաշվարկը բաց թողնվեց։"
+TILL_HANDOVER_PROMPT = (
+    "Հաշվեք դրամարկղում մնացած կանխիկը։ Այդ գումարը մնում է խանութում "
+    "և հաջորդ հերթափոխը կսկսվի դրանով։"
+)
+TILL_OPENING_PROMPT = (
+    "Ստուգեք դրամարկղը՝ որքա՞ն կանխիկ է մնացել նախորդ հերթափոխից։"
+)
 
 # -- moving stock between shops ----------------------------------------------
 

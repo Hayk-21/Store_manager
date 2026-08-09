@@ -23,6 +23,7 @@ from app.repo import money as money_repo
 from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
 from app.repo import stores as stores_repo
+from app.repo import till as till_repo
 from app.repo import transfers as transfers_repo
 from app.repo import workers as workers_repo
 from app.repo import write_offs as write_offs_repo
@@ -588,6 +589,9 @@ async def reports_page(
             # Counts a cashier corrected by hand. Shown because a stock number
             # that can be changed silently is one that can hide a shortfall.
             "adjustments": await adjustments_repo.for_session(store_session_id),
+            # What was actually in the drawer, against what the books expected. The
+            # gap is the figure with no other home.
+            "till_counts": await till_repo.for_session(store_session_id),
         }
     return render(
         request,
@@ -877,6 +881,7 @@ async def delete_report(
     async with db.transaction() as conn:
         await write_offs_repo.delete_for_session(conn, user.id, store_session_id)
         await adjustments_repo.delete_for_session(conn, user.id, store_session_id)
+        await till_repo.delete_for_session(conn, user.id, store_session_id)
         await sessions_repo.delete_store_session(conn, user.id, store_session_id)
     log.info("owner %s deleted store session %s", user.id, store_session_id)
     return RedirectResponse("/reports", status_code=303)

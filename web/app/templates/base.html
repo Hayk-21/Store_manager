@@ -25,7 +25,9 @@
     <a href="/transfers" {% if active == 'transfers' %}class="active"{% endif %}>Փոխանցումներ</a>
     <a href="/reports" {% if active == 'reports' %}class="active"{% endif %}>Հաշվետվություններ</a>
     <a href="/statistics" {% if active == 'statistics' %}class="active"{% endif %}>Վիճակագրություն</a>
-    <a href="/history" {% if active == 'history' %}class="active"{% endif %}>Պատմություն</a>
+    {# No «Պատմություն» here. The page is still there and still linked from the
+       report it belongs to, which is where somebody wants it — beside the change
+       they are looking at, not as a sixth thing competing for the top bar. #}
   </nav>
   <form method="post" action="/logout" class="logout">
     <span class="who">{{ user.label }}</span>

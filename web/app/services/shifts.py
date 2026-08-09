@@ -32,6 +32,7 @@ from app.repo import stores as stores_repo
 from app.repo import tracking as tracking_repo
 from app.repo import workers as workers_repo
 from app.services import geofence
+from app.services import till as till_service
 from app.services.geofence import require_store
 
 log = logging.getLogger("storemanager.shifts")
@@ -143,6 +144,15 @@ async def open_store(
                 if existing is None:  # pragma: no cover - closed between the two statements
                     raise BotError("store_not_open")
                 store_session_id = existing["id"]
+            else:
+                # A shop that keeps cash in the drawer overnight still has it in the
+                # morning, and the till of a fresh session has to start there — or
+                # the first sale of the day makes the drawer look that much heavy.
+                # Only for a session actually being opened: joining one that is
+                # already running must not add the float a second time.
+                await till_service.carry_over_float(
+                    conn, worker.owner_id, store.id, store_session_id
+                )
 
             work_session_id = await sessions_repo.open_work_session(
                 conn,

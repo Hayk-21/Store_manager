@@ -37,6 +37,7 @@ from app.schemas import (
     NewItemRequest,
     OpenStoreRequest,
     SaleRequest,
+    TillCountRequest,
     TransferDecision,
     TransferRequest,
     VoidRequest,
@@ -47,6 +48,7 @@ from app.services import money as money_service
 from app.services import sales as sales_service
 from app.services import shifts as shifts_service
 from app.services import stock as stock_service
+from app.services import till as till_service
 from app.services import transfers as transfers_service
 from app.services import write_offs as write_offs_service
 from app.services.geofence import match_store
@@ -465,6 +467,57 @@ async def add_item(body: NewItemRequest) -> dict:
                 if item["wholesale_price"] is not None
                 else None
             ),
+        },
+    }
+
+
+@router.post("/shift/till", status_code=201)
+async def count_the_till(body: TillCountRequest) -> dict:
+    """What the worker counted in the drawer.
+
+    Recorded beside what the books expected, never over it: the gap between the two
+    is the reason for counting. A 'close' count is also what the next session's till
+    opens with — the money stays in the shop.
+    """
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
+    return await till_service.declare(
+        worker, body.kind, body.counted, body.idempotency_key
+    )
+
+
+@router.get("/shift/sold")
+async def sold_this_shift(telegram_id: int = Query(gt=0)) -> dict:
+    """What this worker has already rung up during the open shift.
+
+    Shown before the write-up so they can check their own day before anything is
+    settled. Sales entered as they happened are already in the books, and the
+    write-up is only for what was not — without seeing the first list, the only way
+    to tell the two apart is memory, and a product declared twice is a real loss of
+    stock on the shelf.
+    """
+    worker = await _worker(telegram_id)
+    shift = await sessions_repo.open_for_worker(worker.id)
+    if shift is None:
+        raise BotError("no_open_session")
+
+    lines = await sales_repo.lines_in_work_session(shift["id"])
+    totals = await sales_repo.summary_for_work_session(shift["id"])
+    return {
+        "ok": True,
+        "store_name": shift["store_name"],
+        "sold": [
+            {
+                "name": row["name"],
+                "quantity": row["quantity"],
+                "total": f"{Decimal(row['total']):.2f}",
+            }
+            for row in lines
+        ],
+        "totals": {
+            "receipts": totals["receipts"],
+            "cash": f"{totals['cash_total']:.2f}",
+            "card": f"{totals['card_total']:.2f}",
+            "total": f"{totals['total']:.2f}",
         },
     }
 

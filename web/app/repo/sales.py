@@ -152,6 +152,33 @@ async def mark_voided(conn, sale_id: int, worker_id: int, reason: str | None) ->
     )
 
 
+async def lines_in_work_session(work_session_id: int) -> list[asyncpg.Record]:
+    """Everything this worker has already rung up this shift, by product.
+
+    Rolled up per product rather than per receipt: the worker is checking their own
+    day against what they remember selling, and "six HQD Cuvie" is that. Twelve
+    separate receipts for one product is a different question, and the owner's
+    report answers it.
+
+    Voided receipts are left out — they were taken back, and showing them would
+    invite the worker to declare them again in the write-up.
+    """
+    return await db.fetch(
+        """
+        SELECT i.name,
+               sum(si.quantity)   AS quantity,
+               sum(si.line_total) AS total
+          FROM sale_items si
+          JOIN sales sa ON sa.id = si.sale_id
+          JOIN items i  ON i.id = si.item_id
+         WHERE sa.work_session_id = $1 AND sa.voided_at IS NULL
+         GROUP BY i.name
+         ORDER BY lower(i.name)
+        """,
+        work_session_id,
+    )
+
+
 async def summary_for_work_session(work_session_id: int) -> asyncpg.Record:
     """What one worker sold during one shift, voids excluded."""
     return await db.fetchrow(

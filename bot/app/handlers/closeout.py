@@ -101,11 +101,59 @@ async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # One key for the whole close-out, minted now and reused for every retry, so
     # a flaky connection at the very end cannot double the day's takings.
     context.user_data["co_key"] = new_idempotency_key()
+    await _show_what_is_already_recorded(update)
     await update.effective_message.reply_text(
         texts.CLOSEOUT_START, parse_mode=ParseMode.HTML,
         reply_markup=keyboards.closeout_menu(empty=True),
     )
     return PICK_ITEM
+
+
+async def _show_what_is_already_recorded(update: Update) -> None:
+    """The worker's own day, before they add anything to it.
+
+    Two ways a sale reaches the books — rung up as it happened, or written up now —
+    and the write-up is only for the second. Without seeing the first list the only
+    thing telling them apart is memory, and a product declared twice comes off the
+    shelf twice.
+
+    Best effort. This is a courtesy on the way into the write-up, so a failure here
+    must not stop the worker ending their shift; the write-up itself is what has to
+    work.
+    """
+    try:
+        result = await api.sold_this_shift(update.effective_user.id)
+        sold, totals = result["sold"], result["totals"]
+    except (ApiError, ApiUnavailable) as exc:
+        log.info("could not list this shift's sales: %s", exc)
+        return
+    except Exception:  # noqa: BLE001
+        log.exception("could not list this shift's sales")
+        return
+
+    if not sold:
+        await update.effective_message.reply_text(
+            texts.SHIFT_SOLD_NOTHING_YET, parse_mode=ParseMode.HTML
+        )
+        return
+
+    await update.effective_message.reply_text(
+        texts.SHIFT_SOLD_ALREADY.format(
+            rows="\n".join(
+                texts.SHIFT_SOLD_ROW.format(
+                    name=format.esc(row["name"]),
+                    quantity=row["quantity"],
+                    total=format.money(row["total"]),
+                )
+                for row in sold
+            ),
+            receipts=totals["receipts"],
+            cash=format.money(totals["cash"]),
+            card=format.money(totals["card"]),
+            total=format.money(totals["total"]),
+        ),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 async def prompt_item(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

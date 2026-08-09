@@ -40,6 +40,9 @@ CB_NEW_ITEM = "ni"
 # Answering one transfer request, asking for a box, and choosing which shop to ask.
 # The answer buttons live outside any conversation: they sit on a message that may
 # be tapped an hour after it arrived.
+# Counting the drawer. Lives on a message rather than the keyboard, and may be
+# tapped minutes later, so it is handled outside every flow.
+CB_TILL = "till"
 CB_TRANSFER = "t"
 CB_TRANSFER_NEW = "tn"
 CB_TRANSFER_STORE = "ts"
@@ -350,6 +353,19 @@ def restock_empty() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(texts.BTN_BRAND_NEW_ITEM, callback_data=CB_NEW_ITEM)],
             [InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)],
         ]
+    )
+
+
+def count_the_till(kind: str) -> InlineKeyboardMarkup:
+    """Offered on the message that ends a shift, and on the one that starts one.
+
+    A button rather than another question in the flow: at the end of a shift the
+    worker is locking up, and at the start there is often a queue. Both are moments
+    to be handed one thing to do, not held in a conversation.
+    """
+    label = texts.BTN_TILL_CLOSE if kind == "close" else texts.BTN_TILL_OPEN
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(label, callback_data=f"{CB_TILL}:{kind}")]]
     )
 
 

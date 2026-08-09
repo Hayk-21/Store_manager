@@ -181,6 +181,14 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         parse_mode=ParseMode.HTML,
         reply_markup=keyboards.on_shift(),
     )
+    # Count the drawer before selling anything out of it. Whatever the last shift
+    # left is already in the till as far as the books are concerned; this is the
+    # arriving worker confirming it, so a drawer that is short is found by somebody
+    # who did not cause it rather than by whoever is holding it at closing time.
+    await update.effective_message.reply_text(
+        texts.TILL_OPENING_PROMPT,
+        reply_markup=keyboards.count_the_till("open"),
+    )
 
 
 async def handle_live_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -286,6 +294,15 @@ async def report_end(update: Update, summary: dict) -> None:
 
     await update.effective_message.reply_text(
         message, parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardRemove()
+    )
+    # The drawer, last. Whatever cash is left stays in the shop and is what the next
+    # session opens with, so somebody has to say how much — and the person who just
+    # locked up is the one who knows. Offered rather than demanded: a worker leaving
+    # a shop should not be held there by a number.
+    await update.effective_message.reply_text(
+        texts.TILL_HANDOVER_PROMPT,
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboards.count_the_till("close"),
     )
     await update.effective_message.reply_text(
         texts.WELCOME.format(name="", open_button=texts.BTN_OPEN).strip(),
