@@ -5,8 +5,10 @@ All formatting lives here so a number is rendered the same way on every page.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from decimal import Decimal
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,31 @@ from fastapi.templating import Jinja2Templates
 from app.config import settings
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+@lru_cache(maxsize=32)
+def static(name: str) -> str:
+    """``app.css`` -> ``/static/app.css?v=<hash of its contents>``.
+
+    Without this a stylesheet change does not reach anybody. The file is served
+    under a fixed URL, so a browser that already has it keeps using it — for a
+    layout fix that means the owner still sees the old layout, decides nothing
+    happened, and says so. It cost exactly that once.
+
+    The hash is of the contents, not the deploy: an unchanged file keeps its URL and
+    stays cached, and a changed one gets a new URL that nothing can have cached.
+    Computed once per process, which is right because the file cannot change under a
+    running server — a deploy restarts it.
+    """
+    path = STATIC_DIR / name
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()[:10]
+    except OSError:
+        # A missing asset is a broken page either way; a plain URL at least lets the
+        # 404 say which file, rather than failing while rendering the template.
+        return f"/static/{name}"
+    return f"/static/{name}?v={digest}"
 
 
 def money(value: Any) -> str:
@@ -99,6 +126,7 @@ templates.env.filters["stamp"] = stamp
 templates.env.filters["day"] = day
 templates.env.filters["duration"] = duration
 templates.env.globals["currency"] = settings.currency
+templates.env.globals["static"] = static
 
 
 def render(request: Request, name: str, context: dict[str, Any] | None = None, **kwargs: Any):

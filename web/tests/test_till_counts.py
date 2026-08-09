@@ -386,6 +386,77 @@ async def test_both_counts_show_on_the_report(client):
     assert "-300.00" in page.text, "the difference, spelled out"
 
 
+async def test_a_closed_shop_still_reports_what_is_in_its_drawer(client):
+    """The gap this closes. Closing settles the *till* — the money does not leave
+    the premises — but the footer and the store page only ever showed the open
+    session's cash, so a shut shop reported nothing about its drawer and the money
+    sitting in it was invisible to the owner until somebody opened up again."""
+    owner_id, _, _ = await _a_shop()
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await worked_a_full_shift(worker.id)
+    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await till_service.declare(worker, "close", Decimal("40000"), "idem-till-1")
+
+    row = (await money_repo.totals_by_store(owner_id))[0]
+
+    assert row["store_session_id"] is None, "the shop is shut"
+    assert Decimal(row["cash"]) == Decimal("0"), "and its till is settled"
+    assert Decimal(row["left_in_till"]) == Decimal("40000.00"), "but the cash is there"
+
+
+async def test_a_shop_nobody_has_counted_reports_nothing_rather_than_zero(client):
+    """Null, not 0.00. "Never counted" and "counted and found empty" are different
+    facts and the page says different things about them."""
+    owner_id, _, _ = await _a_shop()
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+
+    row = (await money_repo.totals_by_store(owner_id))[0]
+
+    assert row["left_in_till"] is None
+
+
+async def test_the_footer_shows_a_closed_shops_drawer(client):
+    owner_id, _, _ = await _a_shop()
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await worked_a_full_shift(worker.id)
+    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await till_service.declare(worker, "close", Decimal("40000"), "idem-till-1")
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/partials/footer")
+
+    assert "40,000.00" in page.text
+
+
+async def test_the_store_page_shows_the_drawer_when_shut(client):
+    owner_id, store_id, _ = await _a_shop()
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await worked_a_full_shift(worker.id)
+    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await till_service.declare(worker, "close", Decimal("40000"), "idem-till-1")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/stores/{store_id}")
+
+    assert "Դրամարկղում մնացած կանխիկ" in page.text
+    assert "40,000.00" in page.text
+    assert "Անի" in page.text, "and who counted it"
+
+
+async def test_the_store_page_says_so_when_nobody_has_counted(client):
+    owner_id, store_id, _ = await _a_shop()
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/stores/{store_id}")
+
+    assert "Դրամարկղում մնացած կանխիկ" not in page.text
+    assert "դեռ չի գրանցել" in page.text
+
+
 async def test_the_session_rows_carry_the_difference(client):
     owner_id, _, item_id = await _a_shop()
     worker, _ = await _worker(owner_id)

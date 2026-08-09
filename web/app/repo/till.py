@@ -68,6 +68,32 @@ async def last_close_for_store(conn, owner_id: int, store_id: int) -> Decimal | 
     )
 
 
+async def last_close_for_store_pooled(
+    owner_id: int, store_id: int
+) -> asyncpg.Record | None:
+    """The same lookup for a page render, off the pool.
+
+    Separate from ``last_close_for_store`` rather than sharing it: that one takes an
+    explicit connection because it decides the float of a session being opened in
+    that transaction, and a page has no transaction to belong to. Carries who
+    counted and when, which the float does not need and a reader does.
+    """
+    return await db.fetchrow(
+        f"""
+        SELECT t.counted, t.expected, t.created_at,
+               (t.counted - t.expected) AS difference,
+               {DISPLAY_NAME} AS worker_name
+          FROM till_counts t
+          LEFT JOIN workers w ON w.id = t.worker_id
+         WHERE t.owner_id = $1 AND t.store_id = $2 AND t.kind = 'close'
+         ORDER BY t.created_at DESC, t.id DESC
+         LIMIT 1
+        """,
+        owner_id,
+        store_id,
+    )
+
+
 async def for_session(store_session_id: int) -> list[asyncpg.Record]:
     """Both ends of the session's counts, for the report."""
     return await db.fetch(

@@ -295,16 +295,24 @@ async def report_end(update: Update, summary: dict) -> None:
     await update.effective_message.reply_text(
         message, parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardRemove()
     )
-    # The drawer, last. Whatever cash is left stays in the shop and is what the next
-    # session opens with, so somebody has to say how much — and the person who just
-    # locked up is the one who knows. Offered rather than demanded: a worker leaving
-    # a shop should not be held there by a number.
+    # The welcome first, because it carries the reply keyboard and a message cannot
+    # carry both kinds at once.
+    await update.effective_message.reply_text(
+        texts.WELCOME.format(name="", open_button=texts.BTN_OPEN).strip(),
+        reply_markup=keyboards.off_shift(),
+    )
+    # The drawer goes out last, and that ordering is the whole point. It was the
+    # middle of three, and the message after it pushed the button up off the top of
+    # a phone screen — the worker was told to count the till and then shown
+    # something else, so they never saw the button and reasonably reported it
+    # missing. Last means it is what they are looking at.
+    #
+    # Whatever cash is left stays in the shop and is the float the next shift opens
+    # with, so somebody has to say how much, and the person who just locked up is
+    # the one who knows. Offered rather than demanded: a worker leaving a shop
+    # should not be held there by a number.
     await update.effective_message.reply_text(
         texts.TILL_HANDOVER_PROMPT,
         parse_mode=ParseMode.HTML,
         reply_markup=keyboards.count_the_till("close"),
-    )
-    await update.effective_message.reply_text(
-        texts.WELCOME.format(name="", open_button=texts.BTN_OPEN).strip(),
-        reply_markup=keyboards.off_shift(),
     )

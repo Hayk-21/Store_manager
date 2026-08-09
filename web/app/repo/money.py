@@ -47,6 +47,11 @@ async def totals_by_store(owner_id: int) -> list[asyncpg.Record]:
       session of the trading day. These survive a close, because the shop still
       took that money this morning, and start again at the store's own boundary
       hour.
+    * ``left_in_till`` — what the last worker out counted and left in the drawer.
+      The one figure here that outlives a session, because the money does: it sits
+      in the shop overnight and is the float the next shift opens with. Without it
+      a closed shop reported nothing at all about its drawer, and the cash in it was
+      invisible to the owner until somebody opened up again.
     """
     return await db.fetch(
         f"""
@@ -58,7 +63,9 @@ async def totals_by_store(owner_id: int) -> list[asyncpg.Record]:
                (SELECT count(*) FROM work_sessions ws
                  WHERE ws.store_session_id = ss.id AND ws.ended_at IS NULL) AS on_shift,
                d.day_start,
-               d.day_cash, d.day_card, d.day_total, d.day_receipts
+               d.day_cash, d.day_card, d.day_total, d.day_receipts,
+               drawer.counted    AS left_in_till,
+               drawer.created_at AS left_at
           FROM stores s
           LEFT JOIN store_sessions ss ON ss.store_id = s.id AND ss.closed_at IS NULL
           LEFT JOIN cash_movements m  ON m.store_session_id = ss.id
@@ -75,9 +82,20 @@ async def totals_by_store(owner_id: int) -> list[asyncpg.Record]:
                       AND (dm.created_at AT TIME ZONE $2) >= dd.day_start
                GROUP BY dd.day_start
           ) d
+          -- The last hand count of the drawer. Outside the day window and outside
+          -- the session join on purpose: the cash it describes is still in the shop
+          -- however long ago the shop last opened.
+          LEFT JOIN LATERAL (
+              SELECT tc.counted, tc.created_at
+                FROM till_counts tc
+               WHERE tc.store_id = s.id AND tc.kind = 'close'
+               ORDER BY tc.created_at DESC, tc.id DESC
+               LIMIT 1
+          ) drawer ON true
          WHERE s.owner_id = $1 AND s.is_active
          GROUP BY s.id, s.name, s.day_start_hour, ss.id, ss.opened_at,
-                  d.day_start, d.day_cash, d.day_card, d.day_total, d.day_receipts
+                  d.day_start, d.day_cash, d.day_card, d.day_total, d.day_receipts,
+                  drawer.counted, drawer.created_at
          ORDER BY lower(s.name)
         """,
         owner_id,

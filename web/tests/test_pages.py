@@ -2,10 +2,44 @@
 
 from __future__ import annotations
 
+import inspect
+import re
 from decimal import Decimal
+from pathlib import Path
 
 from app.db import db
+from app.routes import pages as pages_module
 from tests.factories import login, make_item, make_owner, make_store
+
+TEMPLATES = Path(__file__).resolve().parents[1] / "app" / "templates"
+
+
+def test_the_first_render_of_the_live_status_gets_the_whole_context():
+    """The status block is rendered twice: inline on page load, and again by its own
+    poll ten seconds later. The poll passes the context keys as top-level names, so
+    the inline render has to hand them over by hand — and a key added to
+    ``_status_context`` but forgotten in that ``{% with %}`` renders as nothing on
+    load and then appears when the poll lands.
+
+    That is a bug that looks like a slow network, which is why it gets a test rather
+    than a comment: I shipped it once already with ``drawer``.
+    """
+    provided = set(
+        re.findall(r'"(\w+)":', inspect.getsource(pages_module._status_context))
+    )
+    handed_over = set(
+        re.findall(
+            r"(\w+) = status\.",
+            (TEMPLATES / "store_detail.html").read_text(encoding="utf-8"),
+        )
+    )
+
+    assert provided, "could not read the status context"
+    missing = provided - handed_over
+    assert not missing, (
+        f"store_detail.html does not pass {sorted(missing)} to _store_status.html, "
+        "so it renders empty until the first poll"
+    )
 
 
 async def _signed_in(client) -> int:

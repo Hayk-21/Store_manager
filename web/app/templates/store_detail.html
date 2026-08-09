@@ -2,9 +2,9 @@
 {% block title %}{{ store.name }} · Store Manager{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="/static/leaflet.css">
-<script src="/static/leaflet.js" defer></script>
-<script src="/static/map.js" defer></script>
+<link rel="stylesheet" href="{{ static('leaflet.css') }}">
+<script src="{{ static('leaflet.js') }}" defer></script>
+<script src="{{ static('map.js') }}" defer></script>
 {% endblock %}
 
 {% block content %}
@@ -59,8 +59,14 @@
      hx-trigger="every 10s"
      hx-target="#store-status"
      hx-swap="outerHTML">
+  {# The partial is rendered with these as top-level names when it is polled, so
+     the first render has to hand them over the same way. Every key of
+     _status_context belongs here — one left out is a block that quietly renders
+     nothing on page load and then appears ten seconds later, which is a bug that
+     looks like a slow network. #}
   {% with store_id = status.store_id, store_session = status.store_session,
-          totals = status.totals, on_shift = status.on_shift, day = status.day %}
+          totals = status.totals, on_shift = status.on_shift, day = status.day,
+          drawer = status.drawer %}
     {% include "_store_status.html" %}
   {% endwith %}
 </div>

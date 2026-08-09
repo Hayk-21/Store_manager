@@ -75,6 +75,10 @@ async def _status_context(owner_id: int, store_id: int) -> dict:
         # Shown whether or not the store is open: closing settles the till, but
         # the shop still sold what it sold this morning.
         "day": await money_repo.day_totals_for_store(owner_id, store_id),
+        # What the last worker out counted and left in the drawer. Shown whether or
+        # not the shop is open, because the cash is there either way — closing
+        # settles the *till*, it does not empty the drawer.
+        "drawer": await till_repo.last_close_for_store_pooled(owner_id, store_id),
     }
 
 

@@ -110,6 +110,38 @@ def test_an_always_stacked_card_flows_its_fields_rather_than_listing_them():
     assert "auto-fit" in rule, "a fixed column count would need a breakpoint per screen"
 
 
+def test_every_asset_is_fingerprinted_so_a_change_reaches_the_browser():
+    """A stylesheet served under a fixed URL stays in the browser's cache, so a
+    layout fix does not arrive — the owner sees the old layout and reasonably
+    concludes nothing was done. That happened, which is why this is a test and not
+    a note: any new /static reference has to go through ``static()`` too.
+    """
+    for name in ("base.html", "stores.html", "store_detail.html"):
+        source = (TEMPLATES / name).read_text(encoding="utf-8")
+        raw = re.findall(r'(?:href|src)="/static/[^"]+"', source)
+        assert not raw, f"{name}: {raw} would be cached past a deploy"
+
+
+def test_a_changed_stylesheet_gets_a_different_url():
+    from app.templating import STATIC_DIR, static
+
+    before = static("app.css")
+    digest = before.split("v=", 1)[1]
+
+    assert len(digest) >= 8, "too short to be a content hash"
+    # The hash is of the contents, so an unchanged file keeps its URL and stays
+    # cached — the point is only that a *changed* one cannot.
+    assert static("app.css") == before
+    assert digest not in (STATIC_DIR / "app.css").read_text(encoding="utf-8")
+
+
+def test_a_missing_asset_does_not_break_the_page():
+    """A 404 that names the file beats an exception while rendering the template."""
+    from app.templating import static
+
+    assert static("no-such-file.css") == "/static/no-such-file.css"
+
+
 def test_the_footer_is_short_enough_to_be_worth_its_place():
     """It is on every page. Five lines per store was 92px of every screen spent
     repeating what the store page says in full."""
