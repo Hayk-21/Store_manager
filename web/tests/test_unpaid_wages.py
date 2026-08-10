@@ -354,11 +354,101 @@ async def test_a_real_evening_end_to_end(client):
     assert result["count"]["handed_over"] == "0.00", "there is nothing to hand over"
 
 
+async def test_the_owners_share_follows_a_sale_added_after_the_count(client):
+    """The owner's arithmetic, in their words:
+
+        float + cash sales − wage paid − cash taken out − left in the shop
+        234   + 4,400      − 1,634     − 1,000          − 1,500  =  500
+
+    Which is the drawer as the books stand now, less what stays in the shop. It used to
+    come from the reading frozen on the count instead, so a sale entered afterwards never
+    reached it: a shop whose drawer really held 2,000 was told the owner was owed
+    nothing, because the count had been made when only the 234 float was in it.
+    """
+    owner_id, store_id, _ = await _a_shop(float_="234.00")
+    worker, _ = await _worker(owner_id, salary="7000.00")
+    cheap = await make_item(
+        owner_id, store_id, "Cfvb", count=50, self_price="6.00", sell_price="600.00"
+    )
+    await _open(worker)
+    session_id = await _session()
+    await sales_service.record_sale(
+        worker, [{"item_id": cheap, "quantity": 4}], "cash", "idem-sale-1"
+    )
+    await money_service.withdraw_by_worker(
+        worker, Decimal("1000"), "առաքիչին", "idem-cash-01"
+    )
+    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    # Counted while the drawer held 2,400 + 234 − 1,000 − 1,634 = 0.
+    await till_service.declare_close(worker, Decimal("1500"), "idem-till-01")
+    assert await db.fetchval("SELECT expected FROM till_counts") == Decimal("0.00")
+
+    # Then the owner enters a sale the cashier forgot: 2,000 more in cash.
+    await corrections_service.add_sale(
+        owner_id, owner_id, session_id, worker.id,
+        [{"item_id": cheap, "quantity": 4, "unit_price": Decimal("500.00")}],
+        "cash",
+    )
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "500.00" in page.text, "the drawer holds 2,000 now, less the 1,500 left"
+
+
+async def test_the_wage_tiles_show_what_the_drawer_paid(client):
+    """They sit beside «Ղեկավարին» and «Մնաց խանութում», which are drawer questions, and
+    the owner's own arithmetic subtracts the 1,634 that came out of the drawer rather
+    than the 5,500 the shift was worth. What the till could not cover is stated
+    underneath instead of folded in."""
+    owner_id, store_id, _ = await _a_shop(float_="234.00")
+    worker_id, _ = await make_worker(
+        owner_id, "Հայկ", salary_amount="7000.00", salary_period="shift"
+    )
+    await db.execute(
+        """
+        UPDATE workers SET bonus_threshold = 1000, bonus_amount = 2000,
+                           bonus_period = 'day'
+         WHERE id = $1
+        """,
+        worker_id,
+    )
+    worker = shifts_service.Worker(
+        id=worker_id, owner_id=owner_id, name="Հայկ",
+        salary_amount=Decimal("7000.00"), salary_period="shift",
+    )
+    cheap = await make_item(
+        owner_id, store_id, "Cfvb", count=50, self_price="6.00", sell_price="600.00"
+    )
+    await _open(worker)
+    session_id = await _session()
+    await sales_service.record_sale(
+        worker, [{"item_id": cheap, "quantity": 4}], "cash", "idem-sale-1"
+    )
+    await money_service.withdraw_by_worker(
+        worker, Decimal("1000"), "առաքիչին", "idem-cash-01"
+    )
+    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
+    assert "1,634.00" in tiles, "what the drawer paid, not the 3,500 the shift was worth"
+    assert "3,500.00" not in tiles
+    assert "0.00" in tiles, "and no bonus was paid, because there was nothing to pay it with"
+    assert "3,866.00" in page.text, "what is still owed, said underneath"
+
+
 async def test_that_evenings_report_subtracts_what_the_shift_cost(client):
-    """45,400 of sales on 13 units costing 6 each is 45,322 gross. The wage was 5,500 and
-    the till only paid 1,634 of it — subtracting the payment would claim the day made
-    3,866 more than it did, and would disagree with the statistics page, which reads the
-    shift rows, about the same evening."""
+    """45,400 of sales on 13 units costing 6 each is 45,322 gross, less the 1,634 of wages
+    the drawer paid and the 1,000 taken out of it.
+
+    A report on one evening is a report about that evening's money, so the wage in it is
+    the one that left the drawer. The 3,866 the till could not cover is a real liability
+    and the profit will drop by it the day it is settled — which the page says, rather
+    than folding a debt into a figure about tonight's cash.
+    """
     owner_id, store_id, _ = await _a_shop(float_="234.00")
     worker_id, _ = await make_worker(
         owner_id, "Հայկ", salary_amount="3500.00", salary_period="shift"
@@ -402,12 +492,9 @@ async def test_that_evenings_report_subtracts_what_the_shift_cost(client):
     page = await client.get(f"/reports?store_session_id={session_id}")
 
     assert "45,400.00" in page.text, "revenue"
-    # The two apart, because a bonus is not a wage: «Աշխատավարձ 5,500» over a worker on
-    # 3,500 reads as an error, and the rate is what an owner checks the tile against.
-    assert "3,500.00" in page.text, "the wage the shift cost, not the 1,634 paid"
-    assert "2,000.00" in page.text, "and the bonus beside it"
-    assert "38,822.00" in page.text, "45,322 gross − 5,500 of wages − 1,000 taken"
-    assert "3,866.00" in page.text, "and what the drawer could not cover"
+    assert "1,634.00" in page.text, "the wage the drawer paid"
+    assert "42,688.00" in page.text, "45,322 gross − 1,634 of wages − 1,000 taken"
+    assert "3,866.00" in page.text, "and what the drawer could not cover, said apart"
 
 
 async def test_the_owner_restating_a_wage_clears_the_debt(client):

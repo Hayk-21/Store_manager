@@ -110,20 +110,36 @@ sales are out, for the same reason the statistics leave them out.
 those two are coloured and the rest are not. Two colours and no more — a page where
 every figure is coloured points at nothing.
 
-**Աշխատավարձ on a report is what the shifts cost, not what the till paid.** Those
-stopped being the same number when the drawer started paying only as far as it reaches:
-a shift worth 5,500 out of a till holding 1,634 still cost 5,500, and subtracting the
-1,634 claimed the day made 3,866 more than it had — while the statistics page, which
-reads the shift rows, said something else about the same evening. What the drawer could
-not cover is named underneath rather than left as a contradiction between the wage above
-and the cash line below.
+The whole header is one arithmetic, and it is the owner's:
 
-**Բոնուս is its own tile.** A bonus is not a wage: an owner reads that figure against
-the rate they set for somebody, and «Աշխատավարձ 5,500» over a worker on 3,500 reads as
-an error. Profit subtracts both, and the line under it says so. On the statistics page
-bonuses are inside the wage bill and were missing entirely — `salaries_between` summed
-`salary_paid` alone, so a target-beating month cost the business nothing in every figure
-there.
+```
+Ղեկավարին  =  float carried in + cash sales − wages paid − cash taken out
+              − left in the shop
+Շահույթ    =  (what the goods sold for − what they cost) − wages paid
+              − cash taken out − breakage
+```
+
+**A report on one evening is a report about that evening's money**, so the wages in it
+are what the drawer *paid*. Those stopped being the same as what the shift cost when the
+drawer started paying only as far as it reaches, and the figures beside them —
+«Ղեկավարին», «Մնաց խանութում» — are drawer questions. What the till could not cover is a
+real liability, so it is stated underneath with the warning that the profit above will
+drop by it the day it is settled, rather than folded into a number about tonight's cash.
+
+The statistics page takes the other view over a period, where the wage bill has to be
+what the shifts *cost* or an unpaid wage would never appear in the books at all. Bonuses
+belong in that bill and were missing entirely — `salaries_between` summed `salary_paid`
+alone, so a target-beating month cost the business nothing in every figure there.
+
+**Ղեկավարին comes from the books as they stand, not from the reading frozen on the
+count.** A sale the owner enters afterwards has to reach it: a shop whose drawer really
+held 2,000 was told the owner was owed nothing, because the count had been made when only
+the 234 float was in it. The count keeps its own reading beside it, and the page says so
+when the two have drifted apart.
+
+**Բոնուս is its own tile.** A bonus is not a wage: an owner reads that figure against the
+rate they set for somebody, and «Աշխատավարձ 5,500» over a worker on 3,500 reads as an
+error.
 
 Every one of those tiles is a different question, so the page **says why the answers are
 what they are**. A «Ղեկավարին» of nothing over a day that took 45,400 is startling, and

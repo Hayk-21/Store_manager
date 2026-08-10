@@ -116,20 +116,18 @@
       <span class="total-label">Մնաց խանութում</span>
       <span class="total-value">{{ d.left_in_store | money }}</span>
     </div>
-    {# What the shifts cost, not what the till managed to pay: a shift worth 5,500 out
-       of a drawer holding 1,634 still cost 5,500. Salary and bonus apart, because a
-       bonus is not a wage — «Աշխատավարձ 5,500» over a worker on 3,500 reads as an
-       error, and the rate is what an owner checks it against. #}
+    {# What the drawer paid, because these sit beside «Ղեկավարին» and «Մնաց խանութում»
+       and those are drawer questions. What the shift cost but the till could not cover
+       is stated below rather than folded in. Salary and bonus apart: a bonus is not a
+       wage, and the rate is what an owner checks the tile against. #}
     <div class="total">
       <span class="total-label">Աշխատավարձ</span>
       <span class="total-value">{{ d.wage_salary | money }}</span>
     </div>
-    {% if d.wage_bonus %}
     <div class="total">
       <span class="total-label">Բոնուս</span>
       <span class="total-value">{{ d.wage_bonus | money }}</span>
     </div>
-    {% endif %}
   </div>
   {# What the profit figure is made of. It is a subtraction, and a subtraction whose
      parts are not shown is a number the owner has to take on trust. #}
@@ -140,11 +138,13 @@
     {%- if d.totals.withdrawn %} · հանած վերցված {{ d.totals.withdrawn | money }}{% endif %}
     {%- if d.breakage_cost %} · հանած խոտան {{ d.breakage_cost | money }}{% endif %}։
     Ապրանքի վրա շահույթը վաճառքի գինն է հանած ինքնարժեքը։
-    {# Named, because the wage above is what the shift cost and the cash line below is
-       what the drawer paid. Without this the two look like a contradiction. #}
+    {# The figures above are what the drawer paid. What it could not cover is a real
+       liability and the profit will drop by it the day it is settled, so it is said
+       here rather than folded into a number about this evening's cash. #}
     {% if d.wage_unpaid %}
-      <br>Աշխատավարձից <b>{{ d.wage_unpaid | money }}</b>-ը դրամարկղից չի վճարվել՝
-      բավարար կանխիկ չկար։ Այդ գումարը դեռ պարտք է աշխատողին։
+      <br>Աշխատողին դեռ պարտք է <b>{{ d.wage_unpaid | money }}</b>՝ հաշվարկի պահին
+      դրամարկղում բավարար կանխիկ չկար։ Այդ գումարը վերևի շահույթից հանված չէ՝
+      վճարելու օրը շահույթը կնվազի այդ չափով։
     {% endif %}
   </p>
   {# What came out of the cash between the takings and the handover. Without it
@@ -162,10 +162,9 @@
        should have to reconstruct. The «of which X stays in the shop» phrasing this
        replaces was nonsense whenever the count claimed more than the till held. #}
     <br>
-    {% if d.left_in_store > d.count_expected %}
+    {% if d.till_counts and d.left_in_store > d.till_now %}
       Աշխատողը գրել է, որ խանութում մնում է <b>{{ d.left_in_store | money }}</b>՝
-      հաշվարկի պահին դրամարկղում եղածից ({{ d.count_expected | money }}) ավելի,
-      ուստի ղեկավարին հանձնելու գումար չկա։
+      դրամարկղում եղածից ավելի, ուստի ղեկավարին հանձնելու գումար չկա։
     {% elif d.owed_to_owner %}
       Դրանից <b>{{ d.left_in_store | money }}</b> մնում է խանութում, իսկ
       <b>{{ d.owed_to_owner | money }}</b>-ը՝ ղեկավարին։

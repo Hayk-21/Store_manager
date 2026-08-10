@@ -855,12 +855,16 @@ async def _what_the_day_made(store_session_id: int, totals) -> dict:
         gross   = what the goods sold for − what they cost
         the day = gross − wages − petty cash − breakage
 
-    Wages here are what the shifts *cost*, not what the till managed to pay. Those
-    stopped being the same number when the drawer started paying only as far as it
-    reaches: a shift worth 5,500 out of a till holding 1,634 still cost 5,500, and
-    subtracting the 1,634 would say the day made 3,866 more than it did — while the
-    statistics page, which reads the shift rows, said something else about the same
-    evening.
+    Wages here are what the till **paid**, not what the shift cost. A report on one
+    evening is a report about that evening's money, and a wage the drawer could not
+    cover has not left the business yet — so the figure that belongs beside «Ղեկավարին»
+    and «Մնաց խանութում», which are drawer questions, is the one that came out of the
+    drawer.
+
+    What is still owed is stated underneath rather than folded in, because it is a real
+    liability and the profit above will drop by it the day it is settled. The statistics
+    page takes the other view over a period, where the wage bill has to be what the
+    shifts cost or an unpaid wage would never appear in the books at all.
 
     Breakage is in it because that stock was paid for and did not come back. It never
     touched the till, which is exactly why it would go missing unless it is taken off
@@ -869,19 +873,17 @@ async def _what_the_day_made(store_session_id: int, totals) -> dict:
     gross = Decimal(await stats_repo.profit_for_session(store_session_id))
     breakage = Decimal(await write_offs_repo.cost_for_session(store_session_id))
     wages = await sessions_repo.wages_for_session(store_session_id)
-    cost = Decimal(wages["cost"])
+    # Out of the ledger, so they are what the drawer actually paid. Apart, because a
+    # bonus is not a wage: an owner reads that tile against the rate they set.
+    salary, bonus = Decimal(totals["salaries"]), Decimal(totals["bonuses"])
     return {
         "gross_profit": gross,
         "breakage_cost": breakage,
-        # Shown apart, because a bonus is not a wage: an owner comparing the tile
-        # against the rate they set for somebody wants the rate, and «Աշխատավարձ 5,500»
-        # over a worker on 3,500 reads as an error. Profit still subtracts both — the
-        # shop paid both — and the line under it says so.
-        "wage_salary": Decimal(wages["salary"]),
-        "wage_bonus": Decimal(wages["bonus"]),
-        "wage_cost": cost,
+        "wage_salary": salary,
+        "wage_bonus": bonus,
+        "wage_cost": Decimal(wages["cost"]),
         "wage_unpaid": Decimal(wages["unpaid"]),
-        "day_profit": gross - cost - Decimal(totals["withdrawn"]) - breakage,
+        "day_profit": gross - salary - bonus - Decimal(totals["withdrawn"]) - breakage,
     }
 
 
@@ -911,10 +913,18 @@ def _the_owners_share(totals, counts) -> dict:
     last = counts[-1]
     left, was = Decimal(last["counted"]), Decimal(last["expected"])
     return {
-        "owed_to_owner": max(Decimal(0), was - left),
+        # From the books as they stand, not from the reading frozen on the count:
+        #
+        #     float carried in + cash sales − wages paid − cash taken out − left behind
+        #
+        # which is the drawer, minus what stays in the shop. Taking it from the count
+        # instead meant a sale the owner added afterwards never reached the figure —
+        # a shop whose drawer really held 2,000 was told the owner was owed nothing,
+        # because the count had been made when only the 234 float was in it.
+        "owed_to_owner": max(Decimal(0), till_now - left),
         "left_in_store": left,
-        # The count's own reading of the till, which the page needs beside the ledger's:
-        # the two disagreeing is the usual reason the owner's share is nothing.
+        # The count's own reading, kept beside the ledger's: the two disagreeing is
+        # worth saying out loud, and it is the row the owner edits to fix it.
         "count_expected": was,
         "till_now": till_now,
         "count_is_stale": was != till_now,
