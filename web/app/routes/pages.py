@@ -869,12 +869,18 @@ async def _what_the_day_made(store_session_id: int, totals) -> dict:
     gross = Decimal(await stats_repo.profit_for_session(store_session_id))
     breakage = Decimal(await write_offs_repo.cost_for_session(store_session_id))
     wages = await sessions_repo.wages_for_session(store_session_id)
-    cost, unpaid = Decimal(wages["cost"]), Decimal(wages["unpaid"])
+    cost = Decimal(wages["cost"])
     return {
         "gross_profit": gross,
         "breakage_cost": breakage,
+        # Shown apart, because a bonus is not a wage: an owner comparing the tile
+        # against the rate they set for somebody wants the rate, and «Աշխատավարձ 5,500»
+        # over a worker on 3,500 reads as an error. Profit still subtracts both — the
+        # shop paid both — and the line under it says so.
+        "wage_salary": Decimal(wages["salary"]),
+        "wage_bonus": Decimal(wages["bonus"]),
         "wage_cost": cost,
-        "wage_unpaid": unpaid,
+        "wage_unpaid": Decimal(wages["unpaid"]),
         "day_profit": gross - cost - Decimal(totals["withdrawn"]) - breakage,
     }
 
@@ -898,6 +904,7 @@ def _the_owners_share(totals, counts) -> dict:
         return {
             "owed_to_owner": Decimal(0),
             "left_in_store": Decimal(0),
+            "count_expected": Decimal(0),
             "till_now": till_now,
             "count_is_stale": False,
         }
@@ -906,6 +913,9 @@ def _the_owners_share(totals, counts) -> dict:
     return {
         "owed_to_owner": max(Decimal(0), was - left),
         "left_in_store": left,
+        # The count's own reading of the till, which the page needs beside the ledger's:
+        # the two disagreeing is the usual reason the owner's share is nothing.
+        "count_expected": was,
         "till_now": till_now,
         "count_is_stale": was != till_now,
     }

@@ -323,7 +323,9 @@ async def wages_for_session(store_session_id: int) -> asyncpg.Record:
     """
     return await db.fetchrow(
         """
-        SELECT coalesce(sum(salary_paid), 0) + coalesce(sum(bonus_paid), 0)     AS cost,
+        SELECT coalesce(sum(salary_paid), 0)                                    AS salary,
+               coalesce(sum(bonus_paid), 0)                                     AS bonus,
+               coalesce(sum(salary_paid), 0) + coalesce(sum(bonus_paid), 0)     AS cost,
                coalesce(sum(salary_unpaid), 0) + coalesce(sum(bonus_unpaid), 0) AS unpaid
           FROM work_sessions WHERE store_session_id = $1
         """,

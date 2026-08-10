@@ -116,8 +116,21 @@ a shift worth 5,500 out of a till holding 1,634 still cost 5,500, and subtractin
 1,634 claimed the day made 3,866 more than it had — while the statistics page, which
 reads the shift rows, said something else about the same evening. What the drawer could
 not cover is named underneath rather than left as a contradiction between the wage above
-and the cash line below. Bonuses count as wages in both places; leaving them out of the
-statistics meant a target-beating month cost the business nothing.
+and the cash line below.
+
+**Բոնուս is its own tile.** A bonus is not a wage: an owner reads that figure against
+the rate they set for somebody, and «Աշխատավարձ 5,500» over a worker on 3,500 reads as
+an error. Profit subtracts both, and the line under it says so. On the statistics page
+bonuses are inside the wage bill and were missing entirely — `salaries_between` summed
+`salary_paid` alone, so a target-beating month cost the business nothing in every figure
+there.
+
+Every one of those tiles is a different question, so the page **says why the answers are
+what they are**. A «Ղեկավարին» of nothing over a day that took 45,400 is startling, and
+the arithmetic behind it — card money never reaching the drawer, a wage and a withdrawal
+emptying what did — is not something an owner should reconstruct. Where the count claims
+more was left than the till ever held, it says that instead; where nothing has been
+counted, it says that rather than showing two zeroes that look like a settlement.
 
 It used to read «Կանխիկ · Քարտ · Վաճառք · Աշխատավարձ», where the first was the drawer
 *balance* — takings less wages, petty cash and the handover — sitting beside two

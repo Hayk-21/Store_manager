@@ -722,6 +722,66 @@ async def test_a_day_that_lost_money_says_so_in_red(client):
     assert "negative" in tiles
 
 
+async def test_a_share_of_nothing_explains_itself(client):
+    """A zero over a day that took 45,400 is startling, and the arithmetic behind it —
+    card money never reaching the drawer, a wage and a withdrawal emptying what did — is
+    not something an owner should have to reconstruct.
+
+    The sentence this replaces read «մնացել է 0.00 ֏, որից 1,500 մնում է խանութում»,
+    which is nonsense: nothing cannot have 1,500 of it staying anywhere.
+    """
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+    await _lock_up(worker)
+    # Left more than the till ever held: an unrecorded sale, or a number typed
+    # without counting.
+    await till_service.declare_close(worker, Decimal("45000"), "idem-till-1")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "ղեկավարին հանձնելու գումար չկա" in page.text
+    assert "որից 1,500" not in page.text
+
+
+async def test_a_normal_evening_says_what_splits_where(client):
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "մնում է խանութում" in page.text
+    assert "ղեկավարին" in page.text.lower()
+
+
+async def test_an_uncounted_session_says_so_rather_than_showing_zeroes(client):
+    """Nothing counted is not "nothing owed". Two tiles reading 0.00 with no
+    explanation is the report claiming a settlement nobody made."""
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "Դրամարկղը դեռ հաշվված չէ" in page.text
+
+
 async def test_the_takings_split_is_a_figure_not_a_footnote(client):
     """At the same size as the total it belongs to, because it is the same kind of
     number. It was small print under the tiles, which is where a figure goes when it is

@@ -116,19 +116,27 @@
       <span class="total-label">Մնաց խանութում</span>
       <span class="total-value">{{ d.left_in_store | money }}</span>
     </div>
-    {# What the shifts cost, not what the till managed to pay. A shift worth 5,500 out
-       of a drawer holding 1,634 still cost 5,500, and the two stopped being the same
-       number when the drawer started paying only as far as it reaches. #}
+    {# What the shifts cost, not what the till managed to pay: a shift worth 5,500 out
+       of a drawer holding 1,634 still cost 5,500. Salary and bonus apart, because a
+       bonus is not a wage — «Աշխատավարձ 5,500» over a worker on 3,500 reads as an
+       error, and the rate is what an owner checks it against. #}
     <div class="total">
       <span class="total-label">Աշխատավարձ</span>
-      <span class="total-value">{{ d.wage_cost | money }}</span>
+      <span class="total-value">{{ d.wage_salary | money }}</span>
     </div>
+    {% if d.wage_bonus %}
+    <div class="total">
+      <span class="total-label">Բոնուս</span>
+      <span class="total-value">{{ d.wage_bonus | money }}</span>
+    </div>
+    {% endif %}
   </div>
   {# What the profit figure is made of. It is a subtraction, and a subtraction whose
      parts are not shown is a number the owner has to take on trust. #}
   <p class="muted small">
     Շահույթը՝ ապրանքի վրա {{ d.gross_profit | money }}
-    {%- if d.wage_cost %} · հանած աշխատավարձ {{ d.wage_cost | money }}{% endif %}
+    {%- if d.wage_salary %} · հանած աշխատավարձ {{ d.wage_salary | money }}{% endif %}
+    {%- if d.wage_bonus %} · հանած բոնուս {{ d.wage_bonus | money }}{% endif %}
     {%- if d.totals.withdrawn %} · հանած վերցված {{ d.totals.withdrawn | money }}{% endif %}
     {%- if d.breakage_cost %} · հանած խոտան {{ d.breakage_cost | money }}{% endif %}։
     Ապրանքի վրա շահույթը վաճառքի գինն է հանած ինքնարժեքը։
@@ -147,8 +155,25 @@
     {%- if d.totals.withdrawn %} · վերցված {{ d.totals.withdrawn | money }}{% endif %}
     {%- if d.totals.voided %} · չեղարկված {{ d.totals.voided | money }}{% endif %}
     {%- if d.totals.deposited %} · նախորդից մնացած {{ d.totals.deposited | money }}{% endif %}
-    · ըստ գրքերի դրամարկղում մնացել է <b>{{ d.till_now | money }}</b>, որից
-    {{ d.left_in_store | money }} մնում է խանութում։
+    · ըստ գրքերի դրամարկղում մնացել է <b>{{ d.till_now | money }}</b>։
+    {# Why «Ղեկավարին» says what it says, in the same breath. A zero over a day that
+       took 45,400 is startling and the arithmetic behind it — card money never reaching
+       the drawer, a wage and a withdrawal emptying what did — is not something an owner
+       should have to reconstruct. The «of which X stays in the shop» phrasing this
+       replaces was nonsense whenever the count claimed more than the till held. #}
+    <br>
+    {% if d.left_in_store > d.count_expected %}
+      Աշխատողը գրել է, որ խանութում մնում է <b>{{ d.left_in_store | money }}</b>՝
+      հաշվարկի պահին դրամարկղում եղածից ({{ d.count_expected | money }}) ավելի,
+      ուստի ղեկավարին հանձնելու գումար չկա։
+    {% elif d.owed_to_owner %}
+      Դրանից <b>{{ d.left_in_store | money }}</b> մնում է խանութում, իսկ
+      <b>{{ d.owed_to_owner | money }}</b>-ը՝ ղեկավարին։
+    {% elif d.till_counts %}
+      Ամբողջը մնում է խանութում՝ ղեկավարին հանձնելու գումար չկա։
+    {% else %}
+      Դրամարկղը դեռ հաշվված չէ, ուստի «Ղեկավարին» և «Մնաց խանութում» դաշտերը դատարկ են։
+    {% endif %}
     {# Named rather than left as two numbers on the same screen to be spotted. The
        count froze its reading at the moment of counting, so a sale voided or added
        afterwards moves the books out from under it. #}

@@ -402,8 +402,11 @@ async def test_that_evenings_report_subtracts_what_the_shift_cost(client):
     page = await client.get(f"/reports?store_session_id={session_id}")
 
     assert "45,400.00" in page.text, "revenue"
-    assert "5,500.00" in page.text, "the wage the shift cost, not the 1,634 paid"
-    assert "38,822.00" in page.text, "45,322 gross − 5,500 wages − 1,000 taken"
+    # The two apart, because a bonus is not a wage: «Աշխատավարձ 5,500» over a worker on
+    # 3,500 reads as an error, and the rate is what an owner checks the tile against.
+    assert "3,500.00" in page.text, "the wage the shift cost, not the 1,634 paid"
+    assert "2,000.00" in page.text, "and the bonus beside it"
+    assert "38,822.00" in page.text, "45,322 gross − 5,500 of wages − 1,000 taken"
     assert "3,866.00" in page.text, "and what the drawer could not cover"
 
 
