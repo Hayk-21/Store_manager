@@ -855,17 +855,27 @@ async def _what_the_day_made(store_session_id: int, totals) -> dict:
         gross   = what the goods sold for − what they cost
         the day = gross − wages − petty cash − breakage
 
+    Wages here are what the shifts *cost*, not what the till managed to pay. Those
+    stopped being the same number when the drawer started paying only as far as it
+    reaches: a shift worth 5,500 out of a till holding 1,634 still cost 5,500, and
+    subtracting the 1,634 would say the day made 3,866 more than it did — while the
+    statistics page, which reads the shift rows, said something else about the same
+    evening.
+
     Breakage is in it because that stock was paid for and did not come back. It never
     touched the till, which is exactly why it would go missing unless it is taken off
     here.
     """
     gross = Decimal(await stats_repo.profit_for_session(store_session_id))
     breakage = Decimal(await write_offs_repo.cost_for_session(store_session_id))
-    wages = Decimal(totals["salaries"]) + Decimal(totals["bonuses"])
+    wages = await sessions_repo.wages_for_session(store_session_id)
+    cost, unpaid = Decimal(wages["cost"]), Decimal(wages["unpaid"])
     return {
         "gross_profit": gross,
         "breakage_cost": breakage,
-        "day_profit": gross - wages - Decimal(totals["withdrawn"]) - breakage,
+        "wage_cost": cost,
+        "wage_unpaid": unpaid,
+        "day_profit": gross - cost - Decimal(totals["withdrawn"]) - breakage,
     }
 
 

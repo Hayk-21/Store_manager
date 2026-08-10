@@ -245,11 +245,18 @@ async def salaries_between(
 ) -> Decimal:
     """What the shifts in this period cost in wages.
 
-    Bucketed by when the shift *ended*, which is when the money left the till.
+    Bucketed by when the shift *ended*, which is when the wage was settled.
+
+    Bonuses included. They are money the shop owes for work done, they leave the till
+    like a wage, and leaving them out meant a target-beating month cost the business
+    nothing in every figure on the statistics page.
+
+    The cost, not the payment: a shift the drawer could not cover in full still cost
+    what it cost, and the part still owed is a debt rather than a saving.
     """
     return await db.fetchval(
         """
-        SELECT coalesce(sum(salary_paid), 0)
+        SELECT coalesce(sum(salary_paid), 0) + coalesce(sum(bonus_paid), 0)
           FROM work_sessions
          WHERE owner_id = $1 AND ended_at IS NOT NULL
            AND (ended_at AT TIME ZONE $4)::date BETWEEN $2 AND $3

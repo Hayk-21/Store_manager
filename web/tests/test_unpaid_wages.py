@@ -23,8 +23,10 @@ from decimal import Decimal
 from app.db import db
 from app.repo import money as money_repo
 from app.services import corrections as corrections_service
+from app.services import money as money_service
 from app.services import sales as sales_service
 from app.services import shifts as shifts_service
+from app.services import till as till_service
 from tests.factories import (
     YEREVAN_LAT,
     YEREVAN_LNG,
@@ -290,6 +292,119 @@ async def test_the_report_shows_the_debt_beside_the_wage(client):
 
     assert "պարտք" in page.text
     assert "2,500" in page.text
+
+
+async def test_a_real_evening_end_to_end(client):
+    """One shop's actual books, reproduced figure for figure, because every part of this
+    passing its own test is not the same as the evening adding up.
+
+    A 234 float; 40,000 and 3,000 on card; 2,400 in cash; 1,000 taken for something;
+    a 3,500 wage and a 2,000 bonus against a drawer holding 1,634.
+    """
+    owner_id, store_id, _ = await _a_shop(float_="234.00")
+    worker_id, _ = await make_worker(
+        owner_id, "Հայկ", salary_amount="3500.00", salary_period="shift"
+    )
+    await db.execute(
+        """
+        UPDATE workers SET bonus_threshold = 1000, bonus_amount = 2000,
+                           bonus_period = 'day'
+         WHERE id = $1
+        """,
+        worker_id,
+    )
+    worker = shifts_service.Worker(
+        id=worker_id, owner_id=owner_id, name="Հայկ",
+        salary_amount=Decimal("3500.00"), salary_period="shift",
+    )
+    cheap = await make_item(
+        owner_id, store_id, "Cfvb", count=50, self_price="6.00", sell_price="600.00"
+    )
+    dear = await make_item(
+        owner_id, store_id, "asdasd", count=50, self_price="6.00", sell_price="10000.00"
+    )
+    await _open(worker)
+    session_id, shift_id = await _session(), await _shift()
+
+    await sales_service.record_sale(
+        worker, [{"item_id": dear, "quantity": 4}], "card", "idem-sale-1"
+    )
+    await sales_service.record_sale(
+        worker, [{"item_id": cheap, "quantity": 5}], "card", "idem-sale-2"
+    )
+    await sales_service.record_sale(
+        worker, [{"item_id": cheap, "quantity": 4}], "cash", "idem-sale-3"
+    )
+    await money_service.withdraw_by_worker(
+        worker, Decimal("1000"), "առաքիչին", "idem-cash-01"
+    )
+    await worked_a_full_shift(worker.id)
+    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+
+    # The drawer held 234 + 2,400 − 1,000 = 1,634 when the wage fell due.
+    wages = await _wages(shift_id)
+    assert wages["salary_paid"] == Decimal("3500.00"), "what the shift cost"
+    assert wages["bonus_paid"] == Decimal("2000.00")
+    assert wages["salary_unpaid"] + wages["bonus_unpaid"] == Decimal("3866.00")
+    assert await _cash(session_id) == Decimal("0.00"), "the drawer paid all it had"
+
+    # And the count that follows sees an empty till, not the float it opened with.
+    result = await till_service.declare_close(worker, Decimal("1500"), "idem-till-01")
+    assert result["count"]["expected"] == "0.00"
+    assert result["count"]["handed_over"] == "0.00", "there is nothing to hand over"
+
+
+async def test_that_evenings_report_subtracts_what_the_shift_cost(client):
+    """45,400 of sales on 13 units costing 6 each is 45,322 gross. The wage was 5,500 and
+    the till only paid 1,634 of it — subtracting the payment would claim the day made
+    3,866 more than it did, and would disagree with the statistics page, which reads the
+    shift rows, about the same evening."""
+    owner_id, store_id, _ = await _a_shop(float_="234.00")
+    worker_id, _ = await make_worker(
+        owner_id, "Հայկ", salary_amount="3500.00", salary_period="shift"
+    )
+    await db.execute(
+        """
+        UPDATE workers SET bonus_threshold = 1000, bonus_amount = 2000,
+                           bonus_period = 'day'
+         WHERE id = $1
+        """,
+        worker_id,
+    )
+    worker = shifts_service.Worker(
+        id=worker_id, owner_id=owner_id, name="Հայկ",
+        salary_amount=Decimal("3500.00"), salary_period="shift",
+    )
+    cheap = await make_item(
+        owner_id, store_id, "Cfvb", count=50, self_price="6.00", sell_price="600.00"
+    )
+    dear = await make_item(
+        owner_id, store_id, "asdasd", count=50, self_price="6.00", sell_price="10000.00"
+    )
+    await _open(worker)
+    session_id = await _session()
+    await sales_service.record_sale(
+        worker, [{"item_id": dear, "quantity": 4}], "card", "idem-sale-1"
+    )
+    await sales_service.record_sale(
+        worker, [{"item_id": cheap, "quantity": 5}], "card", "idem-sale-2"
+    )
+    await sales_service.record_sale(
+        worker, [{"item_id": cheap, "quantity": 4}], "cash", "idem-sale-3"
+    )
+    await money_service.withdraw_by_worker(
+        worker, Decimal("1000"), "առաքիչին", "idem-cash-01"
+    )
+    await worked_a_full_shift(worker.id)
+    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "45,400.00" in page.text, "revenue"
+    assert "5,500.00" in page.text, "the wage the shift cost, not the 1,634 paid"
+    assert "38,822.00" in page.text, "45,322 gross − 5,500 wages − 1,000 taken"
+    assert "3,866.00" in page.text, "and what the drawer could not cover"
 
 
 async def test_the_owner_restating_a_wage_clears_the_debt(client):

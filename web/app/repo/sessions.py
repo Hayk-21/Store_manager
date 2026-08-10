@@ -313,6 +313,24 @@ async def is_open(conn, store_session_id: int) -> bool:
     ) or False
 
 
+async def wages_for_session(store_session_id: int) -> asyncpg.Record:
+    """What the shifts in one session cost, and how much of it the till could not pay.
+
+    The *cost*, not the payment. Those stopped being the same number when the drawer
+    started paying only as far as it reaches: a shift worth 5,500 out of a till holding
+    1,634 costs 5,500 and pays 1,634, and a report that subtracts the payment says the
+    day made 3,866 more than it did. Bonuses are in it because they are wages too.
+    """
+    return await db.fetchrow(
+        """
+        SELECT coalesce(sum(salary_paid), 0) + coalesce(sum(bonus_paid), 0)     AS cost,
+               coalesce(sum(salary_unpaid), 0) + coalesce(sum(bonus_unpaid), 0) AS unpaid
+          FROM work_sessions WHERE store_session_id = $1
+        """,
+        store_session_id,
+    )
+
+
 async def record_unpaid(
     conn, work_session_id: int, salary_unpaid: Decimal, bonus_unpaid: Decimal
 ) -> None:

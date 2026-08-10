@@ -110,6 +110,15 @@ sales are out, for the same reason the statistics leave them out.
 those two are coloured and the rest are not. Two colours and no more — a page where
 every figure is coloured points at nothing.
 
+**Աշխատավարձ on a report is what the shifts cost, not what the till paid.** Those
+stopped being the same number when the drawer started paying only as far as it reaches:
+a shift worth 5,500 out of a till holding 1,634 still cost 5,500, and subtracting the
+1,634 claimed the day made 3,866 more than it had — while the statistics page, which
+reads the shift rows, said something else about the same evening. What the drawer could
+not cover is named underneath rather than left as a contradiction between the wage above
+and the cash line below. Bonuses count as wages in both places; leaving them out of the
+statistics meant a target-beating month cost the business nothing.
+
 It used to read «Կանխիկ · Քարտ · Վաճառք · Աշխատավարձ», where the first was the drawer
 *balance* — takings less wages, petty cash and the handover — sitting beside two
 figures about takings. So «Կանխիկ 2,500 · Քարտ 16,000 · Վաճառք 101,500» read as a

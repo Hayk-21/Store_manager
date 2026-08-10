@@ -116,20 +116,28 @@
       <span class="total-label">Մնաց խանութում</span>
       <span class="total-value">{{ d.left_in_store | money }}</span>
     </div>
+    {# What the shifts cost, not what the till managed to pay. A shift worth 5,500 out
+       of a drawer holding 1,634 still cost 5,500, and the two stopped being the same
+       number when the drawer started paying only as far as it reaches. #}
     <div class="total">
       <span class="total-label">Աշխատավարձ</span>
-      <span class="total-value">{{ (d.totals.salaries + d.totals.bonuses) | money }}</span>
+      <span class="total-value">{{ d.wage_cost | money }}</span>
     </div>
   </div>
   {# What the profit figure is made of. It is a subtraction, and a subtraction whose
      parts are not shown is a number the owner has to take on trust. #}
   <p class="muted small">
     Շահույթը՝ ապրանքի վրա {{ d.gross_profit | money }}
-    {%- if d.totals.salaries + d.totals.bonuses %} · հանած աշխատավարձ
-      {{ (d.totals.salaries + d.totals.bonuses) | money }}{% endif %}
+    {%- if d.wage_cost %} · հանած աշխատավարձ {{ d.wage_cost | money }}{% endif %}
     {%- if d.totals.withdrawn %} · հանած վերցված {{ d.totals.withdrawn | money }}{% endif %}
     {%- if d.breakage_cost %} · հանած խոտան {{ d.breakage_cost | money }}{% endif %}։
     Ապրանքի վրա շահույթը վաճառքի գինն է հանած ինքնարժեքը։
+    {# Named, because the wage above is what the shift cost and the cash line below is
+       what the drawer paid. Without this the two look like a contradiction. #}
+    {% if d.wage_unpaid %}
+      <br>Աշխատավարձից <b>{{ d.wage_unpaid | money }}</b>-ը դրամարկղից չի վճարվել՝
+      բավարար կանխիկ չկար։ Այդ գումարը դեռ պարտք է աշխատողին։
+    {% endif %}
   </p>
   {# What came out of the cash between the takings and the handover. Without it
      «Ղեկավարին 31,600» is a number to take on faith. #}
