@@ -412,6 +412,22 @@
   {% endif %}
 </div>
 
+{# -- every payment, one row each -------------------------------------------
+   The table above is per category and the one before it per kind; neither answers
+   "which worker, which product, who took what out of the drawer and what for". This
+   one does, and every row can be corrected where it stands. #}
+<div class="card">
+  <div class="status-head">
+    <h2>Բոլոր վճարումները</h2>
+    <span class="muted small">{{ payments | length }} գրառում</span>
+  </div>
+  {% if payments %}
+    {% include "_spending.html" %}
+  {% else %}
+    <p class="muted">Այս ժամանակահատվածում վճարում գրանցված չէ։</p>
+  {% endif %}
+</div>
+
 {# -- what broke ------------------------------------------------------------
    The one third of «Ծախսեր» with no way back to what it was made of. Breakage was a
    single figure in the table above, and the first question about it — which products —

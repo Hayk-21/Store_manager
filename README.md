@@ -258,6 +258,30 @@ Beyond the headline figures, the page answers:
 * **what broke** — the write-offs behind the breakage figure. It was the one third of
   «Ծախսեր» with no way back to the things it was made of.
 
+### Every payment, one row each
+
+Money leaves the business by four doors — a **wage** (and a **bonus**, its own row), a
+cashier taking **petty cash**, an **expense** the owner types, stock **written off** —
+and each had its own page. So the only view of the whole was two aggregate rows,
+«Աշխատավարձ · Փակված հերթափոխեր · 18,000» and «Խոտան · Դուրս գրված ապրանք · 10,976».
+Both true, neither answerable: which worker, which product, who took what out of the
+drawer and what for.
+
+`repo/spending.py` unions the four into one list, and `_spending.html` renders it on
+**both** `/statistics` and `/expenses` — "what did this month cost" is asked from both,
+and the expenses page was answering it with only the entries typed on it.
+
+Every row can be corrected where it stands, posting to the same endpoints the store page
+and the report use rather than to a second set. The amount is editable inline for a
+wage, a withdrawal and an expense; a withdrawal, an expense and breakage can be deleted.
+A wage cannot: it is one half of a shift, and removing it alone would leave the shift
+claiming it paid something the ledger does not have — setting it to nothing is the same
+act and keeps the two together. Deleting breakage puts the stock back, because if the
+vape did not break it is still on the shelf.
+
+`?back=` carries the page the correction was made on, so a fix on one list does not land
+on the other. Only a path of this site: an open redirect is a phishing tool.
+
 `Asia/Yerevan` is used for *displaying* times, for grouping report rows and for deciding
 which hour a sale falls in. It never decides which bucket money lands in.
 

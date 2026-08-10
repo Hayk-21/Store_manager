@@ -184,6 +184,23 @@
   {% endif %}
 </div>
 
+{# -- everything the business paid out --------------------------------------
+   Not only what was typed on this page. A wage and a cashier's petty cash are money
+   out too, and this is the page an owner comes to for "what did the month cost" — so
+   the aggregate «Աշխատավարձ 18,000» that used to be the whole answer is now the rows
+   it was made of, each correctable where it stands. #}
+<div class="card">
+  <div class="status-head">
+    <h2>Բոլոր վճարումները</h2>
+    <span class="muted small">{{ payments | length }} գրառում</span>
+  </div>
+  {% if payments %}
+    {% include "_spending.html" %}
+  {% else %}
+    <p class="muted">Այս ամսվա համար վճարում գրանցված չէ։</p>
+  {% endif %}
+</div>
+
 <details class="card">
   <summary><h2>Կատեգորիաներ</h2></summary>
   <p class="muted small">{{ categories | map(attribute='name') | join(' · ') }}</p>

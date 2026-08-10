@@ -1,0 +1,122 @@
+{# Every way money left the business, one row each.
+
+   It used to be two aggregate rows — «Աշխատավարձ · Փակված հերթափոխեր · 18,000» and
+   «Խոտան · Դուրս գրված ապրանք · 10,976» — which are true and unanswerable: which
+   worker, which product, who took what out of the drawer and what for.
+
+   Each row is edited and deleted where it lives, so the forms post to the same
+   endpoints the store page and the report use rather than to a second set. `back`
+   is where to return afterwards, so the same partial serves both pages. #}
+<div class="table-wrap">
+  <table class="cards">
+    <thead>
+      <tr>
+        <th>Ամսաթիվ</th><th>Ինչի համար</th><th>Խանութ</th><th>Ով / ուղղություն</th>
+        <th>Ձև</th><th class="num">Գումար</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in payments %}
+      <tr>
+        <td class="nowrap" data-label="Ամսաթիվ">{{ row.at | stamp }}</td>
+        <td class="cell-name" data-label="Ինչի համար">
+          {{ row.purpose }}
+          {% if row.kind == 'salary' %}<span class="badge">հերթափոխ</span>
+          {% elif row.kind == 'bonus' %}<span class="badge positive">բոնուս</span>
+          {% elif row.kind == 'withdrawal' %}<span class="badge">դրամարկղից</span>
+          {% elif row.kind == 'breakage' %}<span class="badge">խոտան</span>
+          {% endif %}
+          {# What the drawer could not cover, beside the wage it belongs to: the row
+             says what was paid, and the rest is still owed. #}
+          {% if row.unpaid %}
+            <span class="badge negative" title="Դրամարկղում կանխիկ չկար">
+              պարտք {{ row.unpaid | money }}</span>
+          {% endif %}
+        </td>
+        <td data-label="Խանութ">{{ row.store_name }}</td>
+        <td data-label="Ով / ուղղություն">{{ row.worker_name or '—' }}</td>
+        <td data-label="Ձև">
+          {% if row.method == 'cash' %}Կանխիկ
+          {% elif row.method == 'card' %}Քարտ
+          {% elif row.method == 'bank' %}Փոխանցում
+          {% elif row.method == 'other' %}Այլ
+          {% else %}<span class="muted">դրամարկղին չի ազդում</span>{% endif %}
+        </td>
+        <td class="num" data-label="Գումար">
+          {% if row.kind in editable %}
+            <input form="sp-{{ row.kind }}-{{ row.id }}" name="amount"
+                   value="{{ row.amount | plain_money }}" inputmode="decimal"
+                   class="money-input" aria-label="Գումար">
+            <button form="sp-{{ row.kind }}-{{ row.id }}" type="submit"
+                    class="secondary tiny">✓</button>
+          {% else %}
+            <span class="negative">{{ row.amount | money }}</span>
+          {% endif %}
+        </td>
+        <td class="num cell-actions" data-label="">
+          {% if row.kind in deletable %}
+            <button form="sp-del-{{ row.kind }}-{{ row.id }}" type="submit"
+                    class="danger tiny" title="Ջնջել">✕</button>
+          {% elif row.kind in ('salary', 'bonus') %}
+            {# A wage is half of a shift and cannot be removed on its own without
+               leaving the shift saying it paid something the ledger does not have.
+               Setting it to nothing is the same act and keeps the two together. #}
+            <span class="muted small" title="Աշխատավարձը ջնջելու համար գրեք 0">0 =&nbsp;ջնջել</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <th colspan="5">Ընդամենը</th>
+        <th class="num negative">{{ payment_totals.total | money }}</th>
+        <th></th>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+
+{# The forms live outside the table: one inside a <tr> is not valid HTML and browsers
+   hoist it out, silently detaching its inputs. #}
+{% for row in payments %}
+  {% if row.kind == 'salary' %}
+    <form id="sp-salary-{{ row.id }}" method="post"
+          action="/shifts/{{ row.id }}/salary?back={{ back | urlencode }}">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    </form>
+  {% elif row.kind == 'withdrawal' %}
+    <form id="sp-withdrawal-{{ row.id }}" method="post"
+          action="/movements/{{ row.id }}?back={{ back | urlencode }}">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    </form>
+    <form id="sp-del-withdrawal-{{ row.id }}" method="post"
+          action="/movements/{{ row.id }}/delete?back={{ back | urlencode }}"
+          onsubmit="return confirm('Ջնջե՞լ այս գրառումը։')">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    </form>
+  {% elif row.kind == 'expense' %}
+    <form id="sp-expense-{{ row.id }}" method="post"
+          action="/expenses/{{ row.id }}/amount?back={{ back | urlencode }}">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    </form>
+    <form id="sp-del-expense-{{ row.id }}" method="post"
+          action="/expenses/{{ row.id }}/delete?back={{ back | urlencode }}"
+          onsubmit="return confirm('Ջնջե՞լ այս ծախսը։')">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    </form>
+  {% elif row.kind == 'breakage' %}
+    <form id="sp-del-breakage-{{ row.id }}" method="post"
+          action="/write-offs/{{ row.id }}/delete?back={{ back | urlencode }}"
+          onsubmit="return confirm('Ջնջե՞լ այս խոտանը։ Ապրանքը կվերադառնա պահեստ։')">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    </form>
+  {% endif %}
+{% endfor %}
+
+<p class="muted small">
+  Աշխատավարձը փոխելու համար գրեք նոր գումարը և սեղմեք ✓, ջնջելու համար՝ գրեք 0։
+  Խոտանը հաշվվում է ինքնարժեքով և դրամարկղին չի ազդում՝ փողը դուրս է եկել գնելու
+  պահին։ Խոտանը ջնջելիս ապրանքը վերադառնում է պահեստ։
+  {%- if payment_totals.expense is not defined %} <a href="/expenses">Ծախս ավելացնել</a>{% endif %}
+</p>

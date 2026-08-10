@@ -22,6 +22,7 @@ from app.repo import items as items_repo
 from app.repo import money as money_repo
 from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
+from app.repo import spending as spending_repo
 from app.repo import stats as stats_repo
 from app.repo import stores as stores_repo
 from app.repo import till as till_repo
@@ -481,6 +482,10 @@ async def expenses_page(
             "categories": await expenses_repo.categories(user.id),
             "stores": await stores_repo.list_for_owner(user.id),
             "today": settings.local_day(),
+            # Everything the business paid out this month, not only what was typed on
+            # this page: a wage and a cashier's petty cash are spending too, and this
+            # was the page an owner came to for "what did the month cost".
+            **await _spending_context(user.id, since, until, f"/expenses?month={label}"),
         },
     )
 
@@ -560,15 +565,46 @@ async def edit_expense(
     return RedirectResponse(f"/expenses?month={fields['spent_on']:%Y-%m}", status_code=303)
 
 
+@router.post("/expenses/{expense_id}/amount")
+async def set_expense_amount(
+    expense_id: int,
+    amount: str = Form(""),
+    back: str | None = None,
+    user: CurrentUser = Depends(require_csrf),
+):
+    """Change only the figure, from the spending list.
+
+    The full form has seven fields and lives on `/expenses`. Nine times out of ten what
+    is wrong is the number, and sending somebody to another page to fix a digit is how a
+    wrong number stays in the books.
+    """
+    existing = await expenses_repo.get(user.id, expense_id)
+    if existing is None:
+        raise AppError("not_found", "Ծախսը չի գտնվել։")
+    await expenses_repo.update(
+        user.id,
+        expense_id,
+        purpose=existing["purpose"],
+        amount=forms.money(amount, "Գումար"),
+        spent_on=existing["spent_on"],
+        store_id=existing["store_id"],
+        category_id=existing["category_id"],
+        method=existing["method"],
+        recurrence=existing["recurrence"],
+        note=existing["note"],
+    )
+    return _back_to(back, f"/expenses?month={existing['spent_on']:%Y-%m}")
+
+
 @router.post("/expenses/{expense_id}/delete")
-async def delete_expense(expense_id: int, user: CurrentUser = Depends(require_csrf)):
+async def delete_expense(
+    expense_id: int, back: str | None = None, user: CurrentUser = Depends(require_csrf)
+):
     existing = await expenses_repo.get(user.id, expense_id)
     if existing is None:
         raise AppError("not_found", "Ծախսը չի գտնվել։")
     await expenses_repo.delete(user.id, expense_id)
-    return RedirectResponse(
-        f"/expenses?month={existing['spent_on']:%Y-%m}", status_code=303
-    )
+    return _back_to(back, f"/expenses?month={existing['spent_on']:%Y-%m}")
 
 
 @router.get("/reports")
@@ -662,6 +698,8 @@ async def statistics_page(
             "preset": preset,
             "presets": statistics.PRESETS,
             **await statistics.overview(user.id, since, until, store_id),
+            **await _spending_context(user.id, since, until, request.url.path
+                                      + "?" + str(request.url.query), store_id),
         },
     )
 
@@ -791,19 +829,42 @@ async def add_movement(
     return _back_to_report(store_session_id)
 
 
+@router.post("/movements/{movement_id}")
+async def set_movement_amount(
+    movement_id: int,
+    amount: str = Form(""),
+    back: str | None = None,
+    user: CurrentUser = Depends(require_csrf),
+):
+    """Change what a withdrawal was for how much.
+
+    A wrong figure here is a wrong figure in the drawer, and the only fix used to be
+    deleting the row and typing it again — which loses the reason with it.
+    """
+    store_session_id = await corrections.set_movement_amount(
+        user.id, user.id, movement_id, forms.money(amount, "Գումար")
+    )
+    return _back_to(back, f"/reports?store_session_id={store_session_id}")
+
+
 @router.post("/movements/{movement_id}/delete")
-async def delete_movement(movement_id: int, user: CurrentUser = Depends(require_csrf)):
+async def delete_movement(
+    movement_id: int, back: str | None = None, user: CurrentUser = Depends(require_csrf)
+):
     store_session_id = await db.fetchval(
         "SELECT store_session_id FROM cash_movements WHERE id = $1 AND owner_id = $2",
         movement_id, user.id,
     )
     await corrections.delete_movement(user.id, user.id, movement_id)
-    return _back_to_report(store_session_id)
+    return _back_to(back, f"/reports?store_session_id={store_session_id}")
 
 
 @router.post("/shifts/{work_session_id}/salary")
 async def set_salary(
-    work_session_id: int, salary: str = Form(""), user: CurrentUser = Depends(require_csrf)
+    work_session_id: int,
+    salary: str = Form(""),
+    back: str | None = None,
+    user: CurrentUser = Depends(require_csrf),
 ):
     store_session_id = await db.fetchval(
         "SELECT store_session_id FROM work_sessions WHERE id = $1 AND owner_id = $2",
@@ -812,7 +873,7 @@ async def set_salary(
     await corrections.set_salary(
         user.id, user.id, work_session_id, forms.money(salary, "Աշխատավարձ")
     )
-    return _back_to_report(store_session_id)
+    return _back_to(back, f"/reports?store_session_id={store_session_id}")
 
 
 @router.post("/history/{event_id}/revert")
@@ -929,6 +990,36 @@ def _the_owners_share(totals, counts) -> dict:
         "till_now": till_now,
         "count_is_stale": was != till_now,
     }
+
+
+async def _spending_context(
+    owner_id: int, since: date, until: date, back: str, store_id: int | None = None
+) -> dict:
+    """Every payment of a period, for whichever page is showing them.
+
+    ``back`` is where an edit or a delete should return to — the same partial serves the
+    statistics page and the expenses page, and a correction made on one should not land
+    on the other.
+    """
+    rows = await spending_repo.list_between(owner_id, since, until, store_id)
+    return {
+        "payments": rows,
+        "payment_totals": spending_repo.totals(rows),
+        "editable": spending_repo.EDITABLE,
+        "deletable": spending_repo.DELETABLE,
+        "back": back,
+    }
+
+
+def _back_to(where: str | None, fallback: str):
+    """Return to the page the form was on, when it said which.
+
+    Only a path of our own: an open redirect is a phishing tool, and the only thing a
+    caller legitimately needs is "the page I was looking at".
+    """
+    if where and where.startswith("/") and not where.startswith("//"):
+        return RedirectResponse(where, status_code=303)
+    return RedirectResponse(fallback, status_code=303)
 
 
 def _back_to_report(store_session_id: int | None):
@@ -1078,7 +1169,8 @@ async def delete_report(
 
 @router.post("/write-offs/{write_off_id}/delete")
 async def delete_write_off(
-    write_off_id: int, user: CurrentUser = Depends(require_csrf)
+    write_off_id: int, back: str | None = None,
+    user: CurrentUser = Depends(require_csrf),
 ):
     """Remove a write-off and put the stock back.
 
@@ -1105,7 +1197,9 @@ async def delete_write_off(
         "owner %s deleted write-off %s and restored %s of item %s",
         user.id, write_off_id, write_off["quantity"], write_off["item_id"],
     )
-    return _back_to_report(write_off["store_session_id"])
+    return _back_to(
+        back, f"/reports?store_session_id={write_off['store_session_id']}"
+    )
 
 
 @router.post("/workers/{worker_id}")

@@ -51,6 +51,7 @@ ACTION_LABELS = {
     "delete_sale": "Վաճառքի ջնջում",
     "set_salary": "Աշխատավարձի փոփոխում",
     "delete_till_count": "Դրամարկղի հաշվարկի ջնջում",
+    "set_movement_amount": "Գրառման գումարի փոփոխում",
 }
 
 
@@ -490,6 +491,65 @@ async def add_movement(
     return movement_id
 
 
+async def set_movement_amount(
+    owner_id: int, user_id: int, movement_id: int, amount: Decimal
+) -> int:
+    """Change what a hand-entered ledger row was for how much. Returns its session.
+
+    Only the kinds an owner may create by hand. A 'sale' or 'salary' row is one half of
+    something else — a receipt, a shift — and editing it alone would leave the two
+    disagreeing forever; both have their own editors that move the pair together.
+
+    A wrong figure here is a wrong figure in the drawer, and the only fix was deleting
+    the row and typing it again, which loses the reason with it.
+    """
+    if amount <= ZERO:
+        raise AppError("validation_error", "Գումարը պետք է մեծ լինի զրոյից։")
+
+    async with db.transaction() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, kind, amount, note, store_session_id
+              FROM cash_movements WHERE id = $1 AND owner_id = $2 FOR UPDATE
+            """,
+            movement_id, owner_id,
+        )
+        if row is None:
+            raise AppError("not_found", "Գրառումը չի գտնվել։")
+        if row["kind"] not in OWNER_KINDS:
+            raise AppError(
+                "validation_error",
+                "Այս գրառումը վաճառքի կամ հերթափոխի մասն է և առանձին չի փոփոխվում։",
+            )
+
+        # Withdrawals are stored negative and deposits positive, and the form asks for
+        # a plain amount. Keeping the sign from the row means the kind decides it.
+        signed = -amount if Decimal(row["amount"]) < ZERO else amount
+        await conn.execute(
+            "UPDATE cash_movements SET amount = $2 WHERE id = $1", movement_id, signed
+        )
+        await _resync_snapshot(conn, row["store_session_id"])
+        await audit_repo.record(
+            conn, owner_id, user_id, "set_movement_amount",
+            f"Գրառում՝ {Decimal(row['amount']):,.0f} → {signed:,.0f} ֏ — "
+            f"{(row['note'] or '')[:60]}",
+            store_session_id=row["store_session_id"],
+            payload={
+                "movement_id": movement_id,
+                "previous": str(row["amount"]),
+            },
+        )
+    log.info("owner %s set movement %s to %s", owner_id, movement_id, amount)
+    return row["store_session_id"]
+
+
+async def _revert_set_movement_amount(conn, owner_id: int, payload: dict) -> None:
+    await conn.execute(
+        "UPDATE cash_movements SET amount = $2 WHERE id = $1 AND owner_id = $3",
+        payload["movement_id"], Decimal(payload["previous"]), owner_id,
+    )
+
+
 async def delete_movement(owner_id: int, user_id: int, movement_id: int) -> None:
     """Remove a ledger row.
 
@@ -832,4 +892,5 @@ _REVERTERS = {
     "delete_sale": _revert_delete_sale,
     "set_salary": _revert_set_salary,
     "delete_till_count": _revert_delete_till_count,
+    "set_movement_amount": _revert_set_movement_amount,
 }
