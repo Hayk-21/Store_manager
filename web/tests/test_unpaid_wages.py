@@ -441,8 +441,12 @@ async def test_the_wage_tiles_show_what_the_drawer_paid(client):
 
 
 async def test_that_evenings_report_subtracts_what_the_shift_cost(client):
-    """45,400 of sales on 13 units costing 6 each is 45,322 gross, less the 1,634 of wages
-    the drawer paid and the 1,000 taken out of it.
+    """Շահույթ = վաճառք − աշխատավարձ − բոնուս − դրամարկղից հանված, which for this evening
+    is 45,400 − 1,634 − 0 − 1,000.
+
+    What the stock cost is not in it: the shop paid for those vapes when it bought them,
+    so on the day one sells the whole price is money the business is better off by. Same
+    reasoning as breakage, which the page has always excluded for exactly that reason.
 
     A report on one evening is a report about that evening's money, so the wage in it is
     the one that left the drawer. The 3,866 the till could not cover is a real liability
@@ -493,7 +497,8 @@ async def test_that_evenings_report_subtracts_what_the_shift_cost(client):
 
     assert "45,400.00" in page.text, "revenue"
     assert "1,634.00" in page.text, "the wage the drawer paid"
-    assert "42,688.00" in page.text, "45,322 gross − 1,634 of wages − 1,000 taken"
+    assert "42,766.00" in page.text, "45,400 sold − 1,634 of wages − 1,000 taken"
+    assert "45,322.00" in page.text, "and the margin, stated but not subtracted"
     assert "3,866.00" in page.text, "and what the drawer could not cover, said apart"
 
 

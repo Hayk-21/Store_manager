@@ -907,44 +907,41 @@ async def _session_of_sale(owner_id: int, sale_id: int) -> int | None:
 
 
 async def _what_the_day_made(store_session_id: int, totals) -> dict:
-    """The bottom line for one session: what the shop earned, not what it took.
+    """The bottom line for one session, in the owner's own arithmetic:
 
-    Revenue is the loudest figure on the page and the least useful on its own — a shop
-    can sell 101,500 of stock that cost 90,000 and pay 7,000 in wages out of it. This is
-    the same subtraction the statistics page makes over a period, applied to one evening:
+        Շահույթ  =  վաճառք − աշխատավարձ − բոնուս − դրամարկղից հանված
 
-        gross   = what the goods sold for − what they cost
-        the day = gross − wages − petty cash − breakage
+    What the stock cost is deliberately not in it, and that is consistent rather than an
+    omission: the shop paid for those vapes when it bought them, so on the day one sells
+    the whole price is money the business is better off by. It is the same reasoning the
+    page already gives for breakage — «փողը դուրս է եկել գնելու պահին» — and breakage is
+    out for the same reason. The statistics page takes the other view over a period,
+    where margin and the cost of goods are what the question is actually about.
 
     Wages here are what the till **paid**, not what the shift cost. A report on one
     evening is a report about that evening's money, and a wage the drawer could not
     cover has not left the business yet — so the figure that belongs beside «Ղեկավարին»
     and «Մնաց խանութում», which are drawer questions, is the one that came out of the
-    drawer.
-
-    What is still owed is stated underneath rather than folded in, because it is a real
-    liability and the profit above will drop by it the day it is settled. The statistics
-    page takes the other view over a period, where the wage bill has to be what the
-    shifts cost or an unpaid wage would never appear in the books at all.
-
-    Breakage is in it because that stock was paid for and did not come back. It never
-    touched the till, which is exactly why it would go missing unless it is taken off
-    here.
+    drawer. What is still owed is stated underneath, because the profit above will drop
+    by it the day it is settled.
     """
-    gross = Decimal(await stats_repo.profit_for_session(store_session_id))
-    breakage = Decimal(await write_offs_repo.cost_for_session(store_session_id))
     wages = await sessions_repo.wages_for_session(store_session_id)
     # Out of the ledger, so they are what the drawer actually paid. Apart, because a
     # bonus is not a wage: an owner reads that tile against the rate they set.
     salary, bonus = Decimal(totals["salaries"]), Decimal(totals["bonuses"])
+    # Net of reversals: a voided sale is not a sale, and a day where everything was
+    # taken back used to read as a day that sold 7,000 and made a profit on it.
+    takings = Decimal(totals["net_sales"])
     return {
-        "gross_profit": gross,
-        "breakage_cost": breakage,
+        # Kept for the line under the tile, which says what the goods themselves earned
+        # so the figure the owner is not subtracting is at least in front of them.
+        "gross_profit": Decimal(await stats_repo.profit_for_session(store_session_id)),
+        "breakage_cost": Decimal(await write_offs_repo.cost_for_session(store_session_id)),
         "wage_salary": salary,
         "wage_bonus": bonus,
         "wage_cost": Decimal(wages["cost"]),
         "wage_unpaid": Decimal(wages["unpaid"]),
-        "day_profit": gross - salary - bonus - Decimal(totals["withdrawn"]) - breakage,
+        "day_profit": takings - salary - bonus - Decimal(totals["withdrawn"]),
     }
 
 

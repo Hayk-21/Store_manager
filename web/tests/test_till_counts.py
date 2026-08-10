@@ -620,9 +620,8 @@ async def test_the_header_no_longer_labels_the_drawer_as_cash_takings(client):
 
 
 async def test_the_header_says_what_the_day_actually_made(client):
-    """Revenue is the loudest figure on the page and the least useful alone — a shop can
-    sell 7,000 of stock that cost 3,000 and pay a wage out of it. Sale of 2 at 3,500 with
-    a cost of 1,500 each is 4,000 gross, and the shift's wage comes off that."""
+    """Շահույթ = վաճառք − աշխատավարձ − բոնուս − դրամարկղից հանված. Two at 3,500 is 7,000
+    sold, less a 1,000 wage."""
     owner_id, _, item_id = await _a_shop(balance="40000.00")
     worker_id, _ = await make_worker(owner_id, "Անի", salary_amount="1000.00")
     worker = shifts_service.Worker(
@@ -640,12 +639,36 @@ async def test_the_header_says_what_the_day_actually_made(client):
     page = await client.get(f"/reports?store_session_id={session_id}")
 
     assert "Շահույթ" in page.text
-    assert "3,000.00" in page.text, "4,000 on the goods less a 1,000 wage"
+    assert "6,000.00" in page.text, "7,000 sold less a 1,000 wage"
 
 
-async def test_breakage_comes_off_the_day(client):
-    """That stock was paid for and did not come back. It never touched the till, which is
-    exactly why it would go missing unless it is taken off deliberately."""
+async def test_what_the_stock_cost_is_stated_but_not_subtracted(client):
+    """It was paid for when the shop bought it, so on the day one sells the whole price
+    is money the business is better off by — the same reasoning the page has always
+    given for breakage. The margin is still worth having in front of the owner, so it is
+    said beside the figure rather than left off the page.
+    """
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
+    assert "7,000.00" in tiles, "the whole price, not the 4,000 of margin"
+    assert "4,000.00" in page.text, "which is still said underneath"
+
+
+async def test_breakage_does_not_come_off_the_day(client):
+    """Excluded for the same reason the stock cost is: the money left when the vape was
+    bought, not when it was dropped. The page has always said so about breakage, and
+    «Շահույթ» now follows the same rule throughout."""
     owner_id, _, item_id = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
@@ -659,12 +682,15 @@ async def test_breakage_comes_off_the_day(client):
 
     page = await client.get(f"/reports?store_session_id={session_id}")
 
-    assert "2,500.00" in page.text, "4,000 gross less 1,500 of breakage"
+    tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
+    assert "7,000.00" in tiles, "the 1,500 of breakage is not in it"
+    assert "1,500.00" in page.text, "but it is named underneath"
 
 
-async def test_a_voided_sale_is_not_counted_as_profit(client):
-    """The goods went back on the shelf, which is the same reason the statistics leave
-    them out."""
+async def test_a_voided_sale_is_not_counted_at_all(client):
+    """Not as takings and so not as profit either. A day where everything was taken back
+    read as a day that sold 7,000 and made money on it, because the tile summed the sale
+    rows and left the reversals beside them."""
     owner_id, _, item_id = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
@@ -680,7 +706,7 @@ async def test_a_voided_sale_is_not_counted_as_profit(client):
     page = await client.get(f"/reports?store_session_id={session_id}")
 
     tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
-    assert "4,000" not in tiles
+    assert "7,000" not in tiles
 
 
 async def test_the_two_figures_an_owner_looks_for_are_coloured(client):
@@ -700,7 +726,8 @@ async def test_the_two_figures_an_owner_looks_for_are_coloured(client):
 
 
 async def test_a_day_that_lost_money_says_so_in_red(client):
-    """A wage larger than the margin is a real evening, and «-1,000 ֏» is the answer."""
+    """A wage larger than the day's takings is a real evening, and a negative is the
+    answer to it."""
     owner_id, _, item_id = await _a_shop(balance="40000.00")
     worker_id, _ = await make_worker(owner_id, "Անի", salary_amount="10000.00")
     worker = shifts_service.Worker(
@@ -717,7 +744,7 @@ async def test_a_day_that_lost_money_says_so_in_red(client):
 
     page = await client.get(f"/reports?store_session_id={session_id}")
 
-    assert "-8,000.00" in page.text, "2,000 on one vape against a 10,000 wage"
+    assert "-6,500.00" in page.text, "3,500 sold against a 10,000 wage"
     tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
     assert "negative" in tiles
 

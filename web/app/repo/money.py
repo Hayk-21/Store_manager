@@ -138,6 +138,18 @@ _TOTALS_SQL = """
                    AS sale_cash,
                coalesce(sum(amount) FILTER (WHERE kind = 'sale' AND method = 'card'), 0)
                    AS sale_card,
+               -- The same three with the reversals folded in. A voided sale is not a
+               -- sale, and a day where everything was taken back read as a day that
+               -- sold 7,000 — the void row carries the method of the sale it reverses,
+               -- so the split nets out with it.
+               coalesce(sum(amount) FILTER (WHERE kind IN ('sale', 'void')), 0)
+                   AS net_sales,
+               coalesce(sum(amount) FILTER (
+                   WHERE kind IN ('sale', 'void') AND method = 'cash'), 0)
+                   AS net_sale_cash,
+               coalesce(sum(amount) FILTER (
+                   WHERE kind IN ('sale', 'void') AND method = 'card'), 0)
+                   AS net_sale_card,
                coalesce(-sum(amount) FILTER (WHERE kind = 'void'), 0)   AS voided,
                coalesce(-sum(amount) FILTER (WHERE kind = 'salary'), 0) AS salaries,
                coalesce(-sum(amount) FILTER (WHERE kind = 'bonus'), 0)  AS bonuses,
@@ -174,6 +186,18 @@ async def totals_for_session(store_session_id: int) -> asyncpg.Record:
                    AS sale_cash,
                coalesce(sum(amount) FILTER (WHERE kind = 'sale' AND method = 'card'), 0)
                    AS sale_card,
+               -- The same three with the reversals folded in. A voided sale is not a
+               -- sale, and a day where everything was taken back read as a day that
+               -- sold 7,000 — the void row carries the method of the sale it reverses,
+               -- so the split nets out with it.
+               coalesce(sum(amount) FILTER (WHERE kind IN ('sale', 'void')), 0)
+                   AS net_sales,
+               coalesce(sum(amount) FILTER (
+                   WHERE kind IN ('sale', 'void') AND method = 'cash'), 0)
+                   AS net_sale_cash,
+               coalesce(sum(amount) FILTER (
+                   WHERE kind IN ('sale', 'void') AND method = 'card'), 0)
+                   AS net_sale_card,
                coalesce(-sum(amount) FILTER (WHERE kind = 'void'), 0)   AS voided,
                coalesce(-sum(amount) FILTER (WHERE kind = 'salary'), 0) AS salaries,
                coalesce(-sum(amount) FILTER (WHERE kind = 'bonus'), 0)  AS bonuses,

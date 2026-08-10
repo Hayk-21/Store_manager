@@ -115,9 +115,21 @@ The whole header is one arithmetic, and it is the owner's:
 ```
 Ղեկավարին  =  float carried in + cash sales − wages paid − cash taken out
               − left in the shop
-Շահույթ    =  (what the goods sold for − what they cost) − wages paid
-              − cash taken out − breakage
+Շահույթ    =  takings − wage paid − bonus paid − cash taken out
 ```
+
+**What the stock cost is not in the profit**, and that is consistent rather than an
+omission: the shop paid for those vapes when it bought them, so on the day one sells,
+the whole price is money the business is better off by. It is the same reasoning the
+page has always given for breakage — «փողը դուրս է եկել գնելու պահին» — and breakage is
+out for the same reason. What the goods themselves earned is stated under the tile, so
+the margin is in front of the owner without being subtracted from a figure about cash.
+The statistics page takes the other view over a period, where margin and the cost of
+goods are what the question actually is.
+
+**Takings are net of reversals.** A voided sale is not a sale, and the tiles summed the
+sale rows while leaving the reversals beside them — so a day where everything was taken
+back read as a day that sold 7,000 and made money on it.
 
 **A report on one evening is a report about that evening's money**, so the wages in it
 are what the drawer *paid*. Those stopped being the same as what the shift cost when the

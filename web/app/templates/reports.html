@@ -87,7 +87,7 @@
   <div class="totals">
     <div class="total">
       <span class="total-label">Վաճառք</span>
-      <span class="total-value">{{ d.totals.sales | money }}</span>
+      <span class="total-value">{{ d.totals.net_sales | money }}</span>
     </div>
     {# The split of the takings, at the same size as the total it belongs to. Labelled
        «կանխիկ վաճառք» rather than «կանխիկ», because a bare «Կանխիկ» beside «Վաճառք» is
@@ -95,11 +95,11 @@
        add up. #}
     <div class="total">
       <span class="total-label">Կանխիկ վաճառք</span>
-      <span class="total-value">{{ d.totals.sale_cash | money }}</span>
+      <span class="total-value">{{ d.totals.net_sale_cash | money }}</span>
     </div>
     <div class="total">
       <span class="total-label">Քարտով վաճառք</span>
-      <span class="total-value">{{ d.totals.sale_card | money }}</span>
+      <span class="total-value">{{ d.totals.net_sale_card | money }}</span>
     </div>
     {# The two an owner actually looks for, so they are coloured and the rest are not.
        Colour used sparingly or it stops pointing at anything. #}
@@ -132,12 +132,16 @@
   {# What the profit figure is made of. It is a subtraction, and a subtraction whose
      parts are not shown is a number the owner has to take on trust. #}
   <p class="muted small">
-    Շահույթը՝ ապրանքի վրա {{ d.gross_profit | money }}
+    Շահույթը՝ վաճառք {{ d.totals.net_sales | money }}
     {%- if d.wage_salary %} · հանած աշխատավարձ {{ d.wage_salary | money }}{% endif %}
     {%- if d.wage_bonus %} · հանած բոնուս {{ d.wage_bonus | money }}{% endif %}
-    {%- if d.totals.withdrawn %} · հանած վերցված {{ d.totals.withdrawn | money }}{% endif %}
-    {%- if d.breakage_cost %} · հանած խոտան {{ d.breakage_cost | money }}{% endif %}։
-    Ապրանքի վրա շահույթը վաճառքի գինն է հանած ինքնարժեքը։
+    {%- if d.totals.withdrawn %} · հանած վերցված {{ d.totals.withdrawn | money }}{% endif %}։
+    {# The cost of the goods is deliberately not subtracted — it was paid when the stock
+       was bought — but it is worth having in front of the owner, so the margin is stated
+       beside the figure rather than left off the page. #}
+    Ապրանքի ինքնարժեքը հանելուց հետո վաճառքի վրա մնում է
+    {{ d.gross_profit | money }}
+    {%- if d.breakage_cost %}, խոտանը՝ {{ d.breakage_cost | money }}{% endif %}։
     {# The figures above are what the drawer paid. What it could not cover is a real
        liability and the profit will drop by it the day it is settled, so it is said
        here rather than folded into a number about this evening's cash. #}
