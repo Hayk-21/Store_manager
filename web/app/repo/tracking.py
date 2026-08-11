@@ -104,12 +104,20 @@ async def sold_by_worker_since(conn, worker_id: int, since) -> object:
 
 
 async def bonus_paid_since(conn, worker_id: int, since) -> bool:
-    """Whether this worker has already had their bonus for the period."""
+    """Whether this worker has already earned their bonus for the period.
+
+    Read off ``work_sessions.bonus_paid``, not the ledger. A ``cash_movements`` row
+    is only written when the till has something to pay it with — a bonus earned
+    against an empty till books nothing — so a guard keyed on the ledger would not
+    see it, and the same target would be free to earn a second bonus on the very
+    next shift. ``bonus_paid`` is set the moment a bonus is credited, whether or
+    not the drawer could cover it, which is the fact this guard actually needs.
+    """
     return bool(
         await conn.fetchval(
             """
-            SELECT 1 FROM cash_movements
-             WHERE worker_id = $1 AND kind = 'bonus' AND created_at >= $2
+            SELECT 1 FROM work_sessions
+             WHERE worker_id = $1 AND ended_at >= $2 AND coalesce(bonus_paid, 0) > 0
              LIMIT 1
             """,
             worker_id,

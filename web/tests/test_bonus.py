@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
+
 from app.db import db
 from app.services import shifts as shifts_service
 from tests.factories import (
@@ -144,6 +146,51 @@ async def test_a_second_shift_the_same_day_does_not_pay_it_twice(client):
     await _work(worker, item_id, sold=5, key="2")   # same day, beats it again
 
     assert await _bonus_rows() == 1, "earned once in the period"
+
+
+async def test_an_empty_till_does_not_let_the_bonus_be_earned_twice(client):
+    """A bonus earned against an empty drawer books no ``cash_movements`` row — there
+    is nothing to pay it with — and the guard against re-awarding it used to look for
+    exactly that row. So a worker who crossed the target on a shift that took every
+    dram on card, with nothing in cash, would cross it "again" on their very next
+    shift and be credited a second full bonus for the one achievement — doubling what
+    the owner owes, and if the second till happened to have cash in it, doubling what
+    actually got paid out.
+    """
+    _, _, item_id, worker = await _shop_with_bonus(
+        threshold="20000.00", bonus="5000.00", salary="0.00"
+    )
+
+    # First shift: crosses the target entirely on card, so no cash ever reaches the
+    # till and the bonus cannot be paid — only owed.
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "open-1", 900)
+    await worked_a_full_shift(worker.id)
+    await shifts_service.close_out_shift(
+        worker,
+        [{"item_id": item_id, "quantity": 5, "unit_price": "5000.00",
+          "payment_method": "card"}],
+        "close-1",
+        close_store_too=True,
+    )
+
+    assert await _bonus_rows() == 0, "nothing in the till to pay it with"
+    assert await db.fetchval(
+        "SELECT bonus_paid FROM work_sessions"
+    ) == Decimal("5000.00"), "earned is earned, even if the till could not pay it"
+
+    # Second shift, same day: no more sales are needed — the worker already beat
+    # the target for the period — but the shift still has to close.
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "open-2", 900)
+    await worked_a_full_shift(worker.id)
+    await shifts_service.close_out_shift(worker, [], "close-2", close_store_too=True)
+
+    assert await _bonus_rows() == 0, "still nothing paid — and still not owed twice"
+    assert await db.fetchval(
+        "SELECT sum(bonus_paid) FROM work_sessions"
+    ) == Decimal("5000.00"), "one achievement, credited once across both shift rows"
+    assert await db.fetchval(
+        "SELECT sum(bonus_unpaid) FROM work_sessions"
+    ) == Decimal("5000.00"), "and owed once, not twice"
 
 
 async def test_the_second_shift_is_what_tips_them_over(client):
@@ -348,3 +395,73 @@ async def test_an_unknown_bonus_period_is_refused(client):
 
     assert response.status_code == 422
     assert await db.fetchval("SELECT count(*) FROM workers") == 0
+
+
+# -- correcting one -----------------------------------------------------------
+
+async def test_a_bonus_recorded_by_mistake_can_be_set_to_nothing(client):
+    """The wage already had this and a bonus did not, which left one route to remove
+    one: deleting the ledger row on its own. That took the money out of the till and
+    left ``work_sessions.bonus_paid`` still claiming it — the report and the till
+    disagreeing about that shift, permanently."""
+    owner_id, _, item_id, worker = await _shop_with_bonus(threshold="20000.00")
+    await _work(worker, item_id, sold=5, key="1")
+    shift_id = await db.fetchval("SELECT id FROM work_sessions")
+
+    from app.services import corrections
+
+    await corrections.set_bonus(owner_id, owner_id, shift_id, Decimal("0"))
+
+    assert await _bonus_rows() == 0, "the ledger row goes"
+    assert await db.fetchval("SELECT bonus_paid FROM work_sessions") == Decimal("0.00"), (
+        "and the shift row goes with it"
+    )
+
+
+async def test_deleting_a_bonus_ledger_row_on_its_own_is_refused(client):
+    """It is one half of a shift, exactly like a wage — and unlike a wage, this door
+    was open."""
+    owner_id, _, item_id, worker = await _shop_with_bonus(threshold="20000.00")
+    await _work(worker, item_id, sold=5, key="1")
+    movement_id = await db.fetchval("SELECT id FROM cash_movements WHERE kind = 'bonus'")
+
+    from app.errors import AppError
+    from app.services import corrections
+
+    with pytest.raises(AppError) as caught:
+        await corrections.delete_movement(owner_id, owner_id, movement_id)
+
+    assert "բոնուս" in caught.value.message.lower()
+    assert await _bonus_rows() == 1, "nothing was removed"
+
+
+async def test_correcting_a_bonus_can_be_undone(client):
+    owner_id, _, item_id, worker = await _shop_with_bonus(
+        threshold="20000.00", bonus="5000.00"
+    )
+    await _work(worker, item_id, sold=5, key="1")
+    shift_id = await db.fetchval("SELECT id FROM work_sessions")
+
+    from app.services import corrections
+
+    await corrections.set_bonus(owner_id, owner_id, shift_id, Decimal("0"))
+    event_id = await db.fetchval("SELECT id FROM audit_events ORDER BY id DESC LIMIT 1")
+    await corrections.revert(owner_id, owner_id, event_id)
+
+    assert await db.fetchval("SELECT bonus_paid FROM work_sessions") == Decimal("5000.00")
+    assert await _bonus_rows() == 1, "and the ledger row comes back with it"
+
+
+async def test_the_report_offers_a_box_for_a_bonus(client):
+    """The refusal above tells the owner to set it to 0 in «Հերթափոխեր». A message
+    pointing at a control that does not exist is worse than no message."""
+    owner_id, _, item_id, worker = await _shop_with_bonus(threshold="20000.00")
+    await _work(worker, item_id, sold=5, key="1")
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    shift_id = await db.fetchval("SELECT id FROM work_sessions")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert f'action="/shifts/{shift_id}/bonus"' in page.text
+    assert 'name="bonus"' in page.text

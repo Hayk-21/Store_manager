@@ -42,6 +42,13 @@ async def record_movement(
     been settled and handed over, so there is nothing to withdraw from — writing
     to a closed session would resurrect a total the owner has already banked.
     """
+    if not (note or "").strip():
+        # The schema has demanded this of every owner-typed row since 018
+        # (``typed_movements_explain_themselves``); this one only ever got away
+        # without it by labelling itself 'system'. It is the same rule the cashier's
+        # own withdrawals follow, for the same reason: an amount with no reason *is*
+        # the shortfall, just with a number attached.
+        raise AppError("validation_error", "Գրեք, թե ինչի համար է այս գումարը։")
     if kind not in KINDS:
         raise AppError("validation_error", "Անհայտ գործողություն։")
     if method not in {"cash", "card"}:
@@ -68,6 +75,12 @@ async def record_movement(
             kind=kind,
             amount=signed,
             note=note,
+            # Typed on the website, which is what 'owner' means — the column's own
+            # comment says so, and ``corrections.add_movement`` already labelled its
+            # rows that way. This one defaulted to 'system' and so was
+            # indistinguishable from the float the shop carries in each morning,
+            # which is the one deposit nobody typed.
+            created_by="owner",
         )
     log.info("owner %s recorded %s of %s (%s) at store %s", owner_id, kind, amount, method, store_id)
 
@@ -104,6 +117,16 @@ async def withdraw_by_worker(worker, amount: Decimal, purpose: str, idem_key: st
             shift = await sessions_repo.lock_open_for_worker(conn, worker.id)
             if shift is None:
                 raise BotError("no_open_session")
+
+            # The drawer is shared, and the check below reads its total. Locking
+            # only the calling worker's own shift row serialises that worker's own
+            # double-taps but not two different cashiers on the same store session
+            # — both could read the same "5,000 in the till" and both approve a
+            # 4,000 withdrawal against it, overdrawing the till by 3,000 with
+            # neither request individually over any limit. Locking the session
+            # itself makes the second withdrawal wait for the first to commit and
+            # then read what is actually left.
+            await sessions_repo.lock_open_for_store(conn, worker.owner_id, shift["store_id"])
 
             # The cap is on the shift, not on the tap. A per-withdrawal limit is
             # not a limit at all — you take 1,000 four times. The shift row is

@@ -166,7 +166,8 @@ async def delete_store_session(conn, owner_id: int, store_session_id: int) -> bo
 async def get_store_session(owner_id: int, store_session_id: int) -> asyncpg.Record | None:
     return await db.fetchrow(
         """
-        SELECT ss.id, ss.store_id, s.name AS store_name, ss.opened_at, ss.closed_at,
+        SELECT ss.id, ss.owner_id, ss.store_id, s.name AS store_name,
+               ss.opened_at, ss.closed_at,
                ss.closed_by, ss.cash_at_close, ss.card_at_close, ss.salaries_at_close
           FROM store_sessions ss
           JOIN stores s ON s.id = ss.store_id
@@ -416,13 +417,24 @@ async def by_start_idem(owner_id: int, idem_key: str) -> asyncpg.Record | None:
 
 
 async def by_end_idem(owner_id: int, idem_key: str) -> asyncpg.Record | None:
+    """A finished shift by its own idempotency key — including whether closing it
+    also closed the shop.
+
+    ``store_closed`` is read fresh off ``store_sessions`` rather than trusted from
+    a caller, specifically so a replay reports it correctly. A replay's whole point
+    is to answer a retried request exactly as the original did, and there is
+    nothing else here that can drift between "what actually happened" and "what
+    this reply claims happened" for a caller deciding, from that field, whether to
+    tell a worker the shop is still open.
+    """
     return await db.fetchrow(
         """
         SELECT ws.id, ws.store_id, ws.store_session_id, ws.started_at, ws.ended_at,
                ws.salary_paid, ws.salary_unpaid, ws.bonus_paid, ws.bonus_unpaid,
-               s.name AS store_name
+               s.name AS store_name, ss.closed_at IS NOT NULL AS store_closed
           FROM work_sessions ws
           JOIN stores s ON s.id = ws.store_id
+          JOIN store_sessions ss ON ss.id = ws.store_session_id
          WHERE ws.owner_id = $1 AND ws.end_idem_key = $2
         """,
         owner_id,

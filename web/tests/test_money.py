@@ -80,7 +80,7 @@ async def test_money_cannot_be_moved_while_the_store_is_closed(client):
 
     with pytest.raises(AppError) as caught:
         await money_service.record_movement(
-            owner_id, store_id, "cash", "withdrawal", Decimal("100.00")
+            owner_id, store_id, "cash", "withdrawal", Decimal("100.00"), "բանկ"
         )
 
     assert "փակ" in caught.value.message
@@ -91,18 +91,45 @@ async def test_a_negative_amount_is_refused(client):
 
     with pytest.raises(AppError):
         await money_service.record_movement(
-            owner_id, store_id, "cash", "withdrawal", Decimal("-100.00")
+            owner_id, store_id, "cash", "withdrawal", Decimal("-100.00"), "բանկ"
         )
+
+
+async def test_an_amount_with_no_reason_is_refused(client):
+    """The same rule the cashier's own withdrawals follow, and the one the schema has
+    demanded of every owner-typed row since 018: an amount with no reason *is* the
+    shortfall, just with a number attached. This path got away without it only by
+    labelling its rows as the system's rather than as the owner's."""
+    owner_id, store_id, _, _ = await _open_store()
+
+    with pytest.raises(AppError):
+        await money_service.record_movement(
+            owner_id, store_id, "cash", "withdrawal", Decimal("100.00"), "   "
+        )
+
+
+async def test_an_owners_movement_is_recorded_as_theirs(client):
+    """Not as the system's. It is the one thing that tells a figure somebody typed
+    apart from the float the shop carries in each morning."""
+    owner_id, store_id, _, _ = await _open_store()
+
+    await money_service.record_movement(
+        owner_id, store_id, "cash", "deposit", Decimal("5000.00"), "մանրադրամ"
+    )
+
+    assert await db.fetchval(
+        "SELECT created_by FROM cash_movements WHERE kind = 'deposit'"
+    ) == "owner"
 
 
 async def test_totals_are_decimals_not_floats(client):
     """A float would already have lost digits by the time it reached a template."""
     owner_id, store_id, _, session_id = await _open_store()
     await money_service.record_movement(
-        owner_id, store_id, "cash", "deposit", Decimal("0.10")
+        owner_id, store_id, "cash", "deposit", Decimal("0.10"), "մանրադրամ"
     )
     await money_service.record_movement(
-        owner_id, store_id, "cash", "deposit", Decimal("0.20")
+        owner_id, store_id, "cash", "deposit", Decimal("0.20"), "մանրադրամ"
     )
 
     totals = await money_repo.totals_for_session(session_id)

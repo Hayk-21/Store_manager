@@ -50,6 +50,7 @@ ACTION_LABELS = {
     "delete_movement": "Գրառման ջնջում",
     "delete_sale": "Վաճառքի ջնջում",
     "set_salary": "Աշխատավարձի փոփոխում",
+    "set_bonus": "Բոնուսի փոփոխում",
     "delete_till_count": "Դրամարկղի հաշվարկի ջնջում",
     "set_movement_amount": "Գրառման գումարի փոփոխում",
 }
@@ -586,6 +587,17 @@ async def delete_movement(owner_id: int, user_id: int, movement_id: int) -> None
                 "Այս գրառումն աշխատավարձ է։ Հեռացնելու համար «Հերթափոխեր» "
                 "բաժնում այդ հերթափոխի աշխատավարձը դարձրեք 0։",
             )
+        if row["kind"] == "bonus":
+            # The exact same shape as salary — one half of a shift, paired with
+            # work_sessions.bonus_paid/bonus_unpaid — and it was missing this
+            # refusal entirely. Deleting the row alone left the shift still
+            # claiming a bonus the ledger no longer had any record of, and the
+            # report and the till would disagree about that shift forever.
+            raise AppError(
+                "validation_error",
+                "Այս գրառումը բոնուս է։ Հեռացնելու համար «Հերթափոխեր» "
+                "բաժնում այդ հերթափոխի բոնուսը դարձրեք 0։",
+            )
 
         await conn.execute("DELETE FROM cash_movements WHERE id = $1", movement_id)
         await _resync_snapshot(conn, row["store_session_id"])
@@ -663,6 +675,65 @@ async def _replace_salary(conn, owner_id: int, shift, salary: Decimal) -> None:
             owner_id=owner_id, store_id=shift["store_id"],
             store_session_id=shift["store_session_id"], method="cash", kind="salary",
             amount=-salary, work_session_id=shift["id"], worker_id=shift["worker_id"],
+            created_by="owner",
+        )
+
+
+async def set_bonus(
+    owner_id: int, user_id: int, work_session_id: int, bonus: Decimal
+) -> None:
+    """Change what a finished shift's bonus was — including down to zero, which is
+    how ``delete_movement`` sends an owner here to remove one recorded by mistake.
+
+    The twin of ``set_salary``, for the twin reason: a bonus is money out for work
+    done, paired with ``work_sessions.bonus_paid``/``bonus_unpaid`` exactly the way
+    a wage is paired with its own two columns, and the shift row and the ledger
+    entry have to move together or the report and the till disagree about it.
+    """
+    if bonus < ZERO:
+        raise AppError("validation_error", "Բոնուսը չի կարող բացասական լինել։")
+
+    async with db.transaction() as conn:
+        shift = await conn.fetchrow(
+            """
+            SELECT id, store_id, store_session_id, worker_id, ended_at, bonus_paid
+              FROM work_sessions WHERE id = $1 AND owner_id = $2 FOR UPDATE
+            """,
+            work_session_id, owner_id,
+        )
+        if shift is None:
+            raise AppError("not_found", "Հերթափոխը չի գտնվել։")
+        if shift["ended_at"] is None:
+            raise AppError("validation_error", "Հերթափոխը դեռ բաց է։")
+
+        previous = Decimal(shift["bonus_paid"] or 0)
+        await _replace_bonus(conn, owner_id, shift, bonus)
+        await _resync_snapshot(conn, shift["store_session_id"])
+        await audit_repo.record(
+            conn, owner_id, user_id, "set_bonus",
+            f"Բոնուս՝ {previous:,.0f} → {bonus:,.0f} ֏",
+            store_session_id=shift["store_session_id"],
+            payload={"work_session_id": work_session_id, "previous": str(previous)},
+        )
+    log.info("owner %s set bonus of shift %s to %s", owner_id, work_session_id, bonus)
+
+
+async def _replace_bonus(conn, owner_id: int, shift, bonus: Decimal) -> None:
+    await conn.execute(
+        "UPDATE work_sessions SET bonus_paid = $2, bonus_unpaid = 0 WHERE id = $1",
+        shift["id"], bonus,
+    )
+    # one_bonus_per_work_session means there is at most one to replace.
+    await conn.execute(
+        "DELETE FROM cash_movements WHERE work_session_id = $1 AND kind = 'bonus'",
+        shift["id"],
+    )
+    if bonus > ZERO:
+        await money_repo.insert_movement(
+            conn,
+            owner_id=owner_id, store_id=shift["store_id"],
+            store_session_id=shift["store_session_id"], method="cash", kind="bonus",
+            amount=-bonus, work_session_id=shift["id"], worker_id=shift["worker_id"],
             created_by="owner",
         )
 
@@ -872,6 +943,19 @@ async def _revert_set_salary(conn, owner_id: int, payload: dict) -> None:
     await _replace_salary(conn, owner_id, shift, Decimal(payload["previous"]))
 
 
+async def _revert_set_bonus(conn, owner_id: int, payload: dict) -> None:
+    shift = await conn.fetchrow(
+        """
+        SELECT id, store_id, store_session_id, worker_id
+          FROM work_sessions WHERE id = $1 AND owner_id = $2 FOR UPDATE
+        """,
+        payload["work_session_id"], owner_id,
+    )
+    if shift is None:
+        raise AppError("not_found", "Հերթափոխը չի գտնվել։")
+    await _replace_bonus(conn, owner_id, shift, Decimal(payload["previous"]))
+
+
 async def _revert_delete_till_count(conn, owner_id: int, payload: dict) -> None:
     # Imported here: till imports nothing from this module, but keeping the reverter
     # beside its siblings means the dispatcher below stays the one list of them.
@@ -891,6 +975,7 @@ _REVERTERS = {
     "delete_movement": _revert_delete_movement,
     "delete_sale": _revert_delete_sale,
     "set_salary": _revert_set_salary,
+    "set_bonus": _revert_set_bonus,
     "delete_till_count": _revert_delete_till_count,
     "set_movement_amount": _revert_set_movement_amount,
 }

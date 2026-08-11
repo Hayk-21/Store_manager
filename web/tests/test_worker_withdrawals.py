@@ -97,6 +97,36 @@ async def test_an_amount_with_no_purpose_is_refused(client):
     ) == 0
 
 
+async def test_the_shared_drawer_is_locked_while_checking_it(client):
+    """Two different cashiers on the same store session share one drawer, and the
+    "is there enough cash" check has to serialise against *both* of them — not just
+    against a second tap from the same worker.
+
+    Locking only the calling worker's own shift row does not do that: two workers
+    reading the same "5,000 in the till" at once could both approve a 4,000
+    withdrawal against it and both commit, leaving the till at -3,000 with neither
+    request ever having looked too large on its own. The regression this guards is
+    the lock itself — a row lock taken inside a nested ``db.transaction()`` (a
+    SAVEPOINT here) outlives that block and is only released when the enclosing
+    transaction ends, so it is still held, and visible in ``pg_locks``, right after
+    ``withdraw_by_worker`` returns.
+    """
+    _, store_id, worker, _, _ = await _till_with("20000.00")
+
+    await money_service.withdraw_by_worker(worker, Decimal("800"), "test", "idem-key-cash-01")
+
+    pid = await db.fetchval("SELECT pg_backend_pid()")
+    locked = await db.fetchval(
+        """
+        SELECT count(*) FROM pg_locks l
+          JOIN pg_class c ON c.oid = l.relation
+         WHERE c.relname = 'store_sessions' AND l.pid = $1 AND l.mode = 'RowShareLock'
+        """,
+        pid,
+    )
+    assert locked >= 1, "the store session's row is not locked — two cashiers can overdraw it"
+
+
 async def test_taking_more_than_the_till_holds_is_refused(client):
     """Not a rule about permission — you cannot take more notes than are in the
     drawer, so a bigger number is a typo."""

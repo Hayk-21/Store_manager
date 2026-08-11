@@ -170,8 +170,13 @@
           </select>
         </div>
         <div>
-          <label for="note-{{ store_id }}">Նշում</label>
-          <input id="note-{{ store_id }}" name="note" maxlength="300">
+          {# Required, like every other hand-typed money row: an amount with no reason
+             is the shortfall with a number attached. The schema has refused one on an
+             owner-typed row since 018 — this form only got away without it while the
+             row was being mislabelled as the system's. #}
+          <label for="note-{{ store_id }}">Ինչի համար</label>
+          <input id="note-{{ store_id }}" name="note" maxlength="300" required
+                 placeholder="օր.՝ առաքիչին, մանրադրամ">
         </div>
         <div class="actions">
           <button type="submit" class="secondary">Կիրառել</button>

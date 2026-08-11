@@ -211,6 +211,39 @@ async def test_the_store_stays_open_while_somebody_is_still_working(client):
     assert await db.fetchval("SELECT count(*) FROM store_sessions WHERE closed_at IS NULL") == 1
 
 
+async def test_a_replay_still_reports_the_store_as_open(client):
+    """A retried request has to answer exactly as the original did. The replay
+    branch used to skip straight past the question and default to "closed" —
+    right for the ordinary one-worker case, and wrong here: the second worker's
+    retry told them the shop had shut when their colleague was still in it.
+    """
+    owner_id, store_id, first, _ = await _setup()
+    second_id, _ = await make_worker(owner_id)
+    second = await _worker_of(owner_id, second_id)
+    await shifts_service.open_store(first, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-aaaa", 900)
+    await shifts_service.open_store(second, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-key-bbbb", 900)
+
+    first_call = await shifts_service.end_shift(first, None, None, "idem-key-end-01")
+    replayed = await shifts_service.end_shift(first, None, None, "idem-key-end-01")
+
+    assert first_call["summary"]["store_closed"] is False
+    assert replayed["duplicate"] is True
+    assert replayed["summary"]["store_closed"] is False
+
+
+async def test_a_replay_after_the_store_did_close_still_says_so(client):
+    """The other direction, so the fix is not just "always say open": a lone
+    worker's retried end-shift should still report the store as closed."""
+    _, store_id, worker, _ = await _setup()
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, KEY, 900)
+
+    await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
+    replayed = await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
+
+    assert replayed["duplicate"] is True
+    assert replayed["summary"]["store_closed"] is True
+
+
 async def test_a_worker_cannot_close_the_store_on_a_colleague(client):
     """Closing force-ends every shift in the session, and a shift that ends
     without its close-out never records what that person sold. So it is refused

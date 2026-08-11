@@ -20,6 +20,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.config import settings
 from app.db import db
 from app.errors import AppError, BotError
 from app.repo import money as money_repo
@@ -89,6 +90,15 @@ async def _session() -> int:
     """The newest session, by id and not by time: a test runs in one transaction, so
     ``now()`` is frozen and two sessions share an ``opened_at``."""
     return await db.fetchval("SELECT id FROM store_sessions ORDER BY id DESC LIMIT 1")
+
+
+async def _opened_on(session_id: int):
+    """The trading day a session belongs to, the way the application reckons it —
+    a local date, not a UTC cast, or an evening either side of midnight lands on
+    the wrong day and the expense silently misses the report it was written for."""
+    return settings.local_day(
+        await db.fetchval("SELECT opened_at FROM store_sessions WHERE id = $1", session_id)
+    )
 
 
 async def _balance(store_id: int) -> Decimal:
@@ -619,9 +629,16 @@ async def test_the_header_no_longer_labels_the_drawer_as_cash_takings(client):
     assert "Քարտով վաճառք" in page.text
 
 
-async def test_the_header_says_what_the_day_actually_made(client):
-    """Շահույթ = վաճառք − աշխատավարձ − բոնուս − դրամարկղից հանված. Two at 3,500 is 7,000
-    sold, less a 1,000 wage."""
+async def test_the_header_shows_both_bottom_lines(client):
+    """Two questions, two figures:
+
+        Շրջանառություն = վաճառք − աշխատավարձ − բոնուս − դրամարկղից հանված
+        Շահույթ        = (վաճառք − ինքնարժեք) − the same three − օրվա ծախսեր
+
+    Two vapes at 3,500 that cost 1,500 each: 7,000 sold, 4,000 of margin, and a
+    1,000 wage. So 6,000 of cash and 3,000 of actual profit — and the second is the
+    one that says whether the evening was worth opening for.
+    """
     owner_id, _, item_id = await _a_shop(balance="40000.00")
     worker_id, _ = await make_worker(owner_id, "Անի", salary_amount="1000.00")
     worker = shifts_service.Worker(
@@ -638,16 +655,17 @@ async def test_the_header_says_what_the_day_actually_made(client):
 
     page = await client.get(f"/reports?store_session_id={session_id}")
 
-    assert "Շահույթ" in page.text
-    assert "6,000.00" in page.text, "7,000 sold less a 1,000 wage"
+    tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
+    assert "Շրջանառություն" in tiles
+    assert "Շահույթ" in tiles
+    assert "6,000.00" in tiles, "cash: 7,000 sold less a 1,000 wage"
+    assert "3,000.00" in tiles, "profit: 4,000 of margin less the same wage"
 
 
-async def test_what_the_stock_cost_is_stated_but_not_subtracted(client):
-    """It was paid for when the shop bought it, so on the day one sells the whole price
-    is money the business is better off by — the same reasoning the page has always
-    given for breakage. The margin is still worth having in front of the owner, so it is
-    said beside the figure rather than left off the page.
-    """
+async def test_the_profit_takes_off_what_the_stock_cost(client):
+    """The whole reason for the second figure. «Շահույթ» used to be the cash line
+    under a name it did not deserve, so a shop selling 45,000 of stock that cost
+    40,000 read it as a very good day."""
     owner_id, _, item_id = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
@@ -661,14 +679,68 @@ async def test_what_the_stock_cost_is_stated_but_not_subtracted(client):
     page = await client.get(f"/reports?store_session_id={session_id}")
 
     tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
-    assert "7,000.00" in tiles, "the whole price, not the 4,000 of margin"
-    assert "4,000.00" in page.text, "which is still said underneath"
+    assert "7,000.00" in tiles, "the cash line keeps the whole selling price"
+    assert "4,000.00" in tiles, "and the profit line is the margin"
 
 
-async def test_breakage_does_not_come_off_the_day(client):
-    """Excluded for the same reason the stock cost is: the money left when the vape was
-    bought, not when it was dropped. The page has always said so about breakage, and
-    «Շահույթ» now follows the same rule throughout."""
+async def test_the_days_own_expenses_come_off_the_profit(client):
+    """What the owner typed on /expenses against this shop for this day. Money out is
+    money out, and a profit figure that ignores the rent is not one."""
+    owner_id, store_id, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await _lock_up(worker)
+    await db.execute(
+        """
+        INSERT INTO expenses (owner_id, store_id, purpose, amount, spent_on)
+        VALUES ($1, $2, 'Վարձակալություն', 1000, $3)
+        """,
+        owner_id, store_id, await _opened_on(session_id),
+    )
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
+    assert "3,000.00" in tiles, "4,000 of margin less 1,000 of rent"
+    assert "7,000.00" in tiles, "the cash line is untouched by it"
+
+
+async def test_a_business_wide_expense_is_not_charged_to_one_shop(client):
+    """Rent left as «Ամբողջ բիզնեսը» belongs to the business, not to the branch that
+    happened to be open — charging it here would take the same rent off every shop
+    trading that day."""
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await _lock_up(worker)
+    await db.execute(
+        """
+        INSERT INTO expenses (owner_id, store_id, purpose, amount, spent_on)
+        VALUES ($1, NULL, 'Գովազդ', 1000, $2)
+        """,
+        owner_id, await _opened_on(session_id),
+    )
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
+    assert "4,000.00" in tiles, "the full margin — the advert is not this shop's"
+
+
+async def test_breakage_comes_off_neither_figure(client):
+    """The money left when the vape was bought, not when it was dropped — which is what
+    the page has always said about breakage, and the stock cost in «Շահույթ» already
+    accounts for stock that was actually sold."""
     owner_id, _, item_id = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
@@ -683,7 +755,8 @@ async def test_breakage_does_not_come_off_the_day(client):
     page = await client.get(f"/reports?store_session_id={session_id}")
 
     tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
-    assert "7,000.00" in tiles, "the 1,500 of breakage is not in it"
+    assert "7,000.00" in tiles, "the cash line"
+    assert "4,000.00" in tiles, "and the profit line — neither has the 1,500 in it"
     assert "1,500.00" in page.text, "but it is named underneath"
 
 
@@ -791,9 +864,15 @@ async def test_a_normal_evening_says_what_splits_where(client):
     assert "ղեկավարին" in page.text.lower()
 
 
-async def test_an_uncounted_session_says_so_rather_than_showing_zeroes(client):
-    """Nothing counted is not "nothing owed". Two tiles reading 0.00 with no
-    explanation is the report claiming a settlement nobody made."""
+async def test_an_uncounted_session_still_says_what_the_owner_is_owed(client):
+    """A worker who goes home without counting has not emptied the shop, and both
+    figures reading 0.00 was not what happened to the money — it was the report
+    claiming a settlement nobody made, on a day that took 7,000.
+
+    Nothing changes the shop's balance except a count, so the float stays exactly where
+    it is and the owner is owed the rest. That is not a guess about the drawer: it is
+    what the system will actually act on when the shop opens tomorrow.
+    """
     owner_id, _, item_id = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
@@ -806,7 +885,55 @@ async def test_an_uncounted_session_says_so_rather_than_showing_zeroes(client):
 
     page = await client.get(f"/reports?store_session_id={session_id}")
 
-    assert "Դրամարկղը դեռ հաշվված չէ" in page.text
+    tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
+    assert "40,000.00" in tiles, "the float stays in the shop"
+    assert "7,000.00" in tiles, "and the day's cash goes to the owner"
+    assert "Դրամարկղը հաշվված չէ" in page.text, "said to be worked out, not declared"
+
+
+async def test_an_uncounted_session_with_no_float_owes_the_whole_till(client):
+    """A shop that started empty keeps nothing, so all of it is the owner's."""
+    owner_id, _, item_id = await _a_shop()
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
+    assert "7,000.00" in tiles
+    assert "Դրամարկղը հաշվված չէ" in page.text
+
+
+async def test_an_owners_own_deposit_is_not_mistaken_for_the_float(client):
+    """The float is the one deposit nobody typed. An owner topping the drawer up
+    mid-shift is money they put in, not money the shop is entitled to keep, and
+    counting it as the float would hand them back less than they are owed."""
+    owner_id, store_id, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    from app.services import money as money_service
+
+    await money_service.record_movement(
+        owner_id, store_id, "cash", "deposit", Decimal("5000"), "մանրադրամ"
+    )
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
+    assert "40,000.00" in tiles, "the float, not the 45,000 of deposits"
+    assert "12,000.00" in tiles, "7,000 sold plus the 5,000 the owner put in"
 
 
 async def test_the_takings_split_is_a_figure_not_a_footnote(client):

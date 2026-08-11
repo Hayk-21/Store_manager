@@ -556,7 +556,7 @@ async def end_shift(
         worker.id, shift["id"], salary, "closed" if store_closed else "still open",
     )
     row = await sessions_repo.by_end_idem(worker.owner_id, idempotency_key)
-    return await _end_payload(row, duplicate=False, store_closed=store_closed)
+    return await _end_payload(row, duplicate=False)
 
 
 async def close_out_shift(
@@ -616,7 +616,7 @@ async def close_out_shift(
         worker.id, len(lines), salary, "closed" if store_closed else "still open",
     )
     row = await sessions_repo.by_end_idem(worker.owner_id, idempotency_key)
-    return await _end_payload(row, duplicate=False, store_closed=store_closed)
+    return await _end_payload(row, duplicate=False)
 
 
 async def _refuse_to_strand(conn, worker: Worker, remaining: list) -> None:
@@ -654,7 +654,7 @@ async def close_store(worker: Worker, idempotency_key: str) -> dict:
     """Close the whole store for everyone, from the bot."""
     replay = await sessions_repo.by_end_idem(worker.owner_id, idempotency_key)
     if replay is not None:
-        return await _end_payload(replay, duplicate=True, store_closed=True)
+        return await _end_payload(replay, duplicate=True)
 
     async with db.transaction() as conn:
         shift = await sessions_repo.lock_open_for_worker(conn, worker.id)
@@ -679,10 +679,10 @@ async def close_store(worker: Worker, idempotency_key: str) -> dict:
         await _close_store_session(conn, shift["store_session_id"], "worker")
 
     row = await sessions_repo.by_end_idem(worker.owner_id, idempotency_key)
-    return await _end_payload(row, duplicate=False, store_closed=True)
+    return await _end_payload(row, duplicate=False)
 
 
-async def _end_payload(row, *, duplicate: bool, store_closed: bool = True) -> dict:
+async def _end_payload(row, *, duplicate: bool) -> dict:
     sales = await sales_repo.summary_for_work_session(row["id"])
     totals = await money_repo.totals_for_session(row["store_session_id"])
     started, ended = row["started_at"], row["ended_at"]
@@ -719,7 +719,7 @@ async def _end_payload(row, *, duplicate: bool, store_closed: bool = True) -> di
                 and (ended - started).total_seconds() / 3600 < FULL_SHIFT_HOURS
             ),
             "full_shift_hours": FULL_SHIFT_HOURS,
-            "store_closed": store_closed,
+            "store_closed": row["store_closed"],
             "store_totals_after": {
                 "cash": f"{totals['cash']:.2f}",
                 "card": f"{totals['card']:.2f}",

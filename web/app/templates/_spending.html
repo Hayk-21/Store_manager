@@ -44,7 +44,13 @@
         </td>
         <td class="num" data-label="Գումար">
           {% if row.kind in editable %}
-            <input form="sp-{{ row.kind }}-{{ row.id }}" name="amount"
+            {# Each endpoint names its own field — a wage posts «salary», a bonus
+               «bonus» — and this list has to use the endpoint's name, not one of its
+               own. It sent «amount» to all of them, so a wage edited from here
+               arrived with the field the route reads left empty and came back
+               «պարտադիր է» every time. #}
+            <input form="sp-{{ row.kind }}-{{ row.id }}"
+                   name="{{ {'salary': 'salary', 'bonus': 'bonus'}.get(row.kind, 'amount') }}"
                    value="{{ row.amount | plain_money }}" inputmode="decimal"
                    class="money-input" aria-label="Գումար">
             <button form="sp-{{ row.kind }}-{{ row.id }}" type="submit"
@@ -58,10 +64,12 @@
             <button form="sp-del-{{ row.kind }}-{{ row.id }}" type="submit"
                     class="danger tiny" title="Ջնջել">✕</button>
           {% elif row.kind in ('salary', 'bonus') %}
-            {# A wage is half of a shift and cannot be removed on its own without
-               leaving the shift saying it paid something the ledger does not have.
-               Setting it to nothing is the same act and keeps the two together. #}
-            <span class="muted small" title="Աշխատավարձը ջնջելու համար գրեք 0">0 =&nbsp;ջնջել</span>
+            {# A wage or a bonus is half of a shift and cannot be removed on its own
+               without leaving the shift saying it paid something the ledger does not
+               have. Writing 0 in the box is the same act done properly — it moves the
+               shift row and the ledger entry together. #}
+            <span class="muted small"
+                  title="Ջնջելու համար գրեք 0 և սեղմեք ✓">0 =&nbsp;ջնջել</span>
           {% endif %}
         </td>
       </tr>
@@ -83,6 +91,11 @@
   {% if row.kind == 'salary' %}
     <form id="sp-salary-{{ row.id }}" method="post"
           action="/shifts/{{ row.id }}/salary?back={{ back | urlencode }}">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    </form>
+  {% elif row.kind == 'bonus' %}
+    <form id="sp-bonus-{{ row.id }}" method="post"
+          action="/shifts/{{ row.id }}/bonus?back={{ back | urlencode }}">
       <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
     </form>
   {% elif row.kind == 'withdrawal' %}
@@ -113,6 +126,16 @@
     </form>
   {% endif %}
 {% endfor %}
+
+{# A list that quietly stops looks like a complete one. The total below it is over the
+   whole period either way, so the two would otherwise appear not to add up. #}
+{% if payment_count > payments | length %}
+<p class="muted small">
+  Ցուցադրված են վերջին <b>{{ payments | length }}</b> վճարումները՝ ընդամենը
+  {{ payment_count }}-ից։ Ներքևի գումարը ամբողջ ժամանակահատվածինն է։
+  Ավելի կարճ ժամանակահատված ընտրեք՝ բոլորը տեսնելու համար։
+</p>
+{% endif %}
 
 <p class="muted small">
   Աշխատավարձը փոխելու համար գրեք նոր գումարը և սեղմեք ✓, ջնջելու համար՝ գրեք 0։
