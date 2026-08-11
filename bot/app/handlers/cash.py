@@ -12,7 +12,7 @@ the shortfall, just with a number attached.
 from __future__ import annotations
 
 import logging
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -50,10 +50,8 @@ async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def type_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    raw = (update.effective_message.text or "").strip().replace(",", ".").replace(" ", "")
-    try:
-        amount = Decimal(raw).quantize(Decimal("0.01"))
-    except (InvalidOperation, ValueError):
+    amount = format.parse_money(update.effective_message.text)
+    if amount is None:
         await update.effective_message.reply_text(texts.CASH_BAD_AMOUNT)
         return ASK_AMOUNT
     if amount <= 0:

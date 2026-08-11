@@ -19,7 +19,7 @@ behaviour as everything else.
 from __future__ import annotations
 
 import logging
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -184,10 +184,8 @@ async def choose_suggested_price(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def type_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    raw = (update.effective_message.text or "").strip().replace(",", ".").replace(" ", "")
-    try:
-        price = Decimal(raw).quantize(Decimal("0.01"))
-    except (InvalidOperation, ValueError):
+    price = format.parse_money(update.effective_message.text)
+    if price is None:
         await update.effective_message.reply_text(texts.CLOSEOUT_BAD_PRICE)
         return ASK_PRICE
     if price < 0:

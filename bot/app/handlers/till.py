@@ -21,7 +21,7 @@ stale on the very next sale. Counting is the last act of a day.
 from __future__ import annotations
 
 import logging
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -86,10 +86,8 @@ async def begin_from_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def type_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """The commit. Nothing here can be wrong except the number."""
-    raw = (update.effective_message.text or "").strip().replace(",", ".").replace(" ", "")
-    try:
-        counted = Decimal(raw).quantize(Decimal("0.01"))
-    except (InvalidOperation, ValueError):
+    counted = format.parse_money(update.effective_message.text)
+    if counted is None:
         await update.effective_message.reply_text(texts.TILL_BAD_AMOUNT)
         return ASK_AMOUNT
     if counted < 0:

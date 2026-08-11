@@ -18,7 +18,7 @@ cashier who just added it is the one who would need it.
 from __future__ import annotations
 
 import logging
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -48,12 +48,8 @@ forget = _clear
 
 def _money(raw: str) -> Decimal | None:
     """A typed amount, or None when it is not a number."""
-    cleaned = (raw or "").strip().replace(",", ".").replace(" ", "")
-    try:
-        amount = Decimal(cleaned).quantize(Decimal("0.01"))
-    except (InvalidOperation, ValueError):
-        return None
-    return amount if amount >= 0 else None
+    amount = format.parse_money(raw)
+    return amount if amount is not None and amount >= 0 else None
 
 
 async def begin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
