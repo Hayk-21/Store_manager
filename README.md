@@ -294,29 +294,43 @@ Beyond the headline figures, the page answers:
   the shop traded, not the worst bar: a range with a closed Sunday in it would otherwise
   always answer "nothing, on the day you were shut". Days that sold nothing are counted
   separately, which is the figure that says something about them;
-* **what broke** — the write-offs behind the breakage figure. It was the one third of
-  «Ծախսեր» with no way back to the things it was made of.
+* **what broke** — the write-offs, on their own card with their own total.
+
+### Breakage is not spending
+
+A vape that falls off the shelf is **stock lost, not money paid**. Nothing left a drawer
+or an account the day it broke: the money left when the goods were bought. Counting a
+write-off as spending charged the business twice for the same thousand drams — once as
+stock, once as a payment — and made «Խոտան» look like a row somebody had paid out.
+
+So it is in no spending figure: not in the `Ծախսեր` tile, not in the payments list, not
+in the ring, and not subtracted from profit. It keeps its own card on `/statistics` — the
+products, the quantities, the reasons and the cost — which says in as many words that it
+is a loss rather than a payment, and still carries the delete that puts the stock back if
+the vape did not actually break.
+
+That also settles a disagreement the two pages used to have: a day's profit on the report
+never subtracted breakage, and the month's on `/statistics` did. They now use the same
+arithmetic, so a day and the month containing it mean the same thing by «շահույթ».
 
 ### Every payment, one row each
 
-Money leaves the business by four doors — a **wage** (and a **bonus**, its own row), a
-cashier taking **petty cash**, an **expense** the owner types, stock **written off** —
-and each had its own page. So the only view of the whole was two aggregate rows,
-«Աշխատավարձ · Փակված հերթափոխեր · 18,000» and «Խոտան · Դուրս գրված ապրանք · 10,976».
-Both true, neither answerable: which worker, which product, who took what out of the
-drawer and what for.
+Money leaves the business by three doors — a **wage** (and a **bonus**, its own row), a
+cashier taking **petty cash**, an **expense** the owner types — and each had its own page.
+So the only view of the whole was an aggregate row, «Աշխատավարձ · Փակված հերթափոխեր ·
+18,000». True and unanswerable: which worker, which shop, who took what out of the drawer
+and what for.
 
-`repo/spending.py` unions the four into one list, and `_spending.html` renders it on
+`repo/spending.py` unions the three into one list, and `_spending.html` renders it on
 **both** `/statistics` and `/expenses` — "what did this month cost" is asked from both,
 and the expenses page was answering it with only the entries typed on it.
 
 Every row can be corrected where it stands, posting to the same endpoints the store page
 and the report use rather than to a second set. The amount is editable inline for a wage,
-a bonus, a withdrawal and an expense; a withdrawal, an expense and breakage can be
-deleted. A wage or a bonus cannot: each is one half of a shift, and removing it alone
-would leave the shift claiming it paid something the ledger does not have — writing 0 is
-the same act done properly and keeps the two together. Deleting breakage puts the stock
-back, because if the vape did not break it is still on the shelf.
+a bonus, a withdrawal and an expense; a withdrawal and an expense can be deleted. A wage
+or a bonus cannot: each is one half of a shift, and removing it alone would leave the
+shift claiming it paid something the ledger does not have — writing 0 is the same act
+done properly and keeps the two together.
 
 Each endpoint names its own field — a wage posts `salary`, a bonus `bonus` — and this
 list has to use the endpoint's name rather than one of its own. It posted `amount` to all
@@ -333,13 +347,13 @@ small still looks like a total.
 
 `/expenses` announced **«0.00 ֏ · 0 գրառում»** directly above a list of twenty-two
 payments. The headline was counting the expenses typed on that page, and a month can
-easily have none of those and still cost hundreds of thousands in wages, petty cash and
-breakage. It now leads with every payment; the typed ones stay as their own tile, named,
-because "what did I enter by hand" is a real question — just not the headline one.
+easily have none of those and still cost hundreds of thousands in wages and petty cash.
+It now leads with every payment; the typed ones stay as their own tile, named, because
+"what did I enter by hand" is a real question — just not the headline one.
 
 Above the list, on both `/expenses` and `/statistics`, is a donut of the same period split
-by **what the money was for**: `Աշխատավարձ`, `Բոնուս`, `Դրամարկղից վերցված`, `Խոտան`, and
-each expense category by name. Split by which door a payment came in through instead, and
+by **what the money was for**: `Աշխատավարձ`, `Բոնուս`, `Դրամարկղից վերցված`, and each
+expense category by name. Split by which door a payment came in through instead, and
 three-quarters of a normal month lands in one nameless lump — the chart would be drawing
 the software's own plumbing.
 
@@ -355,6 +369,25 @@ adjacent-pair list is the one that applies. Past six the tail folds into a grey 
 rather than a seventh generated hue, which to a colourblind reader is not a new colour.
 The legend under it carries swatch, name, amount and share for every slice: identity is
 never colour alone, and it doubles as the table view.
+
+**Every slice is a link to the payments behind it** — the arc and its legend row both.
+The first question about «Աշխատավարձ · 184,000» is *which* wages, and a chart that cannot
+be asked leaves the owner scrolling a list of everything to find out. Clicking narrows the
+list and the total under it; clicking the same slice again goes back to the whole, which
+is what anybody expects from a second click.
+
+Three things deliberately do **not** move when a slice is chosen: the ring keeps all of
+its categories, because it is what the choosing is done from and a ring redrawn as one
+remaining slice leaves nothing to click back to; the headline stays the period's own
+total, so a filter can never be mistaken for a shrinking month; and the list says in words
+which category it is showing, with the way back beside it.
+
+The filter travels as a repeated `?category=` rather than one joined value — an owner
+names their own categories and a name is free text, so any separator we picked would one
+day be inside one. `«Այլ»` is the slice that is not a category: it carries the labels of
+the whole folded tail, so it can be clicked like the rest instead of being the one part of
+the ring that does not answer. A correction made under a filter returns to the filtered
+page, not to a silently widened one.
 
 `?back=` carries the page the correction was made on, so a fix on one list does not land
 on the other. Only a path of this site: an open redirect is a phishing tool. Rejecting a

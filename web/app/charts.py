@@ -39,6 +39,11 @@ def donut(rows, *, limit: int = MAX_SLICES) -> dict:
     segment carrying its colour, its share, and the dash geometry to draw it — plus
     the figure and percentage, because the legend beside the ring is what makes the
     thing readable to somebody who cannot tell two of the colours apart.
+
+    Every segment also carries ``members``: the categories it stands for. One for an
+    ordinary slice, and for «Այլ» the whole folded tail — so the slice that is not a
+    category can still be asked what it is made of, rather than being the one part of
+    the ring that does not answer.
     """
     counted = [
         (str(row["category"]), Decimal(row["total"]))
@@ -50,22 +55,33 @@ def donut(rows, *, limit: int = MAX_SLICES) -> dict:
         return {"total": Decimal(0), "segments": []}
 
     counted.sort(key=lambda pair: pair[1], reverse=True)
-    if len(counted) > limit:
-        head, tail = counted[: limit - 1], counted[limit - 1 :]
-        counted = [*head, (OTHER, sum((amount for _, amount in tail), Decimal(0)))]
+    # (label, amount, the categories it stands for) — positional rather than keyed by
+    # name, because an owner is entitled to call one of their own categories «Այլ» and
+    # a dict would then hand the folded tail's membership to it.
+    slices = [(name, amount, [name]) for name, amount in counted]
+    if len(slices) > limit:
+        head, tail = slices[: limit - 1], slices[limit - 1 :]
+        slices = [*head, (
+            OTHER,
+            sum((amount for _, amount, _ in tail), Decimal(0)),
+            [name for name, _, _ in tail],
+        )]
 
     segments = []
     offset = Decimal(0)
-    for index, (name, amount) in enumerate(counted):
+    for index, (name, amount, members) in enumerate(slices):
         share = amount / total * 100
         # The gap is taken out of the drawn arc rather than added between arcs, so the
         # shares still sum to the whole circle and a rounding error cannot open a seam.
         drawn = max(Decimal("0.1"), share - GAP)
         segments.append({
             "label": name,
+            "members": members,
             "amount": amount,
             "share": share,
-            "colour": REST if name == OTHER else SLOTS[index],
+            # Grey only for the fold itself — a category of the owner's own called
+            # «Այլ» is a category like any other and keeps its slot colour.
+            "colour": REST if len(members) > 1 else SLOTS[index],
             "dash": f"{drawn:.3f} {100 - drawn:.3f}",
             # SVG runs the dash offset backwards, so a segment that should begin at
             # `offset` round the ring is drawn from minus that.

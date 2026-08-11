@@ -105,10 +105,9 @@
      and the answer is a table further down the same page. #}
   <a class="card stat" href="#spending">
     <span class="total-label">Ծախսեր</span>
-    <span class="total-value negative">{{ (salaries + spending + breakage) | money }}</span>
+    <span class="total-value negative">{{ (salaries + spending) | money }}</span>
     <span class="muted small">
-      աշխատավարձ {{ salaries | money }} · այլ {{ spending | money }}{% if breakage %} ·
-      խոտան {{ breakage | money }}{% endif %}</span>
+      աշխատավարձ {{ salaries | money }} · այլ {{ spending | money }}</span>
   </a>
   <div class="card stat">
     <span class="total-label">Զուտ շահույթ</span>
@@ -454,7 +453,7 @@
     {% include "_donut.html" %}
   {% endif %}
 
-  {% if spending_rows or salaries or breakage %}
+  {% if spending_rows or salaries %}
   <div class="table-wrap">
     <table class="cards">
       <thead>
@@ -482,28 +481,18 @@
           <td class="num negative" data-label="Գումար">{{ salaries | money }}</td>
         </tr>
         {% endif %}
-        {% if breakage %}
-        <tr>
-          <td class="nowrap muted" data-label="Ամսաթիվ">—</td>
-          <td class="cell-name" data-label="Ինչի համար">Խոտան</td>
-          <td data-label="Ուղղություն">Դուրս գրված ապրանք</td>
-          <td data-label="Խանութ">—</td>
-          <td class="muted" data-label="Ձև">դրամարկղին չի ազդում</td>
-          <td class="num negative" data-label="Գումար">{{ breakage | money }}</td>
-        </tr>
-        {% endif %}
       </tbody>
       <tfoot>
         <tr>
           <th colspan="5">Ընդամենը</th>
-          <th class="num negative">{{ (salaries + spending + breakage) | money }}</th>
+          <th class="num negative">{{ (salaries + spending) | money }}</th>
         </tr>
       </tfoot>
     </table>
   </div>
   <p class="muted small">
-    Խոտանը հաշվվում է ինքնարժեքով և դրամարկղին չի ազդում՝ փողը դուրս է եկել
-    գնելու պահին։ <a href="/expenses">Ծախսերի էջ</a>
+    Խոտանը ծախս չէ և այստեղ չի հաշվվում՝ փողը դուրս է եկել ապրանքը գնելու պահին։
+    Այն առանձին է՝ <a href="#breakage">ներքևում</a>։ <a href="/expenses">Ծախսերի էջ</a>
   </p>
   {% else %}
   <p class="muted">Այս ժամանակահատվածում ծախս գրանցված չէ։
@@ -528,18 +517,23 @@
 </div>
 
 {# -- what broke ------------------------------------------------------------
-   The one third of «Ծախսեր» with no way back to what it was made of. Breakage was a
-   single figure in the table above, and the first question about it — which products —
-   had no answer on this page. #}
+   Its own card, because breakage is its own thing: stock lost, not money paid. Nothing
+   left a drawer the day a vape fell off the shelf — the money left when the goods were
+   bought — so counting it as spending charged the business twice for it. The loss is
+   real and stays visible; it is simply not a payment, and it is not in «Ծախսեր» or in
+   the profit above. #}
 {% if breakage_rows %}
-<div class="card">
-  <h2>Խոտան</h2>
+<div class="card" id="breakage">
+  <div class="status-head">
+    <h2>Խոտան</h2>
+    <span class="muted small">ապրանքի կորուստ՝ ինքնարժեքով, ծախս չէ</span>
+  </div>
   <div class="table-wrap">
     <table class="cards">
       <thead>
         <tr><th>Ամսաթիվ</th><th>Ապրանք</th><th class="num">Հատ</th>
             <th>Խանութ</th><th>Ով</th><th>Պատճառը</th>
-            <th class="num">Ինքնարժեք</th></tr>
+            <th class="num">Ինքնարժեք</th><th></th></tr>
       </thead>
       <tbody>
         {% for w in breakage_rows %}
@@ -551,6 +545,13 @@
           <td data-label="Ով">{{ w.worker_name or 'ղեկավար' }}</td>
           <td data-label="Պատճառը">{{ w.reason or '—' }}</td>
           <td class="num negative" data-label="Ինքնարժեք">{{ w.total_cost | money }}</td>
+          {# Written off by mistake happens, and the fix has to live where the row is.
+             It used to be in the payments list, which is no longer where breakage
+             belongs — so it comes here rather than being quietly lost. #}
+          <td class="num cell-actions" data-label="">
+            <button form="wo-del-{{ w.id }}" type="submit" class="danger tiny"
+                    title="Ջնջել">✕</button>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -558,10 +559,23 @@
         <tr>
           <th colspan="6">Ընդամենը</th>
           <th class="num negative">{{ breakage | money }}</th>
+          <th></th>
         </tr>
       </tfoot>
     </table>
   </div>
+  {# Outside the table: a form inside a <tr> is not valid HTML and browsers hoist it
+     out, silently detaching its inputs. #}
+  {% for w in breakage_rows %}
+    <form id="wo-del-{{ w.id }}" method="post"
+          action="/write-offs/{{ w.id }}/delete?back={{ back | urlencode }}"
+          onsubmit="return confirm('Ջնջե՞լ այս խոտանը։ Ապրանքը կվերադառնա պահեստ։')">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    </form>
+  {% endfor %}
+  <p class="muted small">
+    Ջնջելիս ապրանքը վերադառնում է պահեստ։
+  </p>
 </div>
 {% endif %}
 {% endblock %}

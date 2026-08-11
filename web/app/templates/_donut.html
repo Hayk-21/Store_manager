@@ -9,6 +9,11 @@
    and the share for every segment, so identity is never colour alone. It is also the
    table view — somebody who cannot separate two of the hues reads the numbers.
 
+   Every segment is a link to the payments behind it, in the ring and in the legend
+   both: the first question about «Աշխատավարձ · 184,000» is which wages, and a chart
+   that cannot be asked leaves the owner scrolling a list of everything to find out.
+   Clicking the slice that is already showing goes back to the whole.
+
    Takes `donut` (from charts.donut) and an optional `donut_title`. #}
 <div class="donut-wrap">
   <svg class="donut" viewBox="0 0 42 42" role="img"
@@ -17,13 +22,16 @@
     <circle class="donut-track" cx="21" cy="21" r="15.9155"
             fill="none" stroke-width="4"></circle>
     {% for s in donut.segments %}
-      <circle cx="21" cy="21" r="15.9155" fill="none" stroke-width="4"
-              stroke="{{ s.colour }}"
-              stroke-dasharray="{{ s.dash }}"
-              stroke-dashoffset="{{ s.offset }}"
-              transform="rotate(-90 21 21)">
-        <title>{{ s.label }} — {{ s.amount | money }} ({{ s.share | round(1) }}%)</title>
-      </circle>
+      <a href="{{ s.href }}" class="donut-slice{% if s.selected %} is-on{% endif %}">
+        <circle cx="21" cy="21" r="15.9155" fill="none" stroke-width="4"
+                stroke="{{ s.colour }}"
+                stroke-dasharray="{{ s.dash }}"
+                stroke-dashoffset="{{ s.offset }}"
+                transform="rotate(-90 21 21)">
+          <title>{{ s.label }} — {{ s.amount | money }} ({{ s.share | round(1) }}%){{
+            '՝ սեղմեք բոլորը տեսնելու համար' if s.selected else '՝ սեղմեք տեսնելու համար' }}</title>
+        </circle>
+      </a>
     {% endfor %}
     {# The one number the chart leads with, in the hole where it belongs. The value
        sits hard against the tag: SVG collapses the newline to a space, and a leading
@@ -36,10 +44,13 @@
   <ul class="donut-legend">
     {% for s in donut.segments %}
     <li>
-      <i class="donut-swatch" style="background: {{ s.colour }}"></i>
-      <span class="donut-name">{{ s.label }}</span>
-      <span class="donut-figure">{{ s.amount | money }}</span>
-      <span class="donut-share muted">{{ s.share | round(1) }}%</span>
+      <a href="{{ s.href }}" class="donut-row{% if s.selected %} is-on{% endif %}"
+         {% if s.selected %}aria-current="true"{% endif %}>
+        <i class="donut-swatch" style="background: {{ s.colour }}"></i>
+        <span class="donut-name">{{ s.label }}</span>
+        <span class="donut-figure">{{ s.amount | money }}</span>
+        <span class="donut-share muted">{{ s.share | round(1) }}%</span>
+      </a>
     </li>
     {% endfor %}
   </ul>

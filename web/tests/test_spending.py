@@ -1,17 +1,21 @@
 """Every way money leaves the business, in one list.
 
-It leaves by four doors — a wage, a cashier taking petty cash, an expense the owner
-types, stock written off — and each had its own page. So the only view of the whole was
-two aggregate rows: «Աշխատավարձ · Փակված հերթափոխեր · 18,000» and «Խոտան · Դուրս գրված
-ապրանք · 10,976». Both true, neither answerable. Which worker. Which product. Who took
-what out of the drawer, and what for.
+It leaves by three doors — a wage, a cashier taking petty cash, an expense the owner
+types — and each had its own page. So the only view of the whole was an aggregate row:
+«Աշխատավարձ · Փակված հերթափոխեր · 18,000». True and unanswerable. Which worker. Which
+shop. Who took what out of the drawer, and what for.
+
+Breakage is not one of the doors: stock written off is a loss, not a payment, and the
+money left when the goods were bought. It has its own figure and its own list.
 
 The list is on the statistics page and on the expenses page, because "what did this month
-cost" is asked from both, and every row can be corrected where it stands.
+cost" is asked from both, and every row can be corrected where it stands — including from
+a ring that can be asked which payments a category is made of.
 """
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 from decimal import Decimal
 
@@ -55,7 +59,8 @@ async def _a_shop(float_: str = "50000.00"):
 
 
 async def _a_day(owner_id: int, store_id: int, item_id: int, salary: str = "8000.00"):
-    """A shift with something out of each door: a sale, petty cash, breakage, a wage."""
+    """A shift with something out of each door — a sale, petty cash, a wage — and a
+    write-off beside them, which is the thing that must *not* be counted as one."""
     worker_id, _ = await make_worker(owner_id, "Անի", salary_amount=salary)
     worker = shifts_service.Worker(
         id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal(salary)
@@ -86,7 +91,7 @@ def _by_kind(rows) -> dict:
 
 # -- everything is in it ------------------------------------------------------
 
-async def test_all_four_doors_are_in_one_list(client):
+async def test_all_three_doors_are_in_one_list(client):
     owner_id, store_id, item_id = await _a_shop()
     await _a_day(owner_id, store_id, item_id)
     await db.execute(
@@ -99,7 +104,7 @@ async def test_all_four_doors_are_in_one_list(client):
 
     kinds = {row["kind"] for row in await _rows(owner_id)}
 
-    assert kinds == {"salary", "withdrawal", "expense", "breakage"}
+    assert kinds == {"salary", "withdrawal", "expense"}
 
 
 async def test_a_wage_says_which_worker_and_which_shop(client):
@@ -126,16 +131,49 @@ async def test_petty_cash_says_who_took_it_and_what_for(client):
     assert taken["worker_name"] == "Անի"
 
 
-async def test_breakage_says_which_product_and_why(client):
+async def test_breakage_is_not_a_payment(client):
+    """A vape that falls off the shelf is stock lost, not money paid: nothing left a
+    drawer or an account that day, because the money left when the goods were bought.
+    Counting it here charged the business twice for the same thousand drams.
+    """
     owner_id, store_id, item_id = await _a_shop()
     await _a_day(owner_id, store_id, item_id)
 
-    broken = _by_kind(await _rows(owner_id))["breakage"]
+    rows = await _rows(owner_id)
 
-    assert "HQD Cuvie" in broken["purpose"]
-    assert "ընկավ" in broken["purpose"]
-    assert broken["amount"] == Decimal("3000.00"), "two at what they cost"
-    assert broken["method"] is None, "it never touched the till"
+    assert "breakage" not in {row["kind"] for row in rows}
+    assert not any("HQD Cuvie" in (row["purpose"] or "") for row in rows)
+
+
+async def test_breakage_is_in_no_spending_figure(client):
+    """Not in the total, not in the count, and not a slice of the ring — a write-off
+    that showed up in any of the three would still be double-counting, quietly."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    since, until = _range()
+
+    totals = await spending_repo.totals_between(owner_id, since, until)
+    ring = await spending_repo.by_category_between(owner_id, since, until)
+
+    assert "breakage" not in totals
+    assert totals["total"] == Decimal("8700.00"), "8,000 wage + 700 petty cash only"
+    assert await spending_repo.count_between(owner_id, since, until) == 2
+    assert "Խոտան" not in {row["category"] for row in ring}
+
+
+async def test_breakage_is_still_visible_where_it_belongs(client):
+    """Not a payment is not the same as not a loss. It keeps its own card, its own
+    total, and the way to undo one written off by mistake."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=7")
+
+    assert "HQD Cuvie" in page.text and "ընկավ" in page.text
+    assert "3,000.00 ֏" in page.text, "two at what they cost"
+    assert "/write-offs/" in page.text, "and still deletable"
+    assert "ծախս չէ" in page.text, "and it says so"
 
 
 async def test_a_bonus_is_its_own_row(client):
@@ -322,7 +360,6 @@ async def test_every_row_offers_a_way_to_correct_it(client):
 
     assert "/shifts/" in page.text and "/salary" in page.text, "a wage"
     assert "/movements/" in page.text, "petty cash"
-    assert "/write-offs/" in page.text, "breakage"
 
 
 async def test_a_wage_edit_posts_the_field_the_endpoint_reads(client):
@@ -532,9 +569,9 @@ async def test_a_back_target_on_this_site_is_honoured(client):
 # -- the shape of it ----------------------------------------------------------
 
 async def test_the_expenses_page_headline_counts_every_payment(client):
-    """It counted the typed expenses alone, so a month with 22 wages, withdrawals and
-    write-offs in it — and no hand-entered expense — announced «0.00 ֏ · 0 գրառում»
-    directly above a list of all 22."""
+    """It counted the typed expenses alone, so a month with 22 wages and withdrawals in
+    it — and no hand-entered expense — announced «0.00 ֏ · 0 գրառում» directly above a
+    list of all 22."""
     owner_id, store_id, item_id = await _a_shop()
     await _a_day(owner_id, store_id, item_id)
     await login(client, "@ownerhandle")
@@ -542,7 +579,7 @@ async def test_the_expenses_page_headline_counts_every_payment(client):
     page = await client.get("/expenses")
     headline = page.text.split("Այս ամսվա ծախսերը")[1][:200]
 
-    assert "11,700.00 ֏" in headline, "8,000 wage + 700 petty cash + 3,000 breakage"
+    assert "8,700.00 ֏" in headline, "8,000 wage + 700 petty cash"
     assert ">0.00 ֏<" not in headline, "not the typed ones alone"
     assert "Որից՝ ձեռքով գրանցված" in page.text, "and the typed ones are still named"
 
@@ -559,7 +596,6 @@ async def test_the_ring_splits_spending_by_what_it_was_for(client):
 
     assert by_name["Աշխատավարձ"] == Decimal("8000.00")
     assert by_name["Դրամարկղից վերցված"] == Decimal("700.00")
-    assert by_name["Խոտան"] == Decimal("3000.00")
 
 
 async def test_the_ring_is_drawn_on_both_pages(client):
@@ -586,9 +622,9 @@ async def test_the_ring_names_and_prices_every_segment(client):
         await spending_repo.by_category_between(owner_id, since, until)
     )
 
-    assert ring["total"] == Decimal("11700.00")
+    assert ring["total"] == Decimal("8700.00")
     assert {s["label"] for s in ring["segments"]} == {
-        "Աշխատավարձ", "Դրամարկղից վերցված", "Խոտան",
+        "Աշխատավարձ", "Դրամարկղից վերցված",
     }
     assert sum(s["share"] for s in ring["segments"]) == Decimal(100)
     assert all(s["colour"].startswith("#") for s in ring["segments"])
@@ -615,3 +651,197 @@ def test_a_ring_with_nothing_in_it_draws_nothing():
 
     assert charts.donut([])["segments"] == []
     assert charts.donut([{"category": "Ոչինչ", "total": Decimal(0)}])["segments"] == []
+
+
+# -- asking the ring a question ------------------------------------------------
+
+async def test_a_category_shows_the_payments_behind_it(client):
+    """The first question about «Աշխատավարձ · 8,000» is which wages, and a chart that
+    cannot be asked leaves the owner scrolling everything to find out."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    since, until = _range()
+
+    wages = await spending_repo.list_between(
+        owner_id, since, until, categories=["Աշխատավարձ"]
+    )
+
+    assert [row["kind"] for row in wages] == ["salary"]
+    assert wages[0]["amount"] == Decimal("8000.00")
+
+
+async def test_choosing_nothing_is_not_a_choice(client):
+    """An empty filter has to mean the whole period, not an empty list — every link on
+    the page that clears the filter passes exactly that."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    since, until = _range()
+
+    everything = await spending_repo.list_between(owner_id, since, until)
+    cleared = await spending_repo.list_between(owner_id, since, until, categories=None)
+
+    assert len(cleared) == len(everything) == 2
+
+
+async def test_a_category_narrows_the_figure_under_the_list_too(client):
+    """The total belongs to the rows above it. Leaving the period's total under one
+    category's rows is the kind of disagreement nobody re-adds by hand to catch."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    since, until = _range()
+
+    totals = await spending_repo.totals_between(
+        owner_id, since, until, categories=["Դրամարկղից վերցված"]
+    )
+    count = await spending_repo.count_between(
+        owner_id, since, until, categories=["Դրամարկղից վերցված"]
+    )
+
+    assert totals["total"] == Decimal("700.00")
+    assert count == 1
+
+
+async def test_several_categories_at_once(client):
+    """«Այլ» is one slice standing for a whole folded tail, so the filter has to take
+    a list — and a category name is free text, which rules out joining them."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    since, until = _range()
+
+    both = await spending_repo.list_between(
+        owner_id, since, until, categories=["Աշխատավարձ", "Դրամարկղից վերցված"]
+    )
+
+    assert {row["kind"] for row in both} == {"salary", "withdrawal"}
+
+
+async def test_a_name_with_a_separator_in_it_still_filters(client):
+    """The owner names their own categories, and a name is free text — one holding the
+    separator we might have joined on has to work like any other."""
+    owner_id, store_id, item_id = await _a_shop()
+    category_id = await db.fetchval(
+        "INSERT INTO expense_categories (owner_id, name) VALUES ($1, $2) RETURNING id",
+        owner_id, "Վարձ, կոմունալ · այլ",
+    )
+    await db.execute(
+        """
+        INSERT INTO expenses (owner_id, purpose, amount, spent_on, category_id)
+        VALUES ($1, 'Վարձակալություն', 120000, $2, $3)
+        """,
+        owner_id, settings.local_day(), category_id,
+    )
+    since, until = _range()
+
+    rows = await spending_repo.list_between(
+        owner_id, since, until, categories=["Վարձ, կոմունալ · այլ"]
+    )
+
+    assert [row["amount"] for row in rows] == [Decimal("120000.00")]
+
+
+async def test_every_slice_is_a_link_to_its_own_rows(client):
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/expenses")
+
+    assert "category=%D4%B1%D5%B7" in page.text.replace("&amp;", "&"), (
+        "the wage slice links to the wages"
+    )
+    assert "donut-row" in page.text, "and the legend row is the same link"
+
+
+async def test_the_page_narrows_when_a_slice_is_clicked(client):
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/expenses?category=Դրամարկղից+վերցված")
+
+    assert "առաքիչին" in page.text, "the withdrawal is there"
+    assert "Ցուցադրվում է միայն" in page.text, "and the list says it is narrowed"
+    assert "Բոլորը" in page.text, "with the way back"
+
+
+async def test_the_ring_keeps_every_slice_while_one_is_chosen(client):
+    """The ring is what the choosing is done from. One that redrew itself as the single
+    remaining slice would leave nothing to click back to."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/expenses?category=Աշխատավարձ")
+
+    assert "Դրամարկղից վերցված" in page.text, "the unchosen slice is still drawn"
+    assert "Այս ամսվա ծախսերը" in page.text
+    headline = page.text.split("Այս ամսվա ծախսերը")[1][:200]
+    assert "8,700.00 ֏" in headline, "and the headline is still the month's own"
+
+
+async def test_clicking_the_chosen_slice_again_goes_back_to_everything(client):
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/expenses?category=Աշխատավարձ")
+    ring = page.text.split("donut-legend")[1]
+
+    assert 'class="donut-row is-on"' in ring, "the chosen row is marked"
+    assert '<a href="/expenses?month=' in ring, "and its link drops the filter"
+
+
+async def test_a_correction_returns_to_the_narrowed_page(client):
+    """A fix made while looking at one category should not silently widen the page it
+    came from. Round-tripped rather than asserted on the encoding: `back` is a query
+    value carrying a query of its own, and what matters is where the browser lands.
+    """
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    movement_id = await db.fetchval(
+        "SELECT id FROM cash_movements WHERE kind = 'withdrawal'"
+    )
+    await login(client, "@ownerhandle")
+    csrf = await db.fetchval(
+        "SELECT csrf_token FROM auth_sessions ORDER BY created_at DESC LIMIT 1"
+    )
+    page = await client.get("/expenses?category=Դրամարկղից+վերցված")
+    back = re.search(
+        rf'action="/movements/{movement_id}\?back=([^"]+)"', page.text
+    ).group(1)
+
+    saved = await client.post(
+        f"/movements/{movement_id}?back={back}",
+        data={"csrf_token": csrf, "amount": "800"},
+    )
+    landed = await client.get(saved.headers["location"])
+
+    assert "Ցուցադրվում է միայն" in landed.text, "still narrowed to the category"
+    assert "800.00 ֏" in landed.text, "and showing the corrected figure"
+
+
+def test_the_folded_tail_carries_what_it_stands_for():
+    """«Այլ» is not a category, so clicking it has to ask for the ones it hides."""
+    from app import charts
+
+    rows = [{"category": f"Կ{i}", "total": Decimal(10 - i)} for i in range(9)]
+
+    ring = charts.donut(rows)
+
+    assert ring["segments"][-1]["members"] == ["Կ5", "Կ6", "Կ7", "Կ8"]
+    assert ring["segments"][0]["members"] == ["Կ0"], "an ordinary slice is itself"
+
+
+def test_a_category_of_the_owners_own_called_other_keeps_its_colour():
+    """The fold is «Այլ» too, and a dict keyed by name would hand it the tail's
+    membership — and paint a real category grey."""
+    from app import charts
+
+    ring = charts.donut([
+        {"category": "Այլ", "total": Decimal(50)},
+        {"category": "Վարձ", "total": Decimal(30)},
+    ])
+
+    assert ring["segments"][0]["label"] == "Այլ"
+    assert ring["segments"][0]["members"] == ["Այլ"]
+    assert ring["segments"][0]["colour"] == charts.SLOTS[0], "not the grey of the fold"

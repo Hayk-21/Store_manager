@@ -146,9 +146,11 @@ async def overview(
     # Expenses are business-wide by nature (rent, advertising), so they are not
     # narrowed by the store filter — attributing them per shop would be a guess.
     spending = Decimal(await expenses_repo.total_between(owner_id, since, until))
-    # Breakage is money the shop spent and did not get back. It never touched the
-    # till, which is exactly why it would go missing from every figure unless it
-    # is added here.
+    # Stock lost, at what it cost — and deliberately *not* part of the spending figure
+    # below it. Nothing left a drawer or an account the day a vape fell off the shelf:
+    # the money left when the goods were bought. Counting it as spending charged the
+    # business twice for the same thousand drams and made a write-off look like a
+    # payment. It keeps its own figure and its own list, where it says what it is.
     breakage = Decimal(await write_offs_repo.cost_between(owner_id, since, until, store_id))
 
     gross = Decimal(summary["profit"])
@@ -189,7 +191,10 @@ async def overview(
         "spending": spending,
         "gross_profit": gross,
         "breakage": breakage,
-        "net_profit": gross - salaries - spending - breakage,
+        # Wages and what the owner paid out. Not breakage — see above — and the same
+        # arithmetic the report header uses for a single day, so a day and the month
+        # containing it cannot disagree about what profit means.
+        "net_profit": gross - salaries - spending,
         "average_receipt": (
             Decimal(summary["revenue"]) / summary["receipts"]
             if summary["receipts"] else ZERO

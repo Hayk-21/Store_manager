@@ -60,15 +60,35 @@ a:hover { text-decoration: underline; }
 }
 .donut-caption { font-size: 2.6px; fill: var(--muted); }
 
+/* Every slice is a link to the payments behind it. The ring's hit area is the drawn
+   band, which is what the pointer is already over. */
+.donut-slice { cursor: pointer; }
+.donut-slice circle { transition: opacity .12s ease; }
+.donut-wrap:hover .donut-slice:not(:hover) circle { opacity: .55; }
+.donut-slice.is-on circle,
+.donut-wrap:hover .donut-slice:hover circle { opacity: 1; }
+/* Keyboard focus lands on the slice too, and an SVG stroke cannot carry an outline
+   the way a box can — so the ring itself brightens and the legend row shows the box. */
+.donut-slice:focus-visible circle { opacity: 1; stroke-width: 5.2; }
+
 .donut-legend { list-style: none; margin: 0; padding: 0; flex: 1 1 260px; min-width: 240px; }
 .donut-legend li {
+  border-bottom: 1px solid var(--line);
+}
+.donut-row {
   display: grid;
   grid-template-columns: 12px 1fr auto auto;
   align-items: baseline;
   gap: 10px;
   padding: 5px 0;
-  border-bottom: 1px solid var(--line);
+  color: inherit;
+  text-decoration: none;
+  border-radius: 6px;
 }
+.donut-row:hover { background: var(--panel-2); }
+.donut-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.donut-row.is-on { background: var(--panel-2); }
+.donut-row.is-on .donut-name { font-weight: 600; }
 .donut-legend li:last-child { border-bottom: 0; }
 /* A round swatch rather than a square: it reads as belonging to the ring beside it. */
 .donut-swatch { width: 12px; height: 12px; border-radius: 50%; align-self: center; }
@@ -80,6 +100,29 @@ a:hover { text-decoration: underline; }
   .donut-wrap { gap: 16px; }
   .donut { width: 150px; height: 150px; margin: 0 auto; }
 }
+/* A list narrowed to one slice of the ring says so above itself, and carries the way
+   back. Filtered results that look unfiltered are how "where did the rest of my month
+   go" starts. */
+.filter-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.filter-note a {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 9px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 .nowrap { white-space: nowrap; }
 
 /* -- topbar ---------------------------------------------------------------- */

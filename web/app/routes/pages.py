@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import date, timedelta
 from decimal import Decimal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import asyncpg
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import RedirectResponse
 
 from app import charts, forms
@@ -461,7 +463,10 @@ def _month_range(raw: str | None) -> tuple[date, date, str]:
 
 @router.get("/expenses")
 async def expenses_page(
-    request: Request, month: str | None = None, user: CurrentUser = Depends(current_user)
+    request: Request,
+    month: str | None = None,
+    category: list[str] = Query(default=[]),
+    user: CurrentUser = Depends(current_user),
 ):
     """Rent, advertising, paying an influencer — money out with no customer.
 
@@ -488,7 +493,9 @@ async def expenses_page(
             # Everything the business paid out this month, not only what was typed on
             # this page: a wage and a cashier's petty cash are spending too, and this
             # was the page an owner came to for "what did the month cost".
-            **await _spending_context(user.id, since, until, f"/expenses?month={label}"),
+            **await _spending_context(
+                user.id, since, until, f"/expenses?month={label}", categories=category
+            ),
         },
     )
 
@@ -676,6 +683,7 @@ async def statistics_page(
     store_id: str | None = None,
     since: str | None = None,
     until: str | None = None,
+    category: list[str] = Query(default=[]),
     user: CurrentUser = Depends(current_user),
 ):
     """What the business earned, and what that cost.
@@ -701,8 +709,11 @@ async def statistics_page(
             "preset": preset,
             "presets": statistics.PRESETS,
             **await statistics.overview(user.id, since, until, store_id),
-            **await _spending_context(user.id, since, until, request.url.path
-                                      + "?" + str(request.url.query), store_id),
+            **await _spending_context(
+                user.id, since, until,
+                request.url.path + "?" + str(request.url.query),
+                store_id, categories=category,
+            ),
         },
     )
 
@@ -1044,24 +1055,64 @@ def _the_owners_share(totals, counts) -> dict:
     }
 
 
+def _filtered_by(page: str, labels: Sequence[str]) -> str:
+    """``page`` with its category filter replaced by ``labels``.
+
+    Built from the page's own URL rather than assembled from parts, so a link out of the
+    ring keeps the month, the period and the shop the owner is already looking at. The
+    filter is repeated rather than joined — a category name is free text and can hold
+    whichever separator we would have chosen.
+    """
+    parts = urlsplit(page)
+    query = [
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key != "category"
+    ]
+    query += [("category", label) for label in labels]
+    return urlunsplit(("", "", parts.path, urlencode(query), ""))
+
+
 async def _spending_context(
-    owner_id: int, since: date, until: date, back: str, store_id: int | None = None
+    owner_id: int,
+    since: date,
+    until: date,
+    page: str,
+    store_id: int | None = None,
+    categories: Sequence[str] | None = None,
 ) -> dict:
     """Every payment of a period, for whichever page is showing them.
 
-    ``back`` is where an edit or a delete should return to — the same partial serves the
-    statistics page and the expenses page, and a correction made on one should not land
-    on the other.
+    ``page`` is the URL this is being rendered on. It is where an edit or a delete
+    returns to — the same partial serves the statistics page and the expenses page, and
+    a correction made on one should not land on the other — and it is the base every
+    slice of the ring links to.
+
+    ``categories`` is the slice the owner clicked. It narrows the list and the figure
+    under it, and nothing else: the ring keeps every category so there is something to
+    click back to, and the headline stays the period's own total so a filter cannot be
+    mistaken for a shrinking month.
     """
-    rows = await spending_repo.list_between(owner_id, since, until, store_id)
+    chosen = list(categories or [])
+    here = _filtered_by(page, chosen)
+    rows = await spending_repo.list_between(
+        owner_id, since, until, store_id, categories=chosen or None
+    )
+    donut = charts.donut(
+        await spending_repo.by_category_between(owner_id, since, until, store_id)
+    )
+    for segment in donut["segments"]:
+        # A slice already showing goes back to the whole rather than nowhere: clicking
+        # it a second time is how anybody expects to undo the first click.
+        picked = set(segment["members"]) == set(chosen)
+        segment["href"] = _filtered_by(page, [] if picked else segment["members"])
+        segment["selected"] = picked
     return {
         "payments": rows,
-        # Part-to-whole across all four doors, not only the typed expenses: a wage is a
+        # Part-to-whole across all three doors, not only the typed expenses: a wage is a
         # category of spending in exactly the way rent is, and splitting the ring by
         # where a payment was entered would put most of a month in one nameless lump.
-        "donut": charts.donut(
-            await spending_repo.by_category_between(owner_id, since, until, store_id)
-        ),
+        "donut": donut,
         # Over the whole period, not over the rows above: the list is capped and the
         # money is not, and a total that quietly stopped at the five-hundredth payment
         # would be wrong in the one direction nobody checks.
@@ -1071,9 +1122,21 @@ async def _spending_context(
         "payment_count": await spending_repo.count_between(
             owner_id, since, until, store_id
         ),
+        # What the list below is actually showing, which is the same thing whenever
+        # nothing is filtered.
+        "chosen": chosen,
+        "chosen_total": (
+            await spending_repo.totals_between(
+                owner_id, since, until, store_id, categories=chosen
+            )
+        )["total"] if chosen else None,
+        "chosen_count": await spending_repo.count_between(
+            owner_id, since, until, store_id, categories=chosen
+        ) if chosen else None,
+        "everything_href": _filtered_by(page, []),
         "editable": spending_repo.EDITABLE,
         "deletable": spending_repo.DELETABLE,
-        "back": back,
+        "back": here,
     }
 
 

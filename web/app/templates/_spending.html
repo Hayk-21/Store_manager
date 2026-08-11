@@ -1,12 +1,24 @@
 {# Every way money left the business, one row each.
 
-   It used to be two aggregate rows — «Աշխատավարձ · Փակված հերթափոխեր · 18,000» and
-   «Խոտան · Դուրս գրված ապրանք · 10,976» — which are true and unanswerable: which
-   worker, which product, who took what out of the drawer and what for.
+   It used to be an aggregate row — «Աշխատավարձ · Փակված հերթափոխեր · 18,000» — which is
+   true and unanswerable: which worker, which shop, who took what out of the drawer and
+   what for.
 
    Each row is edited and deleted where it lives, so the forms post to the same
    endpoints the store page and the report use rather than to a second set. `back`
    is where to return afterwards, so the same partial serves both pages. #}
+
+{# When a slice of the ring has been clicked, the list says so in its own words and
+   carries the way back. A filtered list that looks unfiltered is how «where did the
+   rest of my month go» starts. #}
+{% if chosen %}
+<p class="filter-note">
+  <span>Ցուցադրվում է միայն՝ <b>{{ chosen | join(' · ') }}</b>
+    — {{ chosen_total | money }}, {{ chosen_count }} գրառում</span>
+  <a href="{{ everything_href }}" class="secondary tiny">Բոլորը ✕</a>
+</p>
+{% endif %}
+
 <div class="table-wrap">
   <table class="cards">
     <thead>
@@ -24,7 +36,6 @@
           {% if row.kind == 'salary' %}<span class="badge">հերթափոխ</span>
           {% elif row.kind == 'bonus' %}<span class="badge positive">բոնուս</span>
           {% elif row.kind == 'withdrawal' %}<span class="badge">դրամարկղից</span>
-          {% elif row.kind == 'breakage' %}<span class="badge">խոտան</span>
           {% endif %}
           {# What the drawer could not cover, beside the wage it belongs to: the row
              says what was paid, and the rest is still owed. #}
@@ -78,7 +89,11 @@
     <tfoot>
       <tr>
         <th colspan="5">Ընդամենը</th>
-        <th class="num negative">{{ payment_totals.total | money }}</th>
+        {# The total of what is listed, which under a filter is the category's own and
+           otherwise the period's. Either way it is the sum of these rows, computed in
+           SQL over all of them rather than over the capped few. #}
+        <th class="num negative">
+          {{ (chosen_total if chosen else payment_totals.total) | money }}</th>
         <th></th>
       </tr>
     </tfoot>
@@ -118,28 +133,20 @@
           onsubmit="return confirm('Ջնջե՞լ այս ծախսը։')">
       <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
     </form>
-  {% elif row.kind == 'breakage' %}
-    <form id="sp-del-breakage-{{ row.id }}" method="post"
-          action="/write-offs/{{ row.id }}/delete?back={{ back | urlencode }}"
-          onsubmit="return confirm('Ջնջե՞լ այս խոտանը։ Ապրանքը կվերադառնա պահեստ։')">
-      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
-    </form>
   {% endif %}
 {% endfor %}
 
 {# A list that quietly stops looks like a complete one. The total below it is over the
    whole period either way, so the two would otherwise appear not to add up. #}
-{% if payment_count > payments | length %}
+{% if (chosen_count if chosen else payment_count) > payments | length %}
 <p class="muted small">
   Ցուցադրված են վերջին <b>{{ payments | length }}</b> վճարումները՝ ընդամենը
-  {{ payment_count }}-ից։ Ներքևի գումարը ամբողջ ժամանակահատվածինն է։
+  {{ chosen_count if chosen else payment_count }}-ից։ Ներքևի գումարը բոլորինն է։
   Ավելի կարճ ժամանակահատված ընտրեք՝ բոլորը տեսնելու համար։
 </p>
 {% endif %}
 
 <p class="muted small">
   Աշխատավարձը փոխելու համար գրեք նոր գումարը և սեղմեք ✓, ջնջելու համար՝ գրեք 0։
-  Խոտանը հաշվվում է ինքնարժեքով և դրամարկղին չի ազդում՝ փողը դուրս է եկել գնելու
-  պահին։ Խոտանը ջնջելիս ապրանքը վերադառնում է պահեստ։
   {%- if payment_totals.expense is not defined %} <a href="/expenses">Ծախս ավելացնել</a>{% endif %}
 </p>
