@@ -10,7 +10,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 
-from app import forms
+from app import charts, forms
 from app.config import settings
 from app.db import db
 from app.deps import CurrentUser, current_user, require_csrf
@@ -298,7 +298,10 @@ async def record_movement(
         method=method,
         kind=kind,
         amount=forms.money(amount, "Գումար"),
-        note=forms.text(note, "Նշում", max_length=300, required=False),
+        # Required, like the reason on a cashier's withdrawal and on the report's own
+        # «Ավելացնել գրառում»: an amount with no reason is the shortfall with a number
+        # attached, and the schema has refused one on an owner-typed row since 018.
+        note=forms.text(note, "Նշում", max_length=300),
     )
     return render(request, "_store_status.html", await _status_context(user.id, store_id))
 
@@ -652,7 +655,7 @@ async def reports_page(
             # as the statistics page — goods sold less what they cost, less wages,
             # petty cash and breakage — so a session's figure and the period that
             # contains it cannot disagree about the word "profit".
-            **await _what_the_day_made(store_session_id, totals),
+            **await _what_the_day_made(session, totals),
         }
     return render(
         request,
@@ -876,6 +879,27 @@ async def set_salary(
     return _back_to(back, f"/reports?store_session_id={store_session_id}")
 
 
+@router.post("/shifts/{work_session_id}/bonus")
+async def set_bonus(
+    work_session_id: int,
+    bonus: str = Form(""),
+    back: str | None = None,
+    user: CurrentUser = Depends(require_csrf),
+):
+    """Correct a shift's bonus, including down to zero to remove one recorded by
+    mistake — which is where deleting the ledger row on its own now sends the owner,
+    because doing that alone left the shift claiming a bonus the ledger had no
+    record of."""
+    store_session_id = await db.fetchval(
+        "SELECT store_session_id FROM work_sessions WHERE id = $1 AND owner_id = $2",
+        work_session_id, user.id,
+    )
+    await corrections.set_bonus(
+        user.id, user.id, work_session_id, forms.money(bonus, "Բոնուս")
+    )
+    return _back_to(back, f"/reports?store_session_id={store_session_id}")
+
+
 @router.post("/history/{event_id}/revert")
 async def revert_correction(event_id: int, user: CurrentUser = Depends(require_csrf)):
     """Undo one correction. Newest-first, so rewinding to a moment is undoing
@@ -906,25 +930,36 @@ async def _session_of_sale(owner_id: int, sale_id: int) -> int | None:
     )
 
 
-async def _what_the_day_made(store_session_id: int, totals) -> dict:
-    """The bottom line for one session, in the owner's own arithmetic:
+async def _what_the_day_made(session, totals) -> dict:
+    """The two bottom lines for one session, which answer two different questions.
 
-        Շահույթ  =  վաճառք − աշխատավարձ − բոնուս − դրամարկղից հանված
+        Շրջանառություն  =  վաճառք − աշխատավարձ − բոնուս − դրամարկղից հանված
+        Շահույթ         =  (վաճառք − ինքնարժեք) − աշխատավարձ − բոնուս
+                           − դրամարկղից հանված − օրվա ծախսեր
 
-    What the stock cost is deliberately not in it, and that is consistent rather than an
-    omission: the shop paid for those vapes when it bought them, so on the day one sells
-    the whole price is money the business is better off by. It is the same reasoning the
-    page already gives for breakage — «փողը դուրս է եկել գնելու պահին» — and breakage is
-    out for the same reason. The statistics page takes the other view over a period,
-    where margin and the cost of goods are what the question is actually about.
+    The first is about **cash**: what the day put into the business, counting the whole
+    selling price, because the stock was paid for when it was bought. That is the figure
+    to check the drawer against, and it was called «Շահույթ» — which it is not, and
+    a shop selling 45,000 of stock that cost 40,000 would read it as a very good day.
 
-    Wages here are what the till **paid**, not what the shift cost. A report on one
+    The second is about **the business**: the same day with what the goods actually cost
+    taken off, and the owner's own typed expenses for that day with it. It is the figure
+    that says whether the shop made money, and the two differ by exactly the margin —
+    which is the whole reason both are worth showing.
+
+    Only expenses attached to *this shop* are in it. One left as «Ամբողջ բիզնեսը» —
+    rent, advertising — belongs to the business rather than to the branch that happened
+    to be open, and counting it here would subtract the same rent from every shop
+    trading that day.
+
+    Wages in both are what the till **paid**, not what the shift cost. A report on one
     evening is a report about that evening's money, and a wage the drawer could not
     cover has not left the business yet — so the figure that belongs beside «Ղեկավարին»
     and «Մնաց խանութում», which are drawer questions, is the one that came out of the
-    drawer. What is still owed is stated underneath, because the profit above will drop
-    by it the day it is settled.
+    drawer. What is still owed is stated underneath, because both figures above will
+    drop by it the day it is settled.
     """
+    store_session_id = session["id"]
     wages = await sessions_repo.wages_for_session(store_session_id)
     # Out of the ledger, so they are what the drawer actually paid. Apart, because a
     # bonus is not a wage: an owner reads that tile against the rate they set.
@@ -932,16 +967,25 @@ async def _what_the_day_made(store_session_id: int, totals) -> dict:
     # Net of reversals: a voided sale is not a sale, and a day where everything was
     # taken back used to read as a day that sold 7,000 and made a profit on it.
     takings = Decimal(totals["net_sales"])
+    taken_out = Decimal(totals["withdrawn"])
+    margin = Decimal(await stats_repo.profit_for_session(store_session_id))
+    spending = Decimal(
+        await expenses_repo.total_for_store_on(
+            session["owner_id"],
+            session["store_id"],
+            settings.local_day(session["opened_at"]),
+        )
+    )
     return {
-        # Kept for the line under the tile, which says what the goods themselves earned
-        # so the figure the owner is not subtracting is at least in front of them.
-        "gross_profit": Decimal(await stats_repo.profit_for_session(store_session_id)),
+        "gross_profit": margin,
         "breakage_cost": Decimal(await write_offs_repo.cost_for_session(store_session_id)),
+        "day_spending": spending,
         "wage_salary": salary,
         "wage_bonus": bonus,
         "wage_cost": Decimal(wages["cost"]),
         "wage_unpaid": Decimal(wages["unpaid"]),
-        "day_profit": takings - salary - bonus - Decimal(totals["withdrawn"]),
+        "turnover": takings - salary - bonus - taken_out,
+        "day_profit": margin - salary - bonus - taken_out - spending,
     }
 
 
@@ -957,16 +1001,26 @@ def _the_owners_share(totals, counts) -> dict:
     nobody can act on that. ``till_now`` carries the ledger's own figure alongside, so a
     count that has drifted from the books is visible rather than merely wrong.
 
-    Nothing counted means nothing declared, and zero is the honest render of it.
+    **When nobody counted**, both figures used to read zero — which is not what happened
+    to the money. A worker who goes home without counting has not emptied the shop; the
+    float stays exactly where it is, because nothing changes ``stores.till_balance``
+    except a count. So the honest answer is the one the system will actually act on
+    tomorrow: the shop keeps the float it carried in this morning, and the owner is owed
+    the rest. A shop that took 24,900 on a 400 float is owed 24,500, not nothing.
+
+    It is an inference rather than a declaration — nobody looked in the drawer — so the
+    page says which it is, and offers the box to correct it.
     """
     till_now = Decimal(totals["cash"])
     if not counts:
+        assumed = Decimal(totals["carried_in"])
         return {
-            "owed_to_owner": Decimal(0),
-            "left_in_store": Decimal(0),
-            "count_expected": Decimal(0),
+            "owed_to_owner": max(Decimal(0), till_now - assumed),
+            "left_in_store": assumed,
+            "count_expected": till_now,
             "till_now": till_now,
             "count_is_stale": False,
+            "nobody_counted": True,
         }
     last = counts[-1]
     left, was = Decimal(last["counted"]), Decimal(last["expected"])
@@ -986,6 +1040,7 @@ def _the_owners_share(totals, counts) -> dict:
         "count_expected": was,
         "till_now": till_now,
         "count_is_stale": was != till_now,
+        "nobody_counted": False,
     }
 
 
@@ -1001,7 +1056,21 @@ async def _spending_context(
     rows = await spending_repo.list_between(owner_id, since, until, store_id)
     return {
         "payments": rows,
-        "payment_totals": spending_repo.totals(rows),
+        # Part-to-whole across all four doors, not only the typed expenses: a wage is a
+        # category of spending in exactly the way rent is, and splitting the ring by
+        # where a payment was entered would put most of a month in one nameless lump.
+        "donut": charts.donut(
+            await spending_repo.by_category_between(owner_id, since, until, store_id)
+        ),
+        # Over the whole period, not over the rows above: the list is capped and the
+        # money is not, and a total that quietly stopped at the five-hundredth payment
+        # would be wrong in the one direction nobody checks.
+        "payment_totals": await spending_repo.totals_between(
+            owner_id, since, until, store_id
+        ),
+        "payment_count": await spending_repo.count_between(
+            owner_id, since, until, store_id
+        ),
         "editable": spending_repo.EDITABLE,
         "deletable": spending_repo.DELETABLE,
         "back": back,
@@ -1013,8 +1082,22 @@ def _back_to(where: str | None, fallback: str):
 
     Only a path of our own: an open redirect is a phishing tool, and the only thing a
     caller legitimately needs is "the page I was looking at".
+
+    Rejecting a leading ``//`` is not enough on its own. Browsers following the URL
+    spec treat a backslash in this position as a forward slash, so ``/\\evil.example``
+    normalises to ``//evil.example`` — a protocol-relative URL, off this site
+    entirely — after passing a check that only looked for two slashes. Anything with
+    a backslash or a control character in it is refused outright rather than
+    sanitised: there is no legitimate one in a path this application generates, so
+    there is nothing to lose by declining the whole class.
     """
-    if where and where.startswith("/") and not where.startswith("//"):
+    if (
+        where
+        and where.startswith("/")
+        and not where.startswith("//")
+        and "\\" not in where
+        and not any(ch < " " or ch == "\x7f" for ch in where)
+    ):
         return RedirectResponse(where, status_code=303)
     return RedirectResponse(fallback, status_code=303)
 

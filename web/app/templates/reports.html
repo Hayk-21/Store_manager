@@ -107,6 +107,18 @@
       <span class="total-label">Ղեկավարին</span>
       <span class="total-value accent-owner">{{ d.owed_to_owner | money }}</span>
     </div>
+    {# Two bottom lines, two questions. «Շրջանառություն» is about cash — what the day
+       put into the business counting the whole selling price, because the stock was
+       paid for when it was bought. «Շահույթ» is about the business — the same day with
+       what the goods actually cost taken off, and this shop's own expenses for the day
+       with it. They differ by exactly the margin, which is why both are worth showing;
+       the first alone was labelled «Շահույթ», and a shop selling 45,000 of stock that
+       cost 40,000 read it as a very good day. #}
+    <div class="total">
+      <span class="total-label">Շրջանառություն</span>
+      <span class="total-value {{ 'accent-profit' if d.turnover >= 0 else 'negative' }}">
+        {{ d.turnover | money }}</span>
+    </div>
     <div class="total">
       <span class="total-label">Շահույթ</span>
       <span class="total-value {{ 'accent-profit' if d.day_profit >= 0 else 'negative' }}">
@@ -129,26 +141,36 @@
       <span class="total-value">{{ d.wage_bonus | money }}</span>
     </div>
   </div>
-  {# What the profit figure is made of. It is a subtraction, and a subtraction whose
-     parts are not shown is a number the owner has to take on trust. #}
+  {# Both figures are subtractions, and a subtraction whose parts are not shown is a
+     number the owner has to take on trust. #}
   <p class="muted small">
-    Շահույթը՝ վաճառք {{ d.totals.net_sales | money }}
+    Շրջանառությունը՝ վաճառք {{ d.totals.net_sales | money }}
     {%- if d.wage_salary %} · հանած աշխատավարձ {{ d.wage_salary | money }}{% endif %}
     {%- if d.wage_bonus %} · հանած բոնուս {{ d.wage_bonus | money }}{% endif %}
     {%- if d.totals.withdrawn %} · հանած վերցված {{ d.totals.withdrawn | money }}{% endif %}։
-    {# The cost of the goods is deliberately not subtracted — it was paid when the stock
-       was bought — but it is worth having in front of the owner, so the margin is stated
-       beside the figure rather than left off the page. #}
-    Ապրանքի ինքնարժեքը հանելուց հետո վաճառքի վրա մնում է
-    {{ d.gross_profit | money }}
-    {%- if d.breakage_cost %}, խոտանը՝ {{ d.breakage_cost | money }}{% endif %}։
+    <br>
+    Շահույթը՝ ապրանքի վրա {{ d.gross_profit | money }}
+    {#- the margin: selling price less what the stock cost -#}
+    {%- if d.wage_salary %} · հանած աշխատավարձ {{ d.wage_salary | money }}{% endif %}
+    {%- if d.wage_bonus %} · հանած բոնուս {{ d.wage_bonus | money }}{% endif %}
+    {%- if d.totals.withdrawn %} · հանած վերցված {{ d.totals.withdrawn | money }}{% endif %}
+    {%- if d.day_spending %} · հանած օրվա ծախսեր {{ d.day_spending | money }}{% endif %}։
+    Ապրանքի վրա շահույթը վաճառքի գինն է հանած ինքնարժեքը։
+    {%- if d.breakage_cost %} Խոտանը՝ {{ d.breakage_cost | money }}՝ ինքնարժեքով,
+    դրամարկղին չի ազդում։{% endif %}
+    {# Only this shop's own expenses are in it. One left as «Ամբողջ բիզնեսը» belongs to
+       the business rather than to the branch that happened to be open, and counting it
+       here would take the same rent off every shop trading that day. #}
+    <br><span class="muted">«Օրվա ծախսեր»-ը այս խանութին կցված ծախսերն են։ «Ամբողջ
+    բիզնեսի համար» գրանցվածները հանվում են <a href="/statistics">վիճակագրության</a>
+    մեջ՝ մեկ անգամ։</span>
     {# The figures above are what the drawer paid. What it could not cover is a real
-       liability and the profit will drop by it the day it is settled, so it is said
-       here rather than folded into a number about this evening's cash. #}
+       liability and both bottom lines will drop by it the day it is settled, so it is
+       said here rather than folded into a number about this evening's cash. #}
     {% if d.wage_unpaid %}
       <br>Աշխատողին դեռ պարտք է <b>{{ d.wage_unpaid | money }}</b>՝ հաշվարկի պահին
-      դրամարկղում բավարար կանխիկ չկար։ Այդ գումարը վերևի շահույթից հանված չէ՝
-      վճարելու օրը շահույթը կնվազի այդ չափով։
+      դրամարկղում բավարար կանխիկ չկար։ Այդ գումարը վերևի թվերից հանված չէ՝
+      վճարելու օրը երկուսն էլ կնվազեն այդ չափով։
     {% endif %}
   </p>
   {# What came out of the cash between the takings and the handover. Without it
@@ -159,6 +181,10 @@
     {%- if d.totals.withdrawn %} · վերցված {{ d.totals.withdrawn | money }}{% endif %}
     {%- if d.totals.voided %} · չեղարկված {{ d.totals.voided | money }}{% endif %}
     {%- if d.totals.deposited %} · նախորդից մնացած {{ d.totals.deposited | money }}{% endif %}
+    {# «Ճշգրտում» rows are added by the owner from this very page, and they move the
+       till like everything else in this line — leaving them out made the subtraction
+       fail to add up by exactly the amount that had just been typed in. #}
+    {%- if d.totals.adjusted %} · ճշգրտում {{ d.totals.adjusted | money }}{% endif %}
     · ըստ գրքերի դրամարկղում մնացել է <b>{{ d.till_now | money }}</b>։
     {# Why «Ղեկավարին» says what it says, in the same breath. A zero over a day that
        took 45,400 is startling and the arithmetic behind it — card money never reaching
@@ -166,16 +192,23 @@
        should have to reconstruct. The «of which X stays in the shop» phrasing this
        replaces was nonsense whenever the count claimed more than the till held. #}
     <br>
-    {% if d.till_counts and d.left_in_store > d.till_now %}
+    {# Whether the figures were declared or worked out comes first, because it changes
+       what every one of them means. Nobody counting is not nobody being owed: the float
+       stays put — nothing changes the shop's balance except a count — so this is what
+       the system will actually act on tomorrow, and «0 և 0» was not. #}
+    {% if d.nobody_counted %}
+      Դրամարկղը հաշվված չէ։ Ցուցադրվածը հաշվարկով է՝ խանութում մնում է առավոտյան
+      բերված մնացորդը՝ <b>{{ d.left_in_store | money }}</b>, իսկ
+      <b>{{ d.owed_to_owner | money }}</b>-ը՝ ղեկավարին։
+      Եթե իրականում այլ գումար է մնացել, գրեք այն «Խանութի դրամարկղը» բաժնում։
+    {% elif d.left_in_store > d.till_now %}
       Աշխատողը գրել է, որ խանութում մնում է <b>{{ d.left_in_store | money }}</b>՝
       դրամարկղում եղածից ավելի, ուստի ղեկավարին հանձնելու գումար չկա։
     {% elif d.owed_to_owner %}
       Դրանից <b>{{ d.left_in_store | money }}</b> մնում է խանութում, իսկ
       <b>{{ d.owed_to_owner | money }}</b>-ը՝ ղեկավարին։
-    {% elif d.till_counts %}
-      Ամբողջը մնում է խանութում՝ ղեկավարին հանձնելու գումար չկա։
     {% else %}
-      Դրամարկղը դեռ հաշվված չէ, ուստի «Ղեկավարին» և «Մնաց խանութում» դաշտերը դատարկ են։
+      Ամբողջը մնում է խանութում՝ ղեկավարին հանձնելու գումար չկա։
     {% endif %}
     {# Named rather than left as two numbers on the same screen to be spotted. The
        count froze its reading at the moment of counting, so a sale voided or added
@@ -216,8 +249,16 @@
               {{ (w.salary_paid or 0) | money }}
             {% endif %}
             {# Earned by beating a target, so it is shown beside the wage rather
-               than folded into it — the two are different kinds of money. #}
-            {% if w.bonus_paid %}
+               than folded into it — the two are different kinds of money, and it is
+               correctable on its own for the same reason. Write 0 to remove one
+               recorded by mistake: the ledger row goes with it. #}
+            {% if w.ended_at and w.bonus_paid %}
+              <br><span class="muted small">բոնուս</span>
+              <input form="bonus-{{ w.id }}" name="bonus"
+                     value="{{ (w.bonus_paid or 0) | plain_money }}" inputmode="decimal"
+                     class="money-input" aria-label="Բոնուս">
+              <button form="bonus-{{ w.id }}" type="submit" class="secondary tiny">✓</button>
+            {% elif w.bonus_paid %}
               <span class="badge positive" title="Բոնուս">+{{ w.bonus_paid | short_money }}</span>
             {% endif %}
             {# What the drawer was too thin to pay, and so is still owed. A day taken
@@ -238,11 +279,17 @@
     </table>
   </div>
 
-  {# Salary is editable per shift: the ledger entry moves with it. #}
+  {# Wage and bonus are each editable per shift: the ledger entry moves with the
+     figure, so the report and the till cannot end up disagreeing about a shift. #}
   {% for w in d.shifts %}
     <form id="salary-{{ w.id }}" method="post" action="/shifts/{{ w.id }}/salary">
       <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
     </form>
+    {% if w.bonus_paid %}
+      <form id="bonus-{{ w.id }}" method="post" action="/shifts/{{ w.id }}/bonus">
+        <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+      </form>
+    {% endif %}
   {% endfor %}
 
   <h3>Չեկեր</h3>

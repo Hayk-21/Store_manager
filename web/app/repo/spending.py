@@ -34,25 +34,18 @@ from app.repo.workers import DISPLAY_NAME
 # What each kind can have done to it, so a template does not have to know.
 # 'amount' — the figure itself is editable in place.
 # 'delete' — the row can be removed outright.
-EDITABLE = {"salary", "withdrawal", "expense"}
+#
+# A wage and a bonus are editable but not deletable: each is one half of a shift,
+# and removing the ledger row alone would leave the shift row claiming it paid
+# something the ledger has no record of. Writing 0 is the same act done properly —
+# it moves the pair together — which is what the hint beside them says.
+EDITABLE = {"salary", "bonus", "withdrawal", "expense"}
 DELETABLE = {"withdrawal", "expense", "breakage"}
 
 
-async def list_between(
-    owner_id: int,
-    since: date,
-    until: date,
-    store_id: int | None = None,
-    limit: int = 500,
-) -> list[asyncpg.Record]:
-    """Every outgoing row of a period, newest first.
-
-    ``store_id`` narrows wages, withdrawals and breakage, which all belong to a shop.
-    Expenses are kept whatever the filter: rent and advertising belong to the business,
-    and dropping them when a shop is chosen would quietly shrink the total.
-    """
-    return await db.fetch(
-        f"""
+# The four doors as CTEs, shared by the list and by its totals. One definition so a
+# figure and the rows behind it cannot come from two slightly different questions.
+_SOURCES = f"""
         WITH wages AS (
             SELECT 'salary'::text        AS kind,
                    ws.id                 AS id,
@@ -118,12 +111,38 @@ async def list_between(
              WHERE wo.owner_id = $1
                AND (wo.created_at AT TIME ZONE $4)::date BETWEEN $2 AND $3
                AND ($5::bigint IS NULL OR wo.store_id = $5)
+        ),
+        everything AS (
+            SELECT * FROM wages
+            UNION ALL SELECT * FROM bonuses
+            UNION ALL SELECT * FROM taken
+            UNION ALL SELECT * FROM entered
+            UNION ALL SELECT * FROM broken
         )
-        SELECT * FROM wages
-        UNION ALL SELECT * FROM bonuses
-        UNION ALL SELECT * FROM taken
-        UNION ALL SELECT * FROM entered
-        UNION ALL SELECT * FROM broken
+"""
+
+
+async def list_between(
+    owner_id: int,
+    since: date,
+    until: date,
+    store_id: int | None = None,
+    limit: int = 500,
+) -> list[asyncpg.Record]:
+    """Every outgoing row of a period, newest first — up to ``limit`` of them.
+
+    ``store_id`` narrows wages, withdrawals and breakage, which all belong to a shop.
+    Expenses are kept whatever the filter: rent and advertising belong to the business,
+    and dropping them when a shop is chosen would quietly shrink the total.
+
+    The cap is on the *rows*, never on the money: ``totals_between`` sums the whole
+    period in SQL. Summing the rows returned here instead made a busy month's figure
+    quietly stop at the five-hundredth payment and report the rest as if it did not
+    exist — a wrong total is worse than a long list, and worse still for looking right.
+    """
+    return await db.fetch(
+        _SOURCES + """
+        SELECT * FROM everything
          ORDER BY at DESC, kind, id DESC
          LIMIT $6
         """,
@@ -131,12 +150,63 @@ async def list_between(
     )
 
 
-def totals(rows: list[asyncpg.Record]) -> dict[str, Decimal]:
-    """One figure per door, plus the whole. Summed here rather than in SQL because the
-    rows are already in hand and a second query could see a different moment."""
+async def totals_between(
+    owner_id: int, since: date, until: date, store_id: int | None = None
+) -> dict[str, Decimal]:
+    """One figure per door, plus the whole — over every row in the period, not only
+    the ones a page happens to be showing."""
+    rows = await db.fetch(
+        _SOURCES + """
+        SELECT kind, coalesce(sum(amount), 0) AS amount
+          FROM everything
+         GROUP BY kind
+        """,
+        owner_id, since, until, settings.tzname, store_id,
+    )
     out: dict[str, Decimal] = {"total": Decimal(0)}
     for row in rows:
         amount = Decimal(row["amount"])
-        out[row["kind"]] = out.get(row["kind"], Decimal(0)) + amount
+        out[row["kind"]] = amount
         out["total"] += amount
     return out
+
+
+async def by_category_between(
+    owner_id: int, since: date, until: date, store_id: int | None = None
+) -> list[asyncpg.Record]:
+    """What the money went on, largest first — across all four doors, not only the
+    typed expenses.
+
+    The wage bill, the petty cash and the breakage are categories of spending in
+    exactly the way «Վարձակալություն» is; splitting the chart by where a payment was
+    *entered* rather than by what it was for would put three-quarters of a month's
+    outgoings in one nameless lump.
+    """
+    return await db.fetch(
+        _SOURCES + """
+        SELECT CASE kind
+                 WHEN 'salary'     THEN 'Աշխատավարձ'
+                 WHEN 'bonus'      THEN 'Բոնուս'
+                 WHEN 'withdrawal' THEN 'Դրամարկղից վերցված'
+                 WHEN 'breakage'   THEN 'Խոտան'
+                 ELSE coalesce(worker_name, 'Այլ ծախս')
+               END                        AS category,
+               coalesce(sum(amount), 0)   AS total
+          FROM everything
+         GROUP BY 1
+        HAVING coalesce(sum(amount), 0) > 0
+         ORDER BY 2 DESC
+        """,
+        owner_id, since, until, settings.tzname, store_id,
+    )
+
+
+async def count_between(
+    owner_id: int, since: date, until: date, store_id: int | None = None
+) -> int:
+    """How many payments the period actually has, so a truncated list can say so
+    rather than looking complete."""
+    return await db.fetchval(
+        _SOURCES + "SELECT count(*) FROM everything",
+        owner_id, since, until, settings.tzname, store_id,
+    )

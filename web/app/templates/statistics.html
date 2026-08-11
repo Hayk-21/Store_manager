@@ -188,6 +188,99 @@
 {# -- when the shop sells ---------------------------------------------------
    The one question the daily chart cannot answer, and what a rota is built from.
    Hidden for a period with no sales rather than drawn as 24 empty columns. #}
+{# -- how the sales split -----------------------------------------------------
+   Two questions the headline tiles could only half-answer, because each showed one
+   side and a percentage: how much came through the door against how much went out
+   for delivery, and how much was paid in cash against on a card. Both sides of each,
+   with the margin beside the revenue — delivery costs something to run, and the only
+   way to see whether it pays is to see what it earns next to what the counter earns.
+
+   A table, not a chart: two rows of two numbers is a comparison the eye does better
+   from figures, and these are figures an owner reads down a column. #}
+{% if peak > 0 %}
+<div class="card">
+  <h2>Վաճառքի կտրվածքով</h2>
+  <div class="table-wrap">
+    <table class="cards">
+      <thead>
+        <tr>
+          <th></th><th class="num">Հասույթ</th><th class="num">Բաժինը</th>
+          <th class="num">Չեկեր</th><th class="num">Միջին չեկ</th>
+          <th class="num">Շահույթ ապրանքի վրա</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set splits = [
+          ('Խանութում', summary.over_counter, summary.counter_receipts, summary.counter_profit),
+          ('Առաքումով', summary.delivered, summary.deliveries, summary.delivered_profit),
+        ] %}
+        {% for label, revenue, receipts, profit in splits %}
+        <tr>
+          <td class="cell-name" data-label="">{{ label }}</td>
+          <td class="num" data-label="Հասույթ">{{ revenue | money }}</td>
+          <td class="num" data-label="Բաժինը">
+            {% if summary.revenue > 0 %}{{ (revenue / summary.revenue * 100) | round(1) }}%
+            {% else %}—{% endif %}
+          </td>
+          <td class="num" data-label="Չեկեր">{{ receipts }}</td>
+          <td class="num" data-label="Միջին չեկ">
+            {% if receipts %}{{ (revenue / receipts) | money }}{% else %}—{% endif %}
+          </td>
+          <td class="num {% if profit < 0 %}negative{% else %}positive{% endif %}"
+              data-label="Շահույթ ապրանքի վրա">{{ profit | money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th>Ընդամենը</th>
+          <th class="num">{{ summary.revenue | money }}</th>
+          <th class="num">100%</th>
+          <th class="num">{{ summary.receipts }}</th>
+          <th class="num">{{ average_receipt | money }}</th>
+          <th class="num">{{ gross_profit | money }}</th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <h3>Ըստ վճարման ձևի</h3>
+  <div class="table-wrap">
+    <table class="cards">
+      <thead>
+        <tr>
+          <th></th><th class="num">Հասույթ</th><th class="num">Բաժինը</th>
+          <th class="num">Չեկեր</th><th class="num">Միջին չեկ</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for label, revenue, receipts in [
+          ('Կանխիկ', summary.cash, summary.cash_receipts),
+          ('Քարտով', summary.card, summary.card_receipts),
+        ] %}
+        <tr>
+          <td class="cell-name" data-label="">{{ label }}</td>
+          <td class="num" data-label="Հասույթ">{{ revenue | money }}</td>
+          <td class="num" data-label="Բաժինը">
+            {% if summary.revenue > 0 %}{{ (revenue / summary.revenue * 100) | round(1) }}%
+            {% else %}—{% endif %}
+          </td>
+          <td class="num" data-label="Չեկեր">{{ receipts }}</td>
+          <td class="num" data-label="Միջին չեկ">
+            {% if receipts %}{{ (revenue / receipts) | money }}{% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small">
+    Քարտով վճարվածն արդեն բանկում է, կանխիկը՝ դրամարկղում — դա է տարբերությունը
+    ձեր հավաքածի և ինքնըստինքյան եղածի միջև։
+  </p>
+</div>
+{% endif %}
+
 {% if peak > 0 %}
 <div class="card">
   <h2>Ժամերի կտրվածքով</h2>
@@ -354,6 +447,12 @@
     <h2>Ծախսերը մանրամասն</h2>
     <span class="muted small">{{ since | day }} — {{ until | day }}</span>
   </div>
+
+  {# Where the money went, before the rows that make it up. The tile above is one
+     number; this is its shape, and it is the first thing an owner wants from it. #}
+  {% if donut.segments %}
+    {% include "_donut.html" %}
+  {% endif %}
 
   {% if spending_rows or salaries or breakage %}
   <div class="table-wrap">

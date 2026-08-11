@@ -81,7 +81,25 @@ async def summary(
                -- Same money, different door. Worth its own figure because the
                -- split is not recoverable from anything else in the row.
                coalesce(sum(si.line_total) FILTER (WHERE sa.is_delivery), 0) AS delivered,
-               count(DISTINCT sa.id) FILTER (WHERE sa.is_delivery)           AS deliveries
+               count(DISTINCT sa.id) FILTER (WHERE sa.is_delivery)           AS deliveries,
+               -- The other side of each split, so the page can show a comparison
+               -- rather than one figure and a percentage the reader has to subtract
+               -- from a hundred in their head.
+               coalesce(sum(si.line_total) FILTER (WHERE NOT sa.is_delivery), 0)
+                   AS over_counter,
+               count(DISTINCT sa.id) FILTER (WHERE NOT sa.is_delivery)
+                   AS counter_receipts,
+               count(DISTINCT sa.id) FILTER (WHERE sa.payment_method = 'cash')
+                   AS cash_receipts,
+               count(DISTINCT sa.id) FILTER (WHERE sa.payment_method = 'card')
+                   AS card_receipts,
+               -- Margin per split too: delivery costs something to run, and the only
+               -- way to see whether it pays is to see what it earns beside what the
+               -- counter earns.
+               coalesce(sum((si.unit_price - si.unit_cost) * si.quantity)
+                   FILTER (WHERE sa.is_delivery), 0)     AS delivered_profit,
+               coalesce(sum((si.unit_price - si.unit_cost) * si.quantity)
+                   FILTER (WHERE NOT sa.is_delivery), 0) AS counter_profit
           FROM sale_items si
           JOIN sales sa ON sa.id = si.sale_id
         {_WHERE}

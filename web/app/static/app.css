@@ -39,6 +39,47 @@ a:hover { text-decoration: underline; }
    points at nothing. */
 .accent-owner  { color: var(--warn); }
 .accent-profit { color: var(--good); }
+
+/* -- the spending ring ----------------------------------------------------- */
+
+.donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.donut { width: 190px; height: 190px; flex: 0 0 auto; }
+/* The track is the surface a segment sits on, so a mostly-empty ring still reads as
+   a whole rather than as a stray arc. */
+.donut-track { stroke: var(--panel-2); }
+.donut-total {
+  font-size: 5.2px;
+  font-weight: 600;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.donut-caption { font-size: 2.6px; fill: var(--muted); }
+
+.donut-legend { list-style: none; margin: 0; padding: 0; flex: 1 1 260px; min-width: 240px; }
+.donut-legend li {
+  display: grid;
+  grid-template-columns: 12px 1fr auto auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
+}
+.donut-legend li:last-child { border-bottom: 0; }
+/* A round swatch rather than a square: it reads as belonging to the ring beside it. */
+.donut-swatch { width: 12px; height: 12px; border-radius: 50%; align-self: center; }
+.donut-name { color: var(--text); }
+.donut-figure { font-variant-numeric: tabular-nums; }
+.donut-share { font-size: 12px; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 560px) {
+  .donut-wrap { gap: 16px; }
+  .donut { width: 150px; height: 150px; margin: 0 auto; }
+}
 .nowrap { white-space: nowrap; }
 
 /* -- topbar ---------------------------------------------------------------- */

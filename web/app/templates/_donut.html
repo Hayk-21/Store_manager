@@ -1,0 +1,46 @@
+{# Part-to-whole at a glance: what a period's money went on.
+
+   A ring rather than bars because the question is "how does this divide up", and the
+   answer wanted is the shape rather than a ranking. Six segments at most — past that
+   adjacent slices blur — with the tail folded into «Այլ» rather than given a seventh
+   colour nobody could tell from the sixth.
+
+   The legend is not decoration and is not optional: it carries the name, the figure
+   and the share for every segment, so identity is never colour alone. It is also the
+   table view — somebody who cannot separate two of the hues reads the numbers.
+
+   Takes `donut` (from charts.donut) and an optional `donut_title`. #}
+<div class="donut-wrap">
+  <svg class="donut" viewBox="0 0 42 42" role="img"
+       aria-label="{{ donut_title or 'Ըստ կատեգորիայի' }}">
+    {# The track, so a ring with one small segment still reads as a whole. #}
+    <circle class="donut-track" cx="21" cy="21" r="15.9155"
+            fill="none" stroke-width="4"></circle>
+    {% for s in donut.segments %}
+      <circle cx="21" cy="21" r="15.9155" fill="none" stroke-width="4"
+              stroke="{{ s.colour }}"
+              stroke-dasharray="{{ s.dash }}"
+              stroke-dashoffset="{{ s.offset }}"
+              transform="rotate(-90 21 21)">
+        <title>{{ s.label }} — {{ s.amount | money }} ({{ s.share | round(1) }}%)</title>
+      </circle>
+    {% endfor %}
+    {# The one number the chart leads with, in the hole where it belongs. The value
+       sits hard against the tag: SVG collapses the newline to a space, and a leading
+       space pushes a middle-anchored string off the centre it is anchored to. #}
+    <text class="donut-total" x="21" y="20.4"
+          text-anchor="middle">{{ donut.total | short_money }}</text>
+    <text class="donut-caption" x="21" y="24.4" text-anchor="middle">ընդամենը</text>
+  </svg>
+
+  <ul class="donut-legend">
+    {% for s in donut.segments %}
+    <li>
+      <i class="donut-swatch" style="background: {{ s.colour }}"></i>
+      <span class="donut-name">{{ s.label }}</span>
+      <span class="donut-figure">{{ s.amount | money }}</span>
+      <span class="donut-share muted">{{ s.share | round(1) }}%</span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>

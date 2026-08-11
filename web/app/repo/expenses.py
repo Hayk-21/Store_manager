@@ -176,6 +176,26 @@ async def total_between(owner_id: int, since: date, until: date) -> Decimal:
     )
 
 
+async def total_for_store_on(owner_id: int, store_id: int, day: date) -> Decimal:
+    """What this shop spent on this day, out of what the owner typed on /expenses.
+
+    Only expenses attached to this shop. One left as «Ամբողջ բիզնեսը» — rent,
+    advertising — belongs to the business rather than to the branch that happened to
+    be open, and counting it here would subtract the same rent again from every shop
+    trading that day. The statistics page is where business-wide costs are taken off,
+    once, over a period.
+    """
+    return await db.fetchval(
+        """
+        SELECT coalesce(sum(amount), 0) FROM expenses
+         WHERE owner_id = $1 AND store_id = $2 AND spent_on = $3
+        """,
+        owner_id,
+        store_id,
+        day,
+    )
+
+
 async def by_category_between(
     owner_id: int, since: date, until: date
 ) -> list[asyncpg.Record]:

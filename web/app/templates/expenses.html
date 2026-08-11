@@ -37,32 +37,29 @@
 </div>
 
 <div class="card">
+  {# The headline is every payment the business made, not only the ones typed on this
+     page. It counted the typed ones alone, so a month with 22 wages, withdrawals and
+     write-offs in it — and no hand-entered expense — announced «0.00 ֏ · 0 գրառում»
+     directly above a list of all 22. #}
   <div class="totals">
     <div class="total">
       <span class="total-label">Այս ամսվա ծախսերը</span>
-      <span class="total-value negative">{{ total | money }}</span>
+      <span class="total-value negative">{{ payment_totals.total | money }}</span>
     </div>
     <div class="total">
       <span class="total-label">Գրառումներ</span>
-      <span class="total-value">{{ expenses | length }}</span>
+      <span class="total-value">{{ payment_count }}</span>
+    </div>
+    <div class="total">
+      <span class="total-label">Որից՝ ձեռքով գրանցված</span>
+      <span class="total-value">{{ total | money }}</span>
+      <span class="muted small">{{ expenses | length }} գրառում</span>
     </div>
   </div>
 
-  {% if by_category %}
+  {% if donut.segments %}
   <h3>Ըստ կատեգորիայի</h3>
-  <div class="bars">
-    {% set biggest = by_category[0].total %}
-    {% for row in by_category %}
-    <div class="bar-row">
-      <span class="bar-label">{{ row.category }}</span>
-      <span class="bar-track">
-        {# Widths are inline because they are data, not style. #}
-        <span class="bar-fill" style="width: {{ (row.total / biggest * 100) | round(1) }}%"></span>
-      </span>
-      <span class="bar-value">{{ row.total | money }}</span>
-    </div>
-    {% endfor %}
-  </div>
+  {% include "_donut.html" %}
   {% endif %}
 </div>
 

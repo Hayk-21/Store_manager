@@ -88,44 +88,47 @@ report. Neither touches the ledger — the balance is what stays on the premises
 the till is what the shop took, and since the handover stopped being booked those are
 no longer the same quantity.
 
-The report's per-session header answers seven different questions and says so:
-**Վաճառք · Կանխիկ վաճառք · Քարտով վաճառք · Ղեկավարին · Շահույթ · Մնաց խանութում ·
-Աշխատավարձ**, with two lines beneath breaking down the last two of those.
+The report's per-session header answers eight different questions and says so:
+**Վաճառք · Կանխիկ վաճառք · Քարտով վաճառք · Ղեկավարին · Շրջանառություն · Շահույթ ·
+Մնաց խանութում · Աշխատավարձ · Բոնուս**, with lines beneath breaking each subtraction
+back down into its parts.
 
-**Շահույթ** is the point of the page and was missing from it. Revenue is the loudest
-figure there and the least useful alone — a shop can sell 101,500 of stock that cost
-90,000 and pay 7,000 in wages out of it. It is the same subtraction the statistics page
-makes over a period, applied to one evening:
-
-```
-gross    =  what the goods sold for  −  what they cost
-the day  =  gross  −  wages  −  petty cash  −  breakage
-```
-
-Breakage is in it because that stock was paid for and did not come back; it never
-touched the till, which is exactly why it would go missing unless taken off here. Voided
-sales are out, for the same reason the statistics leave them out.
-
-**Ղեկավարին** and **Շահույթ** are the two figures an owner is actually looking for, so
-those two are coloured and the rest are not. Two colours and no more — a page where
-every figure is coloured points at nothing.
-
-The whole header is one arithmetic, and it is the owner's:
+**Two bottom lines, because there are two questions**, and one figure was answering
+both under the name of the other:
 
 ```
-Ղեկավարին  =  float carried in + cash sales − wages paid − cash taken out
-              − left in the shop
-Շահույթ    =  takings − wage paid − bonus paid − cash taken out
+Ղեկավարին       =  float carried in + cash sales − wages paid − cash taken out
+                   − left in the shop
+Շրջանառություն  =  takings − wage paid − bonus paid − cash taken out
+Շահույթ         =  (takings − what the stock cost) − wage paid − bonus paid
+                   − cash taken out − this shop's expenses that day
 ```
 
-**What the stock cost is not in the profit**, and that is consistent rather than an
-omission: the shop paid for those vapes when it bought them, so on the day one sells,
-the whole price is money the business is better off by. It is the same reasoning the
-page has always given for breakage — «փողը դուրս է եկել գնելու պահին» — and breakage is
-out for the same reason. What the goods themselves earned is stated under the tile, so
-the margin is in front of the owner without being subtracted from a figure about cash.
-The statistics page takes the other view over a period, where margin and the cost of
-goods are what the question actually is.
+**Շրջանառություն** is about *cash*: what the day put into the business, counting the
+whole selling price, because the stock was paid for when it was bought. That is the
+figure to check the drawer against. It was labelled «Շահույթ», which it is not — a shop
+selling 45,000 of stock that cost 40,000 read it as a very good day.
+
+**Շահույթ** is about the *business*: the same day with the cost of goods taken off and
+the owner's own typed expenses with it. The two differ by exactly the margin, which is
+the whole reason both are worth showing.
+
+Only expenses attached to **this shop** are in it. One left as «Ամբողջ բիզնեսը» — rent,
+advertising — belongs to the business rather than to the branch that happened to be
+open, and counting it here would take the same rent off every shop trading that day.
+Those come off once, over a period, on the statistics page.
+
+Breakage is in neither: the money left when the vape was bought, not when it was
+dropped, and the cost of goods in «Շահույթ» already accounts for stock that actually
+sold. It is named underneath both. Voided sales are out of both, for the same reason
+the statistics leave them out.
+
+**Ղեկավարին**, **Շրջանառություն** and **Շահույթ** are the figures an owner is actually
+looking for, so those are coloured and the rest are not.
+
+**Takings are net of reversals.** A voided sale is not a sale, and the tiles summed the
+sale rows while leaving the reversals beside them — so a day where everything was taken
+back read as a day that sold 7,000 and made money on it.
 
 **Takings are net of reversals.** A voided sale is not a sale, and the tiles summed the
 sale rows while leaving the reversals beside them — so a day where everything was taken
@@ -149,9 +152,28 @@ held 2,000 was told the owner was owed nothing, because the count had been made 
 the 234 float was in it. The count keeps its own reading beside it, and the page says so
 when the two have drifted apart.
 
-**Բոնուս is its own tile.** A bonus is not a wage: an owner reads that figure against the
-rate they set for somebody, and «Աշխատավարձ 5,500» over a worker on 3,500 reads as an
-error.
+**A session nobody counted still says what the owner is owed.** Both figures used to read
+zero, which is not what happened to the money — a shop that took 24,900 on a 400 float
+showed the owner nothing on a day it had taken 24,500 for them. A worker who goes home
+without counting has not emptied the shop: nothing changes `stores.till_balance` except a
+count, so the float stays exactly where it is and the rest is the owner's. That is not a
+guess about the drawer — it is what the system will act on when the shop opens tomorrow.
+The page says the figures were worked out rather than declared, and points at the box
+that corrects them.
+
+The float is identified as **the one deposit nobody typed** (`kind = 'deposit' AND
+created_by = 'system'`), so an owner topping the drawer up mid-shift is not mistaken for
+it and does not quietly reduce what they are handed. That required fixing
+`money.record_movement`, which labelled the owner's own deposits `'system'` against the
+column's documented meaning — `corrections.add_movement` had always got it right.
+
+**Բոնուս is its own tile, and its own correction.** A bonus is not a wage: an owner
+reads that figure against the rate they set for somebody, and «Աշխատավարձ 5,500» over a
+worker on 3,500 reads as an error. It is editable per shift for the same reason a wage
+is — `set_bonus` moves `work_sessions.bonus_paid` and the ledger row together, and
+writing 0 removes both. Deleting the ledger row on its own is refused: it is one half of
+a shift, exactly like a wage, and that door was open, leaving the shift still claiming a
+bonus the ledger had no record of.
 
 Every one of those tiles is a different question, so the page **says why the answers are
 what they are**. A «Ղեկավարին» of nothing over a day that took 45,400 is startling, and
@@ -258,8 +280,13 @@ Beyond the headline figures, the page answers:
   The one question the daily chart cannot answer and the one a rota is built from. All 24
   hours are drawn, including the dead ones, for the same reason the daily chart fills its
   gaps;
-* how the money arrived — the cash/card split, which matters because card takings are
-  already in the bank and cash is not;
+* **how the money arrived, and where it was handed over** — cash beside card, counter
+  beside delivery, each as a comparison rather than one figure and a percentage the
+  reader has to subtract from a hundred in their head. Both sides carry revenue, share,
+  receipts and the average receipt, and the counter/delivery split carries **margin**
+  too: running deliveries costs something, and the only way to see whether it pays is to
+  read what it earns beside what the counter earns. A shop can turn over more on
+  delivery and make less;
 * **money given away at the counter** — sales at neither list price. Its own figure
   rather than folded into retail, because the only way to notice a habit of it is to see
   the total;
@@ -284,15 +311,57 @@ drawer and what for.
 and the expenses page was answering it with only the entries typed on it.
 
 Every row can be corrected where it stands, posting to the same endpoints the store page
-and the report use rather than to a second set. The amount is editable inline for a
-wage, a withdrawal and an expense; a withdrawal, an expense and breakage can be deleted.
-A wage cannot: it is one half of a shift, and removing it alone would leave the shift
-claiming it paid something the ledger does not have — setting it to nothing is the same
-act and keeps the two together. Deleting breakage puts the stock back, because if the
-vape did not break it is still on the shelf.
+and the report use rather than to a second set. The amount is editable inline for a wage,
+a bonus, a withdrawal and an expense; a withdrawal, an expense and breakage can be
+deleted. A wage or a bonus cannot: each is one half of a shift, and removing it alone
+would leave the shift claiming it paid something the ledger does not have — writing 0 is
+the same act done properly and keeps the two together. Deleting breakage puts the stock
+back, because if the vape did not break it is still on the shelf.
+
+Each endpoint names its own field — a wage posts `salary`, a bonus `bonus` — and this
+list has to use the endpoint's name rather than one of its own. It posted `amount` to all
+of them, so a wage edited from here arrived with the field the route reads left empty and
+came back «պարտադիր է» every time, while the withdrawal and expense rows beside it worked.
+
+**The row cap is never a cap on the money.** The list stops at 500 rows and says so;
+`totals_between` sums the whole period in SQL. Summing the returned rows instead made a
+busy month's figure quietly stop at the five-hundredth payment and report the rest as if
+it did not exist — wrong in the one direction nobody checks, because a total that is too
+small still looks like a total.
+
+### Where the month went — the ring
+
+`/expenses` announced **«0.00 ֏ · 0 գրառում»** directly above a list of twenty-two
+payments. The headline was counting the expenses typed on that page, and a month can
+easily have none of those and still cost hundreds of thousands in wages, petty cash and
+breakage. It now leads with every payment; the typed ones stay as their own tile, named,
+because "what did I enter by hand" is a real question — just not the headline one.
+
+Above the list, on both `/expenses` and `/statistics`, is a donut of the same period split
+by **what the money was for**: `Աշխատավարձ`, `Բոնուս`, `Դրամարկղից վերցված`, `Խոտան`, and
+each expense category by name. Split by which door a payment came in through instead, and
+three-quarters of a normal month lands in one nameless lump — the chart would be drawing
+the software's own plumbing.
+
+It is server-rendered inline SVG (`app/charts.py`, `_donut.html`): one `<circle>` per
+slice, `stroke-dasharray` on a radius of 15.9155 so the circumference is exactly 100 and
+a dash length *is* the percentage. No JavaScript, no request for a chart library, and it
+prints.
+
+The palette is six hues checked with the `dataviz` validator against the dark surface —
+lightness band, chroma floor, adjacent-pair colour-vision-deficiency separation,
+normal-vision floor, contrast. Donut segments touch only their neighbours, so the
+adjacent-pair list is the one that applies. Past six the tail folds into a grey «Այլ»
+rather than a seventh generated hue, which to a colourblind reader is not a new colour.
+The legend under it carries swatch, name, amount and share for every slice: identity is
+never colour alone, and it doubles as the table view.
 
 `?back=` carries the page the correction was made on, so a fix on one list does not land
-on the other. Only a path of this site: an open redirect is a phishing tool.
+on the other. Only a path of this site: an open redirect is a phishing tool. Rejecting a
+leading `//` is not enough — browsers read a backslash in that position as a forward
+slash, so `/\evil.example` normalises to `//evil.example` after passing a check that only
+looked for two slashes. Backslashes and control characters are refused outright: there is
+no legitimate one in a path this application generates.
 
 `Asia/Yerevan` is used for *displaying* times, for grouping report rows and for deciding
 which hour a sale falls in. It never decides which bucket money lands in.
@@ -331,6 +400,26 @@ python -m venv .venv && .venv/Scripts/pip install -r requirements-dev.txt
 cp .env.example .env          # BOT_TOKEN, API_BASE_URL, BOT_SHARED_SECRET
 python -m app
 ```
+
+### Typing an amount into the bot
+
+`format.parse_money` is the one place a typed amount is read, and it has to accept two
+grouping conventions without ever guessing wrong between them.
+
+The bot prints every amount comma-grouped with no decimals — `40,000 ֏`, from
+`format.money` — and a worker who reads that off the screen types it back the same way.
+But every prompt asking for a number was written for the Armenian convention,
+space-thousands and comma-decimal (`1 000,00`), from before the bot echoed amounts back
+at all. A bare `.replace(",", ".")` cannot honour both: it turned `40,000` into `40.00`
+— forty dram typed as forty thousand — and raised nothing, because the result was still
+a valid number. The same parse sat in five handlers: the till count, petty cash, a sale
+price, a write-up price, and a new item's cost.
+
+The two conventions agree on everything except what a comma means, and that is settled
+by what follows it: a comma followed by exactly three digits, with digits before it, is
+a thousands separator; any other comma is a decimal point. That split is safe here
+*because* a fractional dram is never a real amount, so no comma is legitimately followed
+by three decimal places.
 
 ### Registering a worker
 
@@ -393,6 +482,23 @@ the cash happened to be short that night, and the unpaid part is carried beside 
 rather than subtracted from it. Netting the two would answer neither "what did this
 shift cost" nor "what is this person still waiting for". The bot says both, and the
 report shows a `պարտք` badge beside the wage.
+
+**"Already earned this period" is read off the shift row, not the ledger.** A bonus
+earned against an empty drawer books no `cash_movements` row — there is nothing to pay
+it with — and the guard used to look for exactly that row. So a worker who crossed the
+target on a day taken entirely on card crossed it "again" on their next shift and was
+credited a second full bonus for one achievement. `bonus_paid` is set the moment a bonus
+is credited, whether or not the drawer could cover it, which is the fact the guard
+actually needs.
+
+**A shared drawer is locked, not just a shared worker.** `withdraw_by_worker` locked the
+calling worker's own shift row, which serialises that worker's own double-taps but not
+two different cashiers on the same store session: both could read the same "1,500 in the
+till" and both approve a 900 withdrawal against it, each under every limit on its own and
+the till at -300 between them. It locks the store session now.
+`web/tests/test_till_concurrency.py` is the one file in the suite that opens a real
+connection pool rather than binding a single transaction, because a race between two
+workers is a race between two connections and cannot be reproduced on one.
 
 ---
 

@@ -15,6 +15,8 @@ from __future__ import annotations
 from datetime import timedelta
 from decimal import Decimal
 
+import pytest
+
 from app.config import settings
 from app.db import db
 from app.repo import spending as spending_repo
@@ -233,13 +235,55 @@ async def test_another_owners_money_is_not_in_the_list(client):
 async def test_the_totals_add_up_to_the_rows(client):
     owner_id, store_id, item_id = await _a_shop()
     await _a_day(owner_id, store_id, item_id)
+    since, until = _range()
 
     rows = await _rows(owner_id)
-    totals = spending_repo.totals(rows)
+    totals = await spending_repo.totals_between(owner_id, since, until)
 
     assert totals["total"] == sum(Decimal(row["amount"]) for row in rows)
     assert totals["salary"] == Decimal("8000.00")
     assert totals["withdrawal"] == Decimal("700.00")
+
+
+async def test_the_total_counts_payments_the_list_is_too_short_to_show(client):
+    """The cap is on the rows, never on the money. Summing only the rows returned
+    made a busy month's figure stop at the last one shown and report the rest as if
+    it did not exist — wrong in the one direction nobody checks, because a total that
+    is too small still looks like a total.
+    """
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    since, until = _range()
+    # Five more expenses than a two-row page can show.
+    for i in range(5):
+        await db.execute(
+            """
+            INSERT INTO expenses (owner_id, purpose, amount, spent_on)
+            VALUES ($1, $2, 1000, $3)
+            """,
+            owner_id, f"Ծախս {i}", settings.local_day(),
+        )
+
+    shown = await spending_repo.list_between(owner_id, since, until, limit=2)
+    totals = await spending_repo.totals_between(owner_id, since, until)
+    how_many = await spending_repo.count_between(owner_id, since, until)
+
+    assert len(shown) == 2, "the list is capped"
+    assert how_many > 2, "and says how much it is not showing"
+    assert totals["expense"] == Decimal("5000.00"), "every expense, not the shown ones"
+    assert totals["total"] > sum(Decimal(row["amount"]) for row in shown)
+
+
+async def test_a_truncated_list_says_so_on_the_page(client):
+    """A list that quietly stops looks like a complete one, and the total beside it
+    would then appear not to add up."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=7")
+
+    assert "Ցուցադրված են վերջին" not in page.text, "nothing is truncated yet"
 
 
 # -- on the pages -------------------------------------------------------------
@@ -279,6 +323,35 @@ async def test_every_row_offers_a_way_to_correct_it(client):
     assert "/shifts/" in page.text and "/salary" in page.text, "a wage"
     assert "/movements/" in page.text, "petty cash"
     assert "/write-offs/" in page.text, "breakage"
+
+
+async def test_a_wage_edit_posts_the_field_the_endpoint_reads(client):
+    """Each endpoint names its own field — a wage posts «salary», a bonus «bonus» —
+    and this list sent «amount» to all of them. So the field the route actually reads
+    arrived empty and every wage edited from here came back «պարտադիր է», while the
+    withdrawal and expense rows beside it worked fine.
+    """
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    shift_id = await db.fetchval("SELECT id FROM work_sessions")
+    await login(client, "@ownerhandle")
+    csrf = await db.fetchval(
+        "SELECT csrf_token FROM auth_sessions ORDER BY created_at DESC LIMIT 1"
+    )
+
+    page = await client.get("/statistics?period=7")
+    assert f'action="/shifts/{shift_id}/salary' in page.text
+    assert 'name="salary"' in page.text, "not the generic «amount» the route ignores"
+
+    response = await client.post(
+        f"/shifts/{shift_id}/salary?back=/statistics",
+        data={"csrf_token": csrf, "salary": "6000"},
+    )
+
+    assert response.status_code in (200, 303)
+    assert await db.fetchval(
+        "SELECT salary_paid FROM work_sessions WHERE id = $1", shift_id
+    ) == Decimal("6000.00")
 
 
 # -- correcting one -----------------------------------------------------------
@@ -395,7 +468,22 @@ async def test_a_correction_returns_to_the_page_it_was_made_on(client):
     assert response.headers["location"] == "/expenses"
 
 
-async def test_a_back_target_off_this_site_is_ignored(client):
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "//evil.example.com",
+        # A browser following the URL spec reads a backslash here as a forward
+        # slash, so this normalises to «//evil.example.com» — off the site
+        # entirely — after passing a check that only looked for two slashes.
+        "/\\evil.example.com",
+        "/\\/evil.example.com",
+        "\\\\evil.example.com",
+        "https://evil.example.com",
+        # A newline can split the Location header and inject one of its own.
+        "/reports\r\nLocation: https://evil.example.com",
+    ],
+)
+async def test_a_back_target_off_this_site_is_ignored(client, hostile):
     """An open redirect is a phishing tool, and the only thing a caller legitimately
     needs is "the page I was looking at"."""
     owner_id, store_id, item_id = await _a_shop()
@@ -409,9 +497,121 @@ async def test_a_back_target_off_this_site_is_ignored(client):
     )
 
     response = await client.post(
-        f"/movements/{movement_id}/delete?back=//evil.example.com",
+        f"/movements/{movement_id}/delete",
+        params={"back": hostile},
         data={"csrf_token": csrf},
         follow_redirects=False,
     )
 
-    assert "evil.example.com" not in response.headers["location"]
+    assert "evil.example.com" not in str(response.headers)
+
+
+async def test_a_back_target_on_this_site_is_honoured(client):
+    """The guard has to refuse the hostile ones without refusing the real one — the
+    whole point of the parameter is that a correction returns you where you were."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    movement_id = await db.fetchval(
+        "SELECT id FROM cash_movements WHERE kind = 'withdrawal'"
+    )
+    await login(client, "@ownerhandle")
+    csrf = await db.fetchval(
+        "SELECT csrf_token FROM auth_sessions ORDER BY created_at DESC LIMIT 1"
+    )
+
+    response = await client.post(
+        f"/movements/{movement_id}/delete",
+        params={"back": "/statistics?period=7"},
+        data={"csrf_token": csrf},
+        follow_redirects=False,
+    )
+
+    assert response.headers["location"] == "/statistics?period=7"
+
+
+# -- the shape of it ----------------------------------------------------------
+
+async def test_the_expenses_page_headline_counts_every_payment(client):
+    """It counted the typed expenses alone, so a month with 22 wages, withdrawals and
+    write-offs in it — and no hand-entered expense — announced «0.00 ֏ · 0 գրառում»
+    directly above a list of all 22."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/expenses")
+    headline = page.text.split("Այս ամսվա ծախսերը")[1][:200]
+
+    assert "11,700.00 ֏" in headline, "8,000 wage + 700 petty cash + 3,000 breakage"
+    assert ">0.00 ֏<" not in headline, "not the typed ones alone"
+    assert "Որից՝ ձեռքով գրանցված" in page.text, "and the typed ones are still named"
+
+
+async def test_the_ring_splits_spending_by_what_it_was_for(client):
+    """A wage is a category of spending in exactly the way rent is. Splitting by where
+    a payment was *entered* would put three-quarters of a month in one nameless lump."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    since, until = _range()
+
+    rows = await spending_repo.by_category_between(owner_id, since, until)
+    by_name = {row["category"]: Decimal(row["total"]) for row in rows}
+
+    assert by_name["Աշխատավարձ"] == Decimal("8000.00")
+    assert by_name["Դրամարկղից վերցված"] == Decimal("700.00")
+    assert by_name["Խոտան"] == Decimal("3000.00")
+
+
+async def test_the_ring_is_drawn_on_both_pages(client):
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    await login(client, "@ownerhandle")
+
+    for url in ("/expenses", "/statistics?period=7"):
+        page = await client.get(url)
+        assert "donut-legend" in page.text, f"no ring on {url}"
+        assert "Աշխատավարձ" in page.text, f"no categories on {url}"
+
+
+async def test_the_ring_names_and_prices_every_segment(client):
+    """The legend is the secondary encoding and the table view at once: identity is
+    never colour alone, and somebody who cannot separate two hues reads the figures."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    since, until = _range()
+
+    from app import charts
+
+    ring = charts.donut(
+        await spending_repo.by_category_between(owner_id, since, until)
+    )
+
+    assert ring["total"] == Decimal("11700.00")
+    assert {s["label"] for s in ring["segments"]} == {
+        "Աշխատավարձ", "Դրամարկղից վերցված", "Խոտան",
+    }
+    assert sum(s["share"] for s in ring["segments"]) == Decimal(100)
+    assert all(s["colour"].startswith("#") for s in ring["segments"])
+
+
+def test_the_ring_folds_its_tail_rather_than_inventing_a_colour():
+    """Past six, adjacent slices blur and a generated seventh hue is indistinguishable
+    from an existing one to a colourblind reader. The tail becomes «Այլ» in grey."""
+    from app import charts
+
+    rows = [{"category": f"Կատեգորիա {i}", "total": Decimal(10 - i)} for i in range(9)]
+
+    ring = charts.donut(rows)
+
+    assert len(ring["segments"]) == 6
+    assert ring["segments"][-1]["label"] == "Այլ"
+    assert ring["segments"][-1]["colour"] == charts.REST
+    assert ring["total"] == Decimal(sum(10 - i for i in range(9)))
+    assert sum(s["share"] for s in ring["segments"]) == Decimal(100), "still a whole"
+
+
+def test_a_ring_with_nothing_in_it_draws_nothing():
+    from app import charts
+
+    assert charts.donut([])["segments"] == []
+    assert charts.donut([{"category": "Ոչինչ", "total": Decimal(0)}])["segments"] == []

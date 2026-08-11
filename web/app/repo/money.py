@@ -154,7 +154,17 @@ _TOTALS_SQL = """
                coalesce(-sum(amount) FILTER (WHERE kind = 'salary'), 0) AS salaries,
                coalesce(-sum(amount) FILTER (WHERE kind = 'bonus'), 0)  AS bonuses,
                coalesce(-sum(amount) FILTER (WHERE kind = 'withdrawal'), 0) AS withdrawn,
-               coalesce(sum(amount) FILTER (WHERE kind = 'deposit'), 0) AS deposited
+               coalesce(sum(amount) FILTER (WHERE kind = 'deposit'), 0) AS deposited,
+               -- The float the shop carried in this morning: the one deposit nobody
+               -- typed. It is what stays on the premises when a session ends without
+               -- anybody counting the drawer, because nothing then changes the shop's
+               -- balance — so it is also what tomorrow will open with.
+               coalesce(sum(amount) FILTER (
+                   WHERE kind = 'deposit' AND created_by = 'system'), 0) AS carried_in,
+               -- Signed, unlike the two above: an owner's correction can go either
+               -- way, and forcing it positive would make «+5,000» and «−5,000» look
+               -- like the same entry in the one line that explains the till.
+               coalesce(sum(amount) FILTER (WHERE kind = 'adjustment'), 0) AS adjusted
           FROM cash_movements
          WHERE store_session_id = $1
 """
@@ -202,7 +212,17 @@ async def totals_for_session(store_session_id: int) -> asyncpg.Record:
                coalesce(-sum(amount) FILTER (WHERE kind = 'salary'), 0) AS salaries,
                coalesce(-sum(amount) FILTER (WHERE kind = 'bonus'), 0)  AS bonuses,
                coalesce(-sum(amount) FILTER (WHERE kind = 'withdrawal'), 0) AS withdrawn,
-               coalesce(sum(amount) FILTER (WHERE kind = 'deposit'), 0) AS deposited
+               coalesce(sum(amount) FILTER (WHERE kind = 'deposit'), 0) AS deposited,
+               -- The float the shop carried in this morning: the one deposit nobody
+               -- typed. It is what stays on the premises when a session ends without
+               -- anybody counting the drawer, because nothing then changes the shop's
+               -- balance — so it is also what tomorrow will open with.
+               coalesce(sum(amount) FILTER (
+                   WHERE kind = 'deposit' AND created_by = 'system'), 0) AS carried_in,
+               -- Signed, unlike the two above: an owner's correction can go either
+               -- way, and forcing it positive would make «+5,000» and «−5,000» look
+               -- like the same entry in the one line that explains the till.
+               coalesce(sum(amount) FILTER (WHERE kind = 'adjustment'), 0) AS adjusted
           FROM cash_movements
          WHERE store_session_id = $1
         """,
