@@ -24,10 +24,29 @@ from app.repo.workers import DISPLAY_NAME
 # Repeated by every query below, so "what counts as revenue" cannot drift
 # between the summary and the chart underneath it. $1 owner, $2/$3 the range,
 # $4 the display timezone, $5 an optional store filter.
-_WHERE = """
+#
+# The range is a half-open window on the raw timestamp rather than
+# ``(sold_at AT TIME ZONE $4)::date BETWEEN $2 AND $3``, which is the same question
+# and reads better, but which no index can answer: that expression is STABLE rather
+# than IMMUTABLE, so Postgres cannot match it against a btree on the column and
+# scans the whole table instead. On a year of trading that meant reading 26,400
+# sales to keep 1,950, six times over, on every view of the statistics page — and
+# adding the index changes nothing until the predicate is written this way. Both
+# ends are still local: midnight in the display timezone, and midnight the morning
+# after the last day.
+#
+# The two forms differ only where a local day is not 24 hours long. Armenia has not
+# observed daylight saving since 2012, so Asia/Yerevan is a fixed +04 and they are
+# exactly equivalent; anyone running this where the clocks change should know that
+# this is the line that assumes they do not.
+_SINCE = "($2::date)::timestamp AT TIME ZONE $4"
+_UNTIL = "(($3::date + 1))::timestamp AT TIME ZONE $4"
+
+_WHERE = f"""
          WHERE sa.owner_id = $1
            AND sa.voided_at IS NULL
-           AND (sa.sold_at AT TIME ZONE $4)::date BETWEEN $2 AND $3
+           AND sa.sold_at >= {_SINCE}
+           AND sa.sold_at <  {_UNTIL}
            AND ($5::bigint IS NULL OR sa.store_id = $5)
 """
 

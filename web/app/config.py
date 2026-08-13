@@ -208,8 +208,15 @@ def _load() -> Settings:
         currency=os.getenv("APP_CURRENCY", "֏").strip(),
         insecure_cookies=_flag("APP_INSECURE_COOKIES", default=False),
         log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),
-        db_pool_min=_int("DB_POOL_MIN", 1),
-        db_pool_max=_int("DB_POOL_MAX", 5),
+        # Five open before anybody asks, rather than one. The pool used to shrink
+        # back to a single connection after five idle minutes, so the next time two
+        # things overlapped — a page load and the footer poll, a page load and a sale
+        # arriving from the bot — the second one paid for a fresh TLS handshake and
+        # authentication against Neon mid-request. That cost lands on a random
+        # request, which is exactly what "sometimes it just hangs" feels like.
+        # Opened eagerly at startup instead, where nobody is waiting.
+        db_pool_min=_int("DB_POOL_MIN", 5),
+        db_pool_max=_int("DB_POOL_MAX", 10),
         # Long, and pushed further out on every visit: somebody who uses the
         # site regularly should never be asked to sign in again.
         session_ttl_days=_int("SESSION_TTL_DAYS", 90),

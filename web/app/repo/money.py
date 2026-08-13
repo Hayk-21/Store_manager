@@ -28,6 +28,12 @@ def _day_start(tz_param: str) -> str:
     makes "before 06:00 still belongs to yesterday" fall out arithmetically
     rather than needing a branch. ``tz_param`` is the placeholder holding the
     display timezone in the calling query.
+
+    Callers compare against it as ``created_at >= (day_start AT TIME ZONE $tz)``,
+    turning this local timestamp back into an instant, rather than converting every
+    row's timestamp into local time and comparing that. The two ask the same
+    question; only the second can use an index, and this query runs three times a
+    minute per open tab against the largest table in the database.
     """
     return (
         f"date_trunc('day', (now() AT TIME ZONE {tz_param})"
@@ -80,7 +86,7 @@ async def totals_by_store(owner_id: int) -> list[asyncpg.Record]:
                 LEFT JOIN cash_movements dm
                        ON dm.store_id = s.id
                       AND dm.kind IN ('sale', 'void')
-                      AND (dm.created_at AT TIME ZONE $2) >= dd.day_start
+                      AND dm.created_at >= (dd.day_start AT TIME ZONE $2)
                GROUP BY dd.day_start
           ) d
          WHERE s.owner_id = $1 AND s.is_active
@@ -109,13 +115,13 @@ async def day_totals_for_store(owner_id: int, store_id: int) -> asyncpg.Record |
                count(DISTINCT dm.sale_id) FILTER (WHERE dm.kind = 'sale')     AS day_receipts,
                (SELECT count(*) FROM store_sessions ss
                  WHERE ss.store_id = s.id
-                   AND (ss.opened_at AT TIME ZONE $3) >= d.day_start)        AS day_sessions
+                   AND ss.opened_at >= (d.day_start AT TIME ZONE $3))        AS day_sessions
           FROM stores s
           CROSS JOIN LATERAL (SELECT {_day_start("$3")} AS day_start) d
           LEFT JOIN cash_movements dm
                  ON dm.store_id = s.id
                 AND dm.kind IN ('sale', 'void')
-                AND (dm.created_at AT TIME ZONE $3) >= d.day_start
+                AND dm.created_at >= (d.day_start AT TIME ZONE $3)
          WHERE s.id = $1 AND s.owner_id = $2 AND s.is_active
          GROUP BY s.id, d.day_start
         """,

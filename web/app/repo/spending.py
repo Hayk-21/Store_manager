@@ -60,6 +60,17 @@ _CATEGORY = """
 """
 
 
+# A half-open window on the raw timestamp, both ends local: midnight in the display
+# timezone, and midnight the morning after the last day. Written this way rather than
+# as ``(col AT TIME ZONE $4)::date BETWEEN $2 AND $3``, which asks the same question
+# but which no index can answer — that expression is STABLE, not IMMUTABLE, so
+# Postgres scans the table instead of the index every time.
+#
+# The forms differ only where a local day is not 24 hours long, and Armenia has not
+# observed daylight saving since 2012. See the same note in ``repo.stats``.
+_SINCE = "($2::date)::timestamp AT TIME ZONE $4"
+_UNTIL = "(($3::date + 1))::timestamp AT TIME ZONE $4"
+
 # The three doors as CTEs, shared by the list and by its totals. One definition so a
 # figure and the rows behind it cannot come from two slightly different questions.
 _SOURCES = f"""
@@ -79,7 +90,7 @@ _SOURCES = f"""
               LEFT JOIN workers w ON w.id = ws.worker_id
              WHERE ws.owner_id = $1 AND ws.ended_at IS NOT NULL
                AND ws.salary_paid > 0
-               AND (ws.ended_at AT TIME ZONE $4)::date BETWEEN $2 AND $3
+               AND ws.ended_at >= {_SINCE} AND ws.ended_at < {_UNTIL}
                AND ($5::bigint IS NULL OR ws.store_id = $5)
         ),
         bonuses AS (
@@ -90,7 +101,7 @@ _SOURCES = f"""
               LEFT JOIN workers w ON w.id = ws.worker_id
              WHERE ws.owner_id = $1 AND ws.ended_at IS NOT NULL
                AND coalesce(ws.bonus_paid, 0) > 0
-               AND (ws.ended_at AT TIME ZONE $4)::date BETWEEN $2 AND $3
+               AND ws.ended_at >= {_SINCE} AND ws.ended_at < {_UNTIL}
                AND ($5::bigint IS NULL OR ws.store_id = $5)
         ),
         taken AS (
@@ -102,7 +113,7 @@ _SOURCES = f"""
               JOIN stores s ON s.id = m.store_id
               LEFT JOIN workers w ON w.id = m.worker_id
              WHERE m.owner_id = $1 AND m.kind = 'withdrawal'
-               AND (m.created_at AT TIME ZONE $4)::date BETWEEN $2 AND $3
+               AND m.created_at >= {_SINCE} AND m.created_at < {_UNTIL}
                AND ($5::bigint IS NULL OR m.store_id = $5)
         ),
         entered AS (

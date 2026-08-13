@@ -7,11 +7,13 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 
 from app.config import settings
 from app.db import db
@@ -31,6 +33,36 @@ BOT_API_PREFIX = "/api/bot/v1"
 
 
 HOUSEKEEPING_INTERVAL_S = 3600
+
+# A year. The upper bound HTTP defines for max-age in practice, and safe here only
+# because of the rule enforced below.
+A_YEAR_S = 31_536_000
+
+
+class ImmutableStatic(StaticFiles):
+    """Static files that a browser may keep without ever asking again.
+
+    ``templating.static`` already stamps every asset URL with a hash of the file's
+    contents, so a changed file is a changed URL and a cached copy can never be
+    stale. What was missing was telling the browser that: the mount sent only an
+    ``ETag``, so every navigation re-validated every asset — two conditional
+    requests on most pages and five on the map pages, each one a network
+    round-trip to be told nothing had changed.
+
+    **Only a fingerprinted URL is marked immutable.** Leaflet's stylesheet asks for
+    its own marker images by plain name, and promising a year on a URL that does not
+    change when the file does is how a shop ends up permanently serving an asset
+    nobody can replace. Those get a day, which is worth having and easy to undo.
+    """
+
+    def file_response(self, full_path, stat_result, scope, status_code: int = 200) -> Response:
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        stamped = "v" in parse_qs(scope.get("query_string", b"").decode("latin-1"))
+        response.headers["Cache-Control"] = (
+            f"public, max-age={A_YEAR_S}, immutable" if stamped
+            else "public, max-age=86400"
+        )
+        return response
 
 
 async def _housekeeping() -> None:
@@ -78,7 +110,18 @@ app = FastAPI(
     openapi_url=None,
 )
 
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+# Compression, which nothing was doing — not this app and not Railway's proxy. A
+# month of statistics is 685 KB of HTML and gzips to 25 KB, because the page is
+# 500 repetitions of the same edit form; ninety days is 970 KB and gzips to 32 KB.
+# On a phone that is nearly two seconds of downloading on every single view, which
+# is more than everything the server and the database do put together. The few
+# milliseconds of CPU it costs are not worth measuring against that.
+#
+# Under 1 KB is left alone: below roughly a packet there is nothing to win, and the
+# footer poll's 2 KB fragment is the only small response served often.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+app.mount("/static", ImmutableStatic(directory=str(STATIC_DIR)), name="static")
 app.include_router(auth.router)
 app.include_router(pages.router)
 app.include_router(partials.router)

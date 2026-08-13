@@ -45,8 +45,17 @@
 
 {% if user %}
 {# Requirement 4: the fixed footer, one chip per store, refreshed on a timer so a
-   sale made through the bot shows up without anyone reloading. #}
-<footer id="vs-footer" hx-get="/partials/footer" hx-trigger="load, every 10s" hx-swap="innerHTML">
+   sale made through the bot shows up without anyone reloading.
+
+   Every thirty seconds, and only while the tab is actually being looked at. It was
+   every ten, unconditionally, forever: three database round-trips including a write,
+   on every open tab, competing for the same small pool as the page the owner is
+   waiting for — and a tab left open overnight kept writing to Neon all night. Thirty
+   seconds is still faster than anybody reloads by hand, and the cost of the change is
+   that a sale made through the bot can take half a minute rather than ten seconds to
+   appear in the chips. #}
+<footer id="vs-footer" hx-get="/partials/footer" hx-swap="innerHTML"
+        hx-trigger="load, every 30s [document.visibilityState === 'visible']">
   <div class="footer-inner"><span class="muted">բեռնվում է…</span></div>
 </footer>
 {% endif %}

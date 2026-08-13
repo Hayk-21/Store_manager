@@ -152,6 +152,34 @@ async def test_net_profit_subtracts_wages_and_expenses(client):
     assert data["net_profit"] == Decimal("-100000.00")
 
 
+async def test_the_range_takes_the_whole_of_both_end_days(client):
+    """The filter is a half-open window on the raw timestamp — `>= local midnight`
+    and `< local midnight the next morning` — because the readable form,
+    `(sold_at AT TIME ZONE $tz)::date BETWEEN …`, cannot use an index and made every
+    reporting query scan the table.
+
+    The rewrite is only equivalent if both ends stay local, so this pins them: half
+    past eleven at night is inside the day, half past midnight is the next one.
+    """
+    owner_id, _, _ = await _a_days_trading()
+    today = settings.local_day()
+
+    await db.execute(
+        "UPDATE sales SET sold_at = (($1::date + time '23:30') AT TIME ZONE $2)",
+        today, TZ,
+    )
+    late = await stats_repo.summary(owner_id, today, today, TZ)
+
+    await db.execute(
+        "UPDATE sales SET sold_at = ((($1::date + 1) + time '00:30') AT TIME ZONE $2)",
+        today, TZ,
+    )
+    tomorrow = await stats_repo.summary(owner_id, today, today, TZ)
+
+    assert late["revenue"] == Decimal("14000.00"), "23:30 is still tonight"
+    assert tomorrow["revenue"] == Decimal("0"), "00:30 belongs to the next day"
+
+
 async def test_every_way_money_leaves_is_in_the_spending_figure(client):
     """Everything except breakage — a wage, a bonus, anything taken out of a drawer,
     anything typed on /expenses — no matter who entered it or through which page."""
