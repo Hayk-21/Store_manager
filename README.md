@@ -220,6 +220,38 @@ Telegram *rejects* a message over 4096 characters rather than trimming it, so an
 unbounded list does not make a long screen but an empty one, on exactly the shifts
 that most need reading back.
 
+### What one row of `/reports` says
+
+A row is one time a shop was open, and it answers the questions an owner scans a list
+for — **who worked it, what it sold, what it made**:
+
+* **Աշխատող** is the name, not a count of shifts. One person opens a shop and closes
+  it, so the count said «1» on every row for as long as it existed. Two names joined
+  by `·` when a session really was shared, because silently showing one of them would
+  be a lie.
+* **Առաքում** is what went out by delivery — the same money through a different door,
+  and the one figure in the row that cannot be worked out from the ones beside it.
+* **Շահույթ** is what the shift made: margin, less wages, bonus, petty cash and this
+  shop's own expenses for the day. It replaced «Հասույթ» — the takings — which a shop
+  selling 45,000 of stock that cost 40,000 read as a very good day. The subtraction
+  lives in `statistics.session_profit` and is called from both the column and the
+  header of the report it opens, so a list and the page it links to cannot disagree
+  about the word.
+* **Վաճառք · Կանխիկ վաճառք · Քարտով վաճառք** are the takings and the two doors they
+  came through. The columns here before were the drawer *balances*: a wage paid or
+  money taken out has already come off those, so «Կանխիկ 83,500» sat beside «Վաճառք
+  57,500» looking like a split that does not add up.
+* **Մնաց խանութում** is the evening's last count of the drawer — or, when nobody
+  counted, the float the shop opened with, marked «հաշվարկով» because that one was
+  worked out rather than declared. Not zero: a worker going home without counting has
+  not emptied the shop. That rule lives in `_left_in_store` and the report header
+  calls it too.
+
+Every figure is read from the same place the detail page reads it — the ledger for the
+money, the sale lines for the margin — and from the ledger rather than from the
+snapshot written at closing time, which is the same number once the shop has shut and
+zero all day while it is still open.
+
 ### What the owner can fix on a report
 
 Everything a cashier can get wrong, from `/reports?store_session_id=…`, because the

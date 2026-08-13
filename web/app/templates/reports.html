@@ -16,19 +16,19 @@
           <th>Խանութ</th>
           <th>Բացվել / փակվել է</th>
           <th class="num">Տևողություն</th>
-          <th class="num">Աշխատողներ</th>
-          <th class="num">Չեկեր</th>
-          <th class="num">Հասույթ</th>
-          <th class="num">Կանխիկ</th>
-          <th class="num">Քարտ</th>
+          <th>Աշխատող</th>
+          <th class="num">Առաքում</th>
+          <th class="num">Շահույթ</th>
+          <th class="num">Վաճառք</th>
+          <th class="num">Կանխիկ վաճառք</th>
+          <th class="num">Քարտով վաճառք</th>
+          <th class="num">Մնաց խանութում</th>
           <th class="num">Աշխատավարձ</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
         {% for s in sessions %}
-        {% set cash = s.cash_at_close if s.closed_at else s.cash_now %}
-        {% set card = s.card_at_close if s.closed_at else s.card_now %}
         <tr>
           <td class="cell-name" data-label="Խանութ">{{ s.store_name }}</td>
           <td class="nowrap" data-label="Բացվել / փակվել է">{{ s.opened_at | stamp }}<br>
@@ -42,14 +42,42 @@
             {% endif %}
           </td>
           <td class="num nowrap" data-label="Տևողություն">{{ s.opened_at | duration(s.closed_at) }}</td>
-          <td class="num" data-label="Աշխատողներ">{{ s.shift_count }}</td>
-          <td class="num" data-label="Չեկեր">{{ s.receipt_count }}</td>
-          {# Not cash + card: those are till balances with wages and withdrawals
-             already taken off them. This is what the shop took in. #}
-          <td class="num" data-label="Հասույթ"><b>{{ s.income | money }}</b></td>
-          <td class="num {% if cash < 0 %}negative{% endif %}" data-label="Կանխիկ">{{ cash | money }}</td>
-          <td class="num" data-label="Քարտ">{{ card | money }}</td>
-          <td class="num" data-label="Աշխատավարձ">{{ (s.salaries_at_close or 0) | money }}</td>
+          {# Who worked it, not how many did. One person opens a shop and closes it,
+             so «1» was the answer on every row. #}
+          <td class="cell-name" data-label="Աշխատող">
+            {{ s.worker_names or '—' }}</td>
+          {# The same money through a different door, and the only figure here that
+             is not recoverable from the ones beside it. #}
+          <td class="num" data-label="Առաքում">
+            {{ s.delivered | money }}
+            {%- if s.deliveries %}<br><span class="muted small nowrap">{{ s.deliveries }} պատվեր</span>{% endif %}
+          </td>
+          {# What the shift made, by the same arithmetic as the report it opens:
+             margin less wages, bonus, petty cash and this shop's expenses for the
+             day. Not the takings — a shop selling 45,000 of stock that cost 40,000
+             did not make 45,000, and «Հասույթ» in this column read as if it had. #}
+          <td class="num" data-label="Շահույթ">
+            <b class="{{ 'accent-profit' if s.profit >= 0 else 'negative' }}">
+              {{- s.profit | money -}}</b></td>
+          {# Takings, then the two doors they came through. Not the drawer balances
+             that used to stand here: a wage paid or money taken out has already come
+             off those, so «Կանխիկ» beside «Վաճառք» was a bigger number than the cash
+             sales it looked like it was splitting. #}
+          <td class="num" data-label="Վաճառք">{{ s.income | money }}</td>
+          <td class="num" data-label="Կանխիկ վաճառք">{{ s.net_sale_cash | money }}</td>
+          <td class="num" data-label="Քարտով վաճառք">{{ s.net_sale_card | money }}</td>
+          {# The evening's last count of the drawer. When nobody counted it is the
+             float the shop opened with — not zero, because a worker going home
+             without counting has not emptied the shop — and the row says which of
+             the two it is, since one was declared and the other worked out. #}
+          <td class="num" data-label="Մնաց խանութում">
+            {{ s.left_in_store | money }}
+            {%- if s.nobody_counted %}<br><span class="muted small nowrap">հաշվարկով</span>{% endif %}
+          </td>
+          {# From the ledger, like everything else in the row, rather than from the
+             snapshot written at closing time — which is the same number once the shop
+             has shut, and zero all day while it is still open. #}
+          <td class="num" data-label="Աշխատավարձ">{{ s.salaries | money }}</td>
           <td class="num cell-actions" data-label="">
             <a href="/reports?store_session_id={{ s.id }}" class="small">Մանրամասն</a>
             {# A closed session only. Deleting one that is still open would pull

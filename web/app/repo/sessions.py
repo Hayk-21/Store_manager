@@ -104,35 +104,100 @@ async def stale_open_sessions(hours: int) -> list[asyncpg.Record]:
 
 
 async def recent_store_sessions(
-    owner_id: int, limit: int = 50, offset: int = 0
+    owner_id: int, tz: str, limit: int = 50, offset: int = 0
 ) -> list[asyncpg.Record]:
-    """Backs /reports: one row per time a store was open, newest first."""
+    """Backs /reports: one row per time a store was open, newest first.
+
+    Every figure the row shows is the same figure the detail page under it shows,
+    read from the same places — the ledger for the money, the sale lines for the
+    margin — so opening a row can never contradict the row you opened. That is why
+    the parts of the profit are columns here rather than a number worked out a
+    second way: the subtraction itself is done in one place, by
+    ``statistics.session_profit``.
+
+    ``tz`` is the display timezone, needed for the one figure that is asked by
+    calendar day rather than by session: a shop's own typed expenses. Bucketing
+    ``opened_at`` by the server's UTC date would file an evening opening under
+    tomorrow and take the wrong day's expenses off it.
+    """
     return await db.fetch(
-        """
+        f"""
         SELECT ss.id, ss.store_id, s.name AS store_name,
                ss.opened_at, ss.closed_at, ss.opened_day, ss.closed_by,
                ss.cash_at_close, ss.card_at_close, ss.salaries_at_close,
-               (SELECT count(*) FROM work_sessions ws WHERE ws.store_session_id = ss.id)
-                   AS shift_count,
-               (SELECT count(*) FROM sales sa
-                 WHERE sa.store_session_id = ss.id AND sa.voided_at IS NULL) AS receipt_count,
-               coalesce((SELECT sum(m.amount) FILTER (WHERE m.method = 'cash')
-                           FROM cash_movements m WHERE m.store_session_id = ss.id), 0) AS cash_now,
-               coalesce((SELECT sum(m.amount) FILTER (WHERE m.method = 'card')
-                           FROM cash_movements m WHERE m.store_session_id = ss.id), 0) AS card_now,
-               -- What the shop took in, which is not cash + card: those two are
-               -- till balances, and a wage paid or money taken out has already
-               -- come off them. Sales and voids only, and a void row is negative,
-               -- so a reversed receipt nets itself out without a second term.
-               coalesce((SELECT sum(m.amount) FILTER (WHERE m.kind IN ('sale', 'void'))
-                           FROM cash_movements m WHERE m.store_session_id = ss.id), 0) AS income
+               -- Who worked it. In practice one person opens a shop and closes it,
+               -- so a count of shifts said «1» on every row and answered nothing;
+               -- the name is the thing an owner is actually looking for. Joined
+               -- rather than picked, because two workers in one session is possible
+               -- and silently showing one of them would be a lie.
+               (SELECT string_agg(DISTINCT {DISPLAY_NAME}, ' · ')
+                  FROM work_sessions ws
+                  JOIN workers w ON w.id = ws.worker_id
+                 WHERE ws.store_session_id = ss.id) AS worker_names,
+               till.income, till.net_sale_cash, till.net_sale_card,
+               till.salaries, till.bonuses, till.withdrawn, till.carried_in,
+               goods.delivered, goods.deliveries, goods.margin,
+               -- The evening's last reading of the drawer, and null when nobody
+               -- looked. A second count replaces the first rather than adding to
+               -- it, so the newest is the one that counts.
+               (SELECT t.counted FROM till_counts t
+                 WHERE t.store_session_id = ss.id
+                 ORDER BY t.created_at DESC, t.id DESC LIMIT 1) AS last_count,
+               -- Only this shop's own expenses, on the day it opened. One left as
+               -- «Ամբողջ բիզնեսը» belongs to the business rather than to the branch
+               -- that happened to be trading, and counting it here would take the
+               -- same rent off every shop open that day.
+               coalesce((SELECT sum(e.amount) FROM expenses e
+                          WHERE e.owner_id = ss.owner_id AND e.store_id = ss.store_id
+                            AND e.spent_on = (ss.opened_at AT TIME ZONE $2)::date), 0)
+                   AS day_spending
           FROM store_sessions ss
           JOIN stores s ON s.id = ss.store_id
+          -- What the drawer did. Sales and voids only for the takings: cash and card
+          -- balances are not takings — a wage paid or money taken out has already come
+          -- off them — and a void row is negative and carries the method of the sale it
+          -- reverses, so a reversed receipt nets itself out without a second term.
+          LEFT JOIN LATERAL (
+              SELECT coalesce(sum(m.amount) FILTER (WHERE m.kind IN ('sale', 'void')), 0)
+                         AS income,
+                     coalesce(sum(m.amount) FILTER (
+                         WHERE m.kind IN ('sale', 'void') AND m.method = 'cash'), 0)
+                         AS net_sale_cash,
+                     coalesce(sum(m.amount) FILTER (
+                         WHERE m.kind IN ('sale', 'void') AND m.method = 'card'), 0)
+                         AS net_sale_card,
+                     coalesce(-sum(m.amount) FILTER (WHERE m.kind = 'salary'), 0)
+                         AS salaries,
+                     coalesce(-sum(m.amount) FILTER (WHERE m.kind = 'bonus'), 0)
+                         AS bonuses,
+                     coalesce(-sum(m.amount) FILTER (WHERE m.kind = 'withdrawal'), 0)
+                         AS withdrawn,
+                     -- The float the shop carried in this morning: the one deposit
+                     -- nobody typed. It is what stays on the premises when a session
+                     -- ends without anybody counting the drawer.
+                     coalesce(sum(m.amount) FILTER (
+                         WHERE m.kind = 'deposit' AND m.created_by = 'system'), 0)
+                         AS carried_in
+                FROM cash_movements m WHERE m.store_session_id = ss.id
+          ) till ON true
+          -- What was sold. Delivery is the same money through a different door, and
+          -- the margin is the sale lines' own snapshot of price and cost, so
+          -- repricing a vape today cannot rewrite what last week earned.
+          LEFT JOIN LATERAL (
+              SELECT coalesce(sum(si.line_total) FILTER (WHERE sa.is_delivery), 0)
+                         AS delivered,
+                     count(DISTINCT sa.id) FILTER (WHERE sa.is_delivery) AS deliveries,
+                     coalesce(sum((si.unit_price - si.unit_cost) * si.quantity), 0) AS margin
+                FROM sale_items si
+                JOIN sales sa ON sa.id = si.sale_id
+               WHERE sa.store_session_id = ss.id AND sa.voided_at IS NULL
+          ) goods ON true
          WHERE ss.owner_id = $1
          ORDER BY ss.opened_at DESC
-         LIMIT $2 OFFSET $3
+         LIMIT $3 OFFSET $4
         """,
         owner_id,
+        tz,
         limit,
         offset,
     )

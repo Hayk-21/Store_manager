@@ -670,7 +670,7 @@ async def reports_page(
         {
             "user": user,
             "active": "reports",
-            "sessions": await sessions_repo.recent_store_sessions(user.id),
+            "sessions": await _sessions_with_profit(user.id),
             "detail": detail,
         },
     )
@@ -941,6 +941,30 @@ async def _session_of_sale(owner_id: int, sale_id: int) -> int | None:
     )
 
 
+async def _sessions_with_profit(owner_id: int) -> list[dict]:
+    """The list of sessions, each carrying what it made.
+
+    The subtraction is Python's rather than SQL's so that the list and the report it
+    opens use one formula — see ``statistics.session_profit``. Rows become dicts to
+    take the extra key; a Record is read-only.
+    """
+    rows = await sessions_repo.recent_store_sessions(owner_id, settings.tzname)
+    return [
+        {
+            **row,
+            "profit": statistics.session_profit(
+                row["margin"], row["salaries"], row["bonuses"],
+                row["withdrawn"], row["day_spending"],
+            ),
+            # The same rule the report header uses, so a row and the page it opens
+            # cannot say two different things about the drawer.
+            "left_in_store": _left_in_store(row["last_count"], row["carried_in"]),
+            "nobody_counted": row["last_count"] is None,
+        }
+        for row in rows
+    ]
+
+
 async def _what_the_day_made(session, totals) -> dict:
     """The two bottom lines for one session, which answer two different questions.
 
@@ -996,8 +1020,21 @@ async def _what_the_day_made(session, totals) -> dict:
         "wage_cost": Decimal(wages["cost"]),
         "wage_unpaid": Decimal(wages["unpaid"]),
         "turnover": takings - salary - bonus - taken_out,
-        "day_profit": margin - salary - bonus - taken_out - spending,
+        "day_profit": statistics.session_profit(margin, salary, bonus, taken_out, spending),
     }
+
+
+def _left_in_store(counted, carried_in) -> Decimal:
+    """What stays on the premises: the evening's last count, or — when nobody looked
+    in the drawer — the float the shop opened with.
+
+    Nobody counting is not the shop being emptied. Nothing changes
+    ``stores.till_balance`` except a count, so the float stays exactly where it is and
+    that is what tomorrow will open with. One rule, in one place, because the report
+    header and the list of reports both answer this question and «0» was the wrong
+    answer in both.
+    """
+    return Decimal(carried_in if counted is None else counted)
 
 
 def _the_owners_share(totals, counts) -> dict:
@@ -1024,7 +1061,7 @@ def _the_owners_share(totals, counts) -> dict:
     """
     till_now = Decimal(totals["cash"])
     if not counts:
-        assumed = Decimal(totals["carried_in"])
+        assumed = _left_in_store(None, totals["carried_in"])
         return {
             "owed_to_owner": max(Decimal(0), till_now - assumed),
             "left_in_store": assumed,
@@ -1034,7 +1071,8 @@ def _the_owners_share(totals, counts) -> dict:
             "nobody_counted": True,
         }
     last = counts[-1]
-    left, was = Decimal(last["counted"]), Decimal(last["expected"])
+    left = _left_in_store(last["counted"], totals["carried_in"])
+    was = Decimal(last["expected"])
     return {
         # From the books as they stand, not from the reading frozen on the count:
         #

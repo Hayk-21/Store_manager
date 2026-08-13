@@ -213,5 +213,5 @@ async def test_the_list_shows_what_the_shop_took_in(client):
 
     page = await client.get("/reports")
 
-    assert "Հասույթ" in page.text
+    assert "Վաճառք" in page.text
     assert "10,500.00" in page.text, "three at 3,500"

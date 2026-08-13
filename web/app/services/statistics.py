@@ -46,6 +46,23 @@ CUSTOM = "custom"
 MAX_DAILY_BARS = 45
 
 
+def session_profit(margin, salary, bonus, withdrawn, spending) -> Decimal:
+    """What one store session made: the margin, less what left the drawer.
+
+        Շահույթ = (վաճառք − ինքնարժեք) − աշխատավարձ − բոնուս
+                  − դրամարկղից հանված − օրվա ծախսեր
+
+    One subtraction, in one place, because two pages ask for it — the header of a
+    single report and the «Շահույթ» column on the list of them — and a formula
+    written twice is a formula that eventually says two things. Breakage is not in
+    it: the money left when the goods were bought, not when they broke.
+    """
+    return (
+        Decimal(margin) - Decimal(salary) - Decimal(bonus)
+        - Decimal(withdrawn) - Decimal(spending)
+    )
+
+
 def range_for(
     preset: str | None, since: date | None = None, until: date | None = None
 ) -> tuple[date, date, str]:
