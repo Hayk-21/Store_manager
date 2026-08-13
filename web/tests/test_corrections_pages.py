@@ -121,6 +121,95 @@ async def test_adding_a_missed_sale_from_the_form(client):
     ) == Decimal("7000.00"), "the price defaulted to the shelf price"
 
 
+# -- a sale that went out of the door -----------------------------------------
+
+async def _add_a_sale(client, session_id, worker_id, item_id, **extra):
+    return await client.post(
+        f"/store-sessions/{session_id}/sales",
+        data={
+            "csrf_token": await _csrf(client),
+            "worker_id": str(worker_id),
+            "item_id": str(item_id),
+            "quantity": "1",
+            "unit_price": "",
+            "payment_method": "cash",
+            **extra,
+        },
+    )
+
+
+async def test_a_forgotten_sale_can_be_added_as_a_delivery(client):
+    """Most of what gets added here is a delivery — the cashier was on the phone
+    rather than at the till — and the form could only record counter sales, so those
+    landed on the wrong side of the split the owner reads to decide whether
+    delivering pays."""
+    _, _, worker_id, item_id, session_id, _ = await _a_closed_session()
+    await login(client, "@ownerhandle")
+
+    response = await _add_a_sale(client, session_id, worker_id, item_id, is_delivery="1")
+
+    assert response.status_code == 303
+    added = await db.fetchrow(
+        "SELECT is_delivery, total FROM sales WHERE external_id LIKE 'added-%'"
+    )
+    assert added["is_delivery"] is True
+    assert added["total"] == Decimal("3500.00"), "the flag moved no money"
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+    assert "առաքում" in page.text
+
+
+async def test_a_forgotten_sale_is_a_counter_sale_unless_it_says_so(client):
+    """The box defaults to «Ոչ», and a page rendered before it existed sends nothing."""
+    _, _, worker_id, item_id, session_id, _ = await _a_closed_session()
+    await login(client, "@ownerhandle")
+
+    await _add_a_sale(client, session_id, worker_id, item_id)
+
+    assert await db.fetchval(
+        "SELECT is_delivery FROM sales WHERE external_id LIKE 'added-%'"
+    ) is False
+
+
+async def test_amending_a_delivery_leaves_it_a_delivery(client):
+    """Correcting a quantity says nothing about the door, so the answer has to come
+    from the sale being replaced — otherwise fixing a typo re-files the delivery as a
+    counter sale and the day's split changes for no reason anybody typed."""
+    _, _, worker_id, item_id, session_id, _ = await _a_closed_session()
+    await login(client, "@ownerhandle")
+    await _add_a_sale(client, session_id, worker_id, item_id, is_delivery="1")
+    delivery_id = await db.fetchval("SELECT id FROM sales WHERE is_delivery")
+
+    await client.post(
+        f"/sales/{delivery_id}/amend",
+        data={"csrf_token": await _csrf(client), "item_id": str(item_id),
+              "quantity": "2", "unit_price": "", "payment_method": "cash"},
+    )
+
+    replacement = await db.fetchrow(
+        "SELECT is_delivery, total FROM sales WHERE external_id LIKE 'amend-%'"
+    )
+    assert replacement["is_delivery"] is True
+    assert replacement["total"] == Decimal("7000.00")
+
+
+async def test_a_deleted_delivery_comes_back_as_a_delivery(client):
+    """The undo rebuilds the receipt from the audit payload, so whatever the payload
+    does not carry is lost the moment somebody deletes a row by mistake."""
+    owner_id, _, worker_id, item_id, session_id, _ = await _a_closed_session()
+    await login(client, "@ownerhandle")
+    await _add_a_sale(client, session_id, worker_id, item_id, is_delivery="1")
+    delivery_id = await db.fetchval("SELECT id FROM sales WHERE is_delivery")
+    await client.post(f"/sales/{delivery_id}/delete", data={"csrf_token": await _csrf(client)})
+    event = await audit_repo.newest_pending(owner_id)
+
+    await client.post(
+        f"/history/{event['id']}/revert", data={"csrf_token": await _csrf(client)}
+    )
+
+    assert await db.fetchval("SELECT count(*) FROM sales WHERE is_delivery") == 1
+
+
 async def test_a_receipt_offers_both_voiding_and_deleting(client):
     """They mean different things: one shows the sale was reversed, the other
     says it should never have been on the report at all."""
