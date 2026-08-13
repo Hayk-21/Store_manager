@@ -67,15 +67,14 @@ async def summary(
                    AS cash,
                coalesce(sum(si.line_total) FILTER (WHERE sa.payment_method = 'card'), 0)
                    AS card,
-               -- Split by which price list the line came from. 'custom' is a
-               -- haggle or a discount and belongs with neither, so it is its own
-               -- figure rather than being folded into retail.
+               -- Split by which price list the line came from. A 'custom' line — a
+               -- haggle or a discount — had its own figure on the page and was asked
+               -- to be taken off it, so it is not summed here; the price kind is still
+               -- on every line, and a badge beside the receipt still says so.
                coalesce(sum(si.line_total) FILTER (WHERE si.price_kind = 'wholesale'), 0)
                    AS wholesale,
                coalesce(sum(si.line_total) FILTER (WHERE si.price_kind = 'retail'), 0)
                    AS retail,
-               coalesce(sum(si.line_total) FILTER (WHERE si.price_kind = 'custom'), 0)
-                   AS custom_priced,
                coalesce(sum(si.quantity) FILTER (WHERE si.price_kind = 'wholesale'), 0)
                    AS wholesale_units,
                -- Same money, different door. Worth its own figure because the
@@ -258,30 +257,11 @@ async def by_worker(
     )
 
 
-async def salaries_between(
-    owner_id: int, since: date, until: date, tz: str, store_id: int | None = None
-) -> Decimal:
-    """What the shifts in this period cost in wages.
-
-    Bucketed by when the shift *ended*, which is when the wage was settled.
-
-    Bonuses included. They are money the shop owes for work done, they leave the till
-    like a wage, and leaving them out meant a target-beating month cost the business
-    nothing in every figure on the statistics page.
-
-    The cost, not the payment: a shift the drawer could not cover in full still cost
-    what it cost, and the part still owed is a debt rather than a saving.
-    """
-    return await db.fetchval(
-        """
-        SELECT coalesce(sum(salary_paid), 0) + coalesce(sum(bonus_paid), 0)
-          FROM work_sessions
-         WHERE owner_id = $1 AND ended_at IS NOT NULL
-           AND (ended_at AT TIME ZONE $4)::date BETWEEN $2 AND $3
-           AND ($5::bigint IS NULL OR store_id = $5)
-        """,
-        owner_id, since, until, tz, store_id,
-    )
+# The wage bill over a period used to live here, as its own query. It has moved to
+# ``spending.totals_between``, which answers the whole question — wages, bonuses, the
+# money taken out of a drawer and the owner's typed expenses — in one pass. Two
+# queries for two-thirds of one figure is how the statistics page came to disagree
+# with the reports it was summing.
 
 
 async def stock_value(owner_id: int, store_id: int | None = None) -> asyncpg.Record:

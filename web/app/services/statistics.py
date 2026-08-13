@@ -16,6 +16,7 @@ from decimal import Decimal
 
 from app.config import settings
 from app.repo import expenses as expenses_repo
+from app.repo import spending as spending_repo
 from app.repo import stats as stats_repo
 from app.repo import stores as stores_repo
 from app.repo import write_offs as write_offs_repo
@@ -159,10 +160,20 @@ async def overview(
         bar["revenue_pct"] = _percent(bar["revenue"], peak)
         bar["profit_pct"] = _percent(bar["profit"], peak)
 
-    salaries = Decimal(await stats_repo.salaries_between(owner_id, since, until, tz, store_id))
+    # Every way money left the business, from the one place that knows all of them —
+    # the same query behind «Բոլոր վճարումները» further down this page and behind the
+    # whole of /expenses. It used to be assembled here out of two other queries, and
+    # the assembly left out the money taken out of a drawer: a month with 62,000 of
+    # withdrawals in it reported a profit 62,000 too high, and disagreed with every
+    # report that made it up.
+    paid = await spending_repo.totals_between(owner_id, since, until, store_id)
+    wages = Decimal(paid.get("salary", ZERO))
+    bonuses = Decimal(paid.get("bonus", ZERO))
+    withdrawn = Decimal(paid.get("withdrawal", ZERO))
     # Expenses are business-wide by nature (rent, advertising), so they are not
     # narrowed by the store filter — attributing them per shop would be a guess.
-    spending = Decimal(await expenses_repo.total_between(owner_id, since, until))
+    spending = Decimal(paid.get("expense", ZERO))
+    paid_out = Decimal(paid["total"])
     # Stock lost, at what it cost — and deliberately *not* part of the spending figure
     # below it. Nothing left a drawer or an account the day a vape fell off the shelf:
     # the money left when the goods were bought. Counting it as spending charged the
@@ -204,14 +215,23 @@ async def overview(
         # Named on the hourly chart, because "when does this shop sell" has a different
         # answer in a different timezone and the page should say which one it used.
         "tzname": tz,
-        "salaries": salaries,
+        # The four doors money leaves by, named apart so the page can show the
+        # subtraction rather than a total the owner has to take on trust.
+        "wages": wages,
+        "bonuses": bonuses,
+        "withdrawn": withdrawn,
         "spending": spending,
+        "paid_out": paid_out,
+        # What the goods cost, so «վաճառք − ինքնարժեք» can be read as a sum rather
+        # than asserted. Sales carry their own price and cost, so this is a
+        # subtraction of two figures on the same rows.
+        "cost_of_goods": Decimal(summary["revenue"]) - gross,
         "gross_profit": gross,
         "breakage": breakage,
-        # Wages and what the owner paid out. Not breakage — see above — and the same
-        # arithmetic the report header uses for a single day, so a day and the month
-        # containing it cannot disagree about what profit means.
-        "net_profit": gross - salaries - spending,
+        # The same arithmetic a single report uses — margin, less every payment the
+        # period made — so a day and the month containing it cannot disagree about
+        # what profit means. Not breakage: see above.
+        "net_profit": gross - paid_out,
         "average_receipt": (
             Decimal(summary["revenue"]) / summary["receipts"]
             if summary["receipts"] else ZERO

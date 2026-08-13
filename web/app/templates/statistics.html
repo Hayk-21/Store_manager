@@ -39,43 +39,37 @@
   </form>
 </div>
 
-{# -- the headline figures -------------------------------------------------- #}
+{# -- the headline figures --------------------------------------------------
+   Named as the reports name them. A page that calls the takings «Հասույթ» while
+   every report calls them «Վաճառք», and offers «Համախառն» and «Զուտ» profit where a
+   report offers one «Շահույթ», reads as being about a different business. Same
+   words, same figures, same arithmetic — the sentence under the tiles says which. #}
 <div class="stat-grid">
   <div class="card stat">
-    <span class="total-label">Հասույթ</span>
+    <span class="total-label">Վաճառք</span>
     <span class="total-value">{{ summary.revenue | money }}</span>
     <span class="muted small">{{ summary.receipts }} վաճառք · {{ summary.units }} հատ</span>
   </div>
-  <div class="card stat">
-    <span class="total-label">Համախառն շահույթ</span>
-    <span class="total-value {% if gross_profit < 0 %}negative{% else %}positive{% endif %}">
-      {{ gross_profit | money }}</span>
-    <span class="muted small">
-      {% if summary.revenue > 0 %}
-        մարժան՝ {{ (gross_profit / summary.revenue * 100) | round(1) }}%
-      {% else %}վաճառք չի եղել{% endif %}
-    </span>
-  </div>
   {# How the money arrived. Card takings are already in the bank and cash is not, so
      "how much of that was cash" is the difference between what the owner collects by
-     hand and what is simply there — and the page did not say. #}
+     hand and what is simply there. Two tiles rather than «812հզ · 257հզ» in one, so
+     each carries its own full figure — the same two the report header shows. #}
   <div class="card stat">
-    <span class="total-label">Կանխիկ · Քարտ</span>
-    <span class="total-value">{{ summary.cash | short_money }} · {{ summary.card | short_money }}</span>
+    <span class="total-label">Կանխիկ վաճառք</span>
+    <span class="total-value">{{ summary.cash | money }}</span>
     <span class="muted small">
       {% if summary.revenue > 0 %}
-        կանխիկ՝ հասույթի {{ (summary.cash / summary.revenue * 100) | round(1) }}%
+        վաճառքի {{ (summary.cash / summary.revenue * 100) | round(1) }}%
       {% else %}վաճառք չի եղել{% endif %}
     </span>
   </div>
   <div class="card stat">
-    <span class="total-label">Մեծածախ</span>
-    <span class="total-value">{{ summary.wholesale | money }}</span>
+    <span class="total-label">Քարտով վաճառք</span>
+    <span class="total-value">{{ summary.card | money }}</span>
     <span class="muted small">
       {% if summary.revenue > 0 %}
-        հասույթի {{ (summary.wholesale / summary.revenue * 100) | round(1) }}% ·
-        {{ summary.wholesale_units }} հատ
-      {% else %}մեծածախ վաճառք չի եղել{% endif %}
+        վաճառքի {{ (summary.card / summary.revenue * 100) | round(1) }}%
+      {% else %}վաճառք չի եղել{% endif %}
     </span>
   </div>
   <div class="card stat">
@@ -84,20 +78,31 @@
     <span class="muted small">
       {% if summary.deliveries %}
         {{ summary.deliveries }} առաքում
-        {%- if summary.revenue > 0 %} · հասույթի
+        {%- if summary.revenue > 0 %} · վաճառքի
         {{ (summary.delivered / summary.revenue * 100) | round(1) }}%{% endif %}
       {% else %}առաքում չի եղել{% endif %}
     </span>
   </div>
-  {# Sold at neither list price: a haggle or a discount. Its own figure rather than
-     folded into retail, because it is money given away at the counter and the only
-     way to notice a habit of it is to see the total. #}
   <div class="card stat">
-    <span class="total-label">Փոփոխված գնով</span>
-    <span class="total-value">{{ summary.custom_priced | money }}</span>
+    <span class="total-label">Մեծածախ</span>
+    <span class="total-value">{{ summary.wholesale | money }}</span>
     <span class="muted small">
       {% if summary.revenue > 0 %}
-        հասույթի {{ (summary.custom_priced / summary.revenue * 100) | round(1) }}%
+        վաճառքի {{ (summary.wholesale / summary.revenue * 100) | round(1) }}% ·
+        {{ summary.wholesale_units }} հատ
+      {% else %}մեծածախ վաճառք չի եղել{% endif %}
+    </span>
+  </div>
+  {# The margin on the goods: what they sold for, less what they cost. «Համախառն
+     շահույթ» is the accountant's name for it and told an owner nothing about which
+     of the two profits on this page they were reading. #}
+  <div class="card stat">
+    <span class="total-label">Ապրանքի վրա շահույթ</span>
+    <span class="total-value {% if gross_profit < 0 %}negative{% else %}positive{% endif %}">
+      {{ gross_profit | money }}</span>
+    <span class="muted small">
+      {% if summary.revenue > 0 %}
+        մարժան՝ {{ (gross_profit / summary.revenue * 100) | round(1) }}%
       {% else %}վաճառք չի եղել{% endif %}
     </span>
   </div>
@@ -105,17 +110,40 @@
      and the answer is a table further down the same page. #}
   <a class="card stat" href="#spending">
     <span class="total-label">Ծախսեր</span>
-    <span class="total-value negative">{{ (salaries + spending) | money }}</span>
+    <span class="total-value negative">{{ paid_out | money }}</span>
     <span class="muted small">
-      աշխատավարձ {{ salaries | money }} · այլ {{ spending | money }}</span>
+      աշխատավարձ {{ wages | money }}
+      {%- if bonuses %} · բոնուս {{ bonuses | money }}{% endif %}
+      {%- if withdrawn %} · վերցված {{ withdrawn | money }}{% endif %}
+      {%- if spending %} · այլ {{ spending | money }}{% endif %}</span>
   </a>
   <div class="card stat">
-    <span class="total-label">Զուտ շահույթ</span>
+    <span class="total-label">Շահույթ</span>
     <span class="total-value {% if net_profit < 0 %}negative{% else %}positive{% endif %}">
       {{ net_profit | money }}</span>
-    <span class="muted small">շահույթ − աշխատավարձ − ծախսեր</span>
+    <span class="muted small">ապրանքի վրա շահույթ − ծախսեր</span>
   </div>
 </div>
+
+{# The two subtractions written out with the period's own numbers, because a figure
+   an owner cannot check is a figure they have to believe. Same arithmetic as the
+   header of a single report — this page is those reports added up. #}
+<p class="muted small formula">
+  <b>Ապրանքի վրա շահույթ</b> = վաճառք {{ summary.revenue | money }}
+  − ապրանքի ինքնարժեք {{ cost_of_goods | money }}
+  = <b>{{ gross_profit | money }}</b><br>
+  <b>Շահույթ</b> = ապրանքի վրա շահույթ {{ gross_profit | money }}
+  − աշխատավարձ {{ wages | money }}
+  − բոնուս {{ bonuses | money }}
+  − դրամարկղից վերցված {{ withdrawn | money }}
+  − այլ ծախսեր {{ spending | money }}
+  = <b>{{ net_profit | money }}</b><br>
+  Խոտանը այս հաշվարկում չկա՝ փողը դուրս է եկել ապրանքը գնելու պահին, ոչ թե կոտրվելու։
+  {# Why this page and the sum of the reports under it can differ, said out loud
+     rather than left as a discrepancy for the owner to find. #}
+  «Ամբողջ բիզնեսի համար» գրանցված ծախսերը՝ վարձակալություն, գովազդ, այստեղ են հանվում՝
+  մեկ անգամ, և առանձին խանութի հաշվետվության մեջ չեն։
+</p>
 
 {# -- revenue over time -----------------------------------------------------
    Only when there is more than one bar to compare. A single day drawn as a chart
@@ -126,11 +154,11 @@
 <div class="card">
   <div class="status-head">
     <h2>
-      {% if charted %}{% if weekly %}Շաբաթական{% else %}Օրական{% endif %} հասույթ
+      {% if charted %}{% if weekly %}Շաբաթական{% else %}Օրական{% endif %} վաճառք
       {% else %}Օրվա ցուցանիշները{% endif %}
     </h2>
     {% if charted %}
-    <span class="legend"><i class="swatch-revenue"></i> հասույթ
+    <span class="legend"><i class="swatch-revenue"></i> վաճառք
       <i class="swatch-profit"></i> շահույթ</span>
     {% endif %}
   </div>
@@ -203,7 +231,7 @@
     <table class="cards">
       <thead>
         <tr>
-          <th></th><th class="num">Հասույթ</th><th class="num">Բաժինը</th>
+          <th></th><th class="num">Վաճառք</th><th class="num">Բաժինը</th>
           <th class="num">Չեկեր</th><th class="num">Միջին չեկ</th>
           <th class="num">Շահույթ ապրանքի վրա</th>
         </tr>
@@ -216,7 +244,7 @@
         {% for label, revenue, receipts, profit in splits %}
         <tr>
           <td class="cell-name" data-label="">{{ label }}</td>
-          <td class="num" data-label="Հասույթ">{{ revenue | money }}</td>
+          <td class="num" data-label="Վաճառք">{{ revenue | money }}</td>
           <td class="num" data-label="Բաժինը">
             {% if summary.revenue > 0 %}{{ (revenue / summary.revenue * 100) | round(1) }}%
             {% else %}—{% endif %}
@@ -248,7 +276,7 @@
     <table class="cards">
       <thead>
         <tr>
-          <th></th><th class="num">Հասույթ</th><th class="num">Բաժինը</th>
+          <th></th><th class="num">Վաճառք</th><th class="num">Բաժինը</th>
           <th class="num">Չեկեր</th><th class="num">Միջին չեկ</th>
         </tr>
       </thead>
@@ -259,7 +287,7 @@
         ] %}
         <tr>
           <td class="cell-name" data-label="">{{ label }}</td>
-          <td class="num" data-label="Հասույթ">{{ revenue | money }}</td>
+          <td class="num" data-label="Վաճառք">{{ revenue | money }}</td>
           <td class="num" data-label="Բաժինը">
             {% if summary.revenue > 0 %}{{ (revenue / summary.revenue * 100) | round(1) }}%
             {% else %}—{% endif %}
@@ -312,7 +340,7 @@
   <div class="table-wrap">
     <table class="cards">
       <thead>
-        <tr><th>Ապրանք</th><th class="num">Հատ</th><th class="num">Հասույթ</th>
+        <tr><th>Ապրանք</th><th class="num">Հատ</th><th class="num">Վաճառք</th>
             <th class="num">Շահույթ</th><th class="bar-cell"></th></tr>
       </thead>
       <tbody>
@@ -320,7 +348,7 @@
         <tr>
           <td class="cell-name" data-label="Ապրանք">{{ i.name }}</td>
           <td class="num" data-label="Հատ">{{ i.units }}</td>
-          <td class="num" data-label="Հասույթ">{{ i.revenue | money }}</td>
+          <td class="num" data-label="Վաճառք">{{ i.revenue | money }}</td>
           <td class="num {% if i.profit < 0 %}negative{% endif %}"
               data-label="Շահույթ">{{ i.profit | money }}</td>
           <td class="bar-cell" data-label="">
@@ -344,13 +372,13 @@
     <div class="table-wrap">
       <table class="cards">
         <thead><tr><th>Խանութ</th><th class="num">Վաճառք</th>
-                   <th class="num">Հասույթ</th><th class="num">Շահույթ</th></tr></thead>
+                   <th class="num">Վաճառք</th><th class="num">Շահույթ</th></tr></thead>
         <tbody>
           {% for s in by_store %}
           <tr>
             <td class="cell-name" data-label="Խանութ">{{ s.name }}</td>
             <td class="num" data-label="Վաճառք">{{ s.receipts }}</td>
-            <td class="num" data-label="Հասույթ">{{ s.revenue | money }}</td>
+            <td class="num" data-label="Վաճառք">{{ s.revenue | money }}</td>
             <td class="num" data-label="Շահույթ">{{ s.profit | money }}</td>
           </tr>
           {% endfor %}
@@ -367,13 +395,13 @@
     <div class="table-wrap">
       <table class="cards">
         <thead><tr><th>Աշխատող</th><th class="num">Վաճառք</th>
-                   <th class="num">Հասույթ</th><th class="num">Շահույթ</th></tr></thead>
+                   <th class="num">Վաճառք</th><th class="num">Շահույթ</th></tr></thead>
         <tbody>
           {% for w in by_worker %}
           <tr>
             <td class="cell-name" data-label="Աշխատող">{{ w.worker_name }}</td>
             <td class="num" data-label="Վաճառք">{{ w.receipts }}</td>
-            <td class="num" data-label="Հասույթ">{{ w.revenue | money }}</td>
+            <td class="num" data-label="Վաճառք">{{ w.revenue | money }}</td>
             <td class="num" data-label="Շահույթ">{{ w.profit | money }}</td>
           </tr>
           {% endfor %}
@@ -407,8 +435,11 @@
         </tbody>
       </table>
     </div>
+    {# This table is only the typed expenses, which is a third of what «Ծախսեր» is.
+       Saying which third stops it from reading as the whole. #}
     <p class="muted small">
-      Աշխատավարձը հաշվվում է առանձին՝ ըստ փակված հերթափոխերի։
+      Այստեղ միայն ձեռքով գրանցված ծախսերն են։ Աշխատավարձը, բոնուսը և դրամարկղից
+      վերցվածը հաշվվում են առանձին՝ <a href="#spending">ներքևի ցանկում</a>։
       <a href="/expenses">Ծախսերի էջ</a>
     </p>
     {% else %}
@@ -453,7 +484,7 @@
     {% include "_donut.html" %}
   {% endif %}
 
-  {% if spending_rows or salaries %}
+  {% if spending_rows or paid_out %}
   <div class="table-wrap">
     <table class="cards">
       <thead>
@@ -471,21 +502,31 @@
           <td class="num negative" data-label="Գումար">{{ e.amount | money }}</td>
         </tr>
         {% endfor %}
-        {% if salaries %}
+        {# The three that are computed rather than typed, each named as one line: they
+           have no rows of their own here, and leaving them out is what made this
+           table's total disagree with the tile that links to it. Every one of them is
+           a row apiece in «Բոլոր վճարումները» directly below. #}
+        {% for label, whence, amount in [
+          ('Աշխատավարձ', 'Փակված հերթափոխեր', wages),
+          ('Բոնուս', 'Փակված հերթափոխեր', bonuses),
+          ('Դրամարկղից վերցված', 'Դրամարկղի շարժ', withdrawn),
+        ] %}
+        {% if amount %}
         <tr>
           <td class="nowrap muted" data-label="Ամսաթիվ">—</td>
-          <td class="cell-name" data-label="Ինչի համար">Աշխատավարձ</td>
-          <td data-label="Ուղղություն">Փակված հերթափոխեր</td>
+          <td class="cell-name" data-label="Ինչի համար">{{ label }}</td>
+          <td data-label="Ուղղություն">{{ whence }}</td>
           <td data-label="Խանութ">—</td>
           <td data-label="Ձև">Կանխիկ</td>
-          <td class="num negative" data-label="Գումար">{{ salaries | money }}</td>
+          <td class="num negative" data-label="Գումար">{{ amount | money }}</td>
         </tr>
         {% endif %}
+        {% endfor %}
       </tbody>
       <tfoot>
         <tr>
           <th colspan="5">Ընդամենը</th>
-          <th class="num negative">{{ (salaries + spending) | money }}</th>
+          <th class="num negative">{{ paid_out | money }}</th>
         </tr>
       </tfoot>
     </table>

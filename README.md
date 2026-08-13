@@ -321,6 +321,31 @@ filter to something that happened to contain it. A range asked for by date calls
 `custom` and is listed in the period selector while you are looking at it, because
 leaving nothing selected showed «Այսօր» over a page about the 8th.
 
+**The page says what the reports say.** It used to have a vocabulary of its own —
+«Հասույթ» for what every report calls «Վաճառք», «Համախառն շահույթ» and «Զուտ շահույթ»
+where a report has one «Շահույթ», the cash/card split abbreviated into a single tile —
+and none of its figures could be traced to the sessions it was summing. Now the tiles are
+**Վաճառք · Կանխիկ վաճառք · Քարտով վաճառք · Առաքում · Մեծածախ · Ապրանքի վրա շահույթ ·
+Ծախսեր · Շահույթ**, named and computed exactly as a report names and computes them, and
+the two subtractions are written out under the tiles with the period's own numbers:
+
+```
+Ապրանքի վրա շահույթ = վաճառք − ապրանքի ինքնարժեք
+Շահույթ = ապրանքի վրա շահույթ − աշխատավարձ − բոնուս − դրամարկղից վերցված − այլ ծախսեր
+```
+
+That second line is `statistics.session_profit` over a period instead of a session. The
+figure it subtracts comes from `spending.totals_between` — the same query behind
+«Բոլոր վճարումները» on this page and behind the whole of `/expenses` — rather than from
+a wage query and an expense query added together, which is how **money taken out of a
+drawer went missing from this page entirely**: a month with 62,000 of withdrawals in it
+reported a profit 62,000 too high and disagreed with every report that made it up.
+
+One difference between this page and the sum of its reports is real and is stated on the
+page: an expense filed as «Ամբողջ բիզնեսի համար» — rent, advertising — is subtracted
+here, once, and belongs to no single shop's report. Breakage is in neither: the money
+left when the goods were bought.
+
 Beyond the headline figures, the page answers:
 
 * **when** the shop sells — takings by hour of the trading day, over the whole period.
@@ -334,9 +359,6 @@ Beyond the headline figures, the page answers:
   too: running deliveries costs something, and the only way to see whether it pays is to
   read what it earns beside what the counter earns. A shop can turn over more on
   delivery and make less;
-* **money given away at the counter** — sales at neither list price. Its own figure
-  rather than folded into retail, because the only way to notice a habit of it is to see
-  the total;
 * the best and worst *trading* day of the period, both linked. The worst is the worst day
   the shop traded, not the worst bar: a range with a closed Sunday in it would otherwise
   always answer "nothing, on the day you were shut". Days that sold nothing are counted

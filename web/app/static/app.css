@@ -716,6 +716,17 @@ a.card.stat { color: inherit; }
 a.card.stat:hover { border-color: var(--accent); text-decoration: none; }
 a.card.stat:hover .total-label { color: var(--text); }
 
+/* The arithmetic behind the two profit tiles, written out with the period's own
+   numbers. Not a card: it belongs to the tiles above it, and a card would make it
+   a section of its own. Tabular figures so the two lines' amounts line up as
+   something to check rather than to read. */
+.formula {
+  margin: 10px 2px 0;
+  line-height: 1.9;
+  font-variant-numeric: tabular-nums;
+}
+.formula b { color: var(--text); font-weight: 600; }
+
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
 
 .filter-row { align-items: flex-end; margin: 0; }

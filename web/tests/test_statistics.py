@@ -12,6 +12,7 @@ from decimal import Decimal
 
 from app.config import settings
 from app.db import db
+from app.repo import sessions as sessions_repo
 from app.repo import stats as stats_repo
 from app.services import corrections, statistics
 from app.services import shifts as shifts_service
@@ -146,9 +147,130 @@ async def test_net_profit_subtracts_wages_and_expenses(client):
     data = await statistics.overview(owner_id, since, until)
 
     assert data["gross_profit"] == Decimal("8000.00")
-    assert data["salaries"] == Decimal("8000.00")
+    assert data["wages"] == Decimal("8000.00")
     assert data["spending"] == Decimal("100000.00")
     assert data["net_profit"] == Decimal("-100000.00")
+
+
+async def test_every_way_money_leaves_is_in_the_spending_figure(client):
+    """Everything except breakage — a wage, a bonus, anything taken out of a drawer,
+    anything typed on /expenses — no matter who entered it or through which page."""
+    from app.services import write_offs as write_offs_service
+
+    owner_id = await make_owner("@ownerhandle")
+    store_id = await make_store(owner_id, "Խանութ 1", lat=YEREVAN_LAT, lng=YEREVAN_LNG)
+    item_id = await make_item(
+        owner_id, store_id, "HQD Cuvie", count=50,
+        self_price="1500.00", sell_price="3500.00",
+    )
+    worker_id = await _sold(
+        owner_id, store_id,
+        [{"item_id": item_id, "quantity": 10, "unit_price": "3500.00",
+          "payment_method": "cash"}],
+    )
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    shift_id = await db.fetchval("SELECT id FROM work_sessions WHERE worker_id = $1", worker_id)
+    await corrections.set_bonus(owner_id, owner_id, shift_id, Decimal("1000.00"))
+    await corrections.add_movement(
+        owner_id, owner_id, session_id, "withdrawal", "cash",
+        Decimal("2000.00"), "տաքսի",
+    )
+    await db.execute(
+        """
+        INSERT INTO expenses (owner_id, purpose, amount, spent_on, method)
+        VALUES ($1, 'գովազդ', 5000, $2, 'bank')
+        """,
+        owner_id, settings.local_day(),
+    )
+    # Not spending, and the point of the test: the money left when the vape was
+    # bought, not when it fell off the shelf.
+    worker = shifts_service.Worker(
+        id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("8000.00")
+    )
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "open-2", 900)
+    await write_offs_service.record(worker, item_id, 2, "ընկավ", "idem-defect-1")
+
+    since, until = _range()
+    data = await statistics.overview(owner_id, since, until)
+
+    assert data["paid_out"] == Decimal("16000.00"), "8,000 + 1,000 + 2,000 + 5,000"
+    assert data["breakage"] == Decimal("3000.00"), "two at cost, and counted nowhere else"
+
+
+async def test_the_page_writes_the_subtraction_out(client):
+    """A figure an owner cannot check is a figure they have to believe."""
+    owner_id, _, _ = await _a_days_trading()
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    await corrections.add_movement(
+        owner_id, owner_id, session_id, "withdrawal", "cash",
+        Decimal("2000.00"), "տաքսի",
+    )
+    await login(client, "@ownerhandle")
+
+    page = (await client.get("/statistics?period=1")).text
+    shown = page[page.index('class="muted small formula"'):]
+    shown = shown[:shown.index("</p>")]
+
+    # 14,000 sold, 6,000 of stock; 8,000 margin less an 8,000 wage and 2,000 taken out.
+    assert "վաճառք 14,000.00" in shown
+    assert "ապրանքի ինքնարժեք 6,000.00" in shown
+    assert "աշխատավարձ 8,000.00" in shown
+    assert "դրամարկղից վերցված 2,000.00" in shown
+    assert "-2,000.00" in shown
+
+
+async def test_money_taken_out_of_the_drawer_is_spending_here_too(client):
+    """It always was on a report and on /expenses. Leaving it out here made this page
+    claim a profit the reports under it did not."""
+    owner_id, store_id, _ = await _a_days_trading()
+    since, until = _range()
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    await corrections.add_movement(
+        owner_id, owner_id, session_id, "withdrawal", "cash",
+        Decimal("2000.00"), "տաքսի",
+    )
+
+    data = await statistics.overview(owner_id, since, until)
+
+    assert data["withdrawn"] == Decimal("2000.00")
+    # 8,000 margin − 8,000 wage − 2,000 taken out.
+    assert data["paid_out"] == Decimal("10000.00")
+    assert data["net_profit"] == Decimal("-2000.00")
+
+
+async def test_the_page_and_the_reports_it_sums_agree_about_profit(client):
+    """One session, one period containing it: two pages, one number."""
+    owner_id, store_id, _ = await _a_days_trading()
+    since, until = _range()
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    await corrections.add_movement(
+        owner_id, owner_id, session_id, "withdrawal", "cash",
+        Decimal("2000.00"), "տաքսի",
+    )
+
+    data = await statistics.overview(owner_id, since, until)
+    rows = await sessions_repo.recent_store_sessions(owner_id, TZ)
+    of_the_session = statistics.session_profit(
+        rows[0]["margin"], rows[0]["salaries"], rows[0]["bonuses"],
+        rows[0]["withdrawn"], rows[0]["day_spending"],
+    )
+
+    assert of_the_session == data["net_profit"]
+
+
+async def test_the_arithmetic_shown_is_the_arithmetic_done(client):
+    """The page writes the subtraction out. Both sides of it have to hold."""
+    owner_id, _, _ = await _a_days_trading()
+    since, until = _range()
+
+    data = await statistics.overview(owner_id, since, until)
+
+    assert data["summary"]["revenue"] - data["cost_of_goods"] == data["gross_profit"]
+    assert (
+        data["wages"] + data["bonuses"] + data["withdrawn"] + data["spending"]
+        == data["paid_out"]
+    )
+    assert data["gross_profit"] - data["paid_out"] == data["net_profit"]
 
 
 async def test_a_store_filter_narrows_the_sales_but_not_the_comparison(client):
@@ -256,8 +378,10 @@ async def test_the_page_shows_the_headline_figures(client):
     page = await client.get("/statistics")
 
     assert page.status_code == 200
-    assert "Զուտ շահույթ" in page.text
-    assert "14,000.00" in page.text, "revenue"
+    # The same words the reports use, so the two pages read as one business.
+    assert "Ապրանքի վրա շահույթ" in page.text
+    assert "Զուտ շահույթ" not in page.text and "Համախառն" not in page.text
+    assert "14,000.00" in page.text, "the sales"
     assert "HQD Cuvie" in page.text, "the best seller"
     assert "bar bar-revenue" in page.text, "the chart drew"
 
@@ -432,35 +556,18 @@ async def test_the_hourly_chart_is_hidden_when_nothing_sold(client):
 
 async def test_the_payment_split_is_on_the_page(client):
     """Card takings are already in the bank and cash is not, so how much of a period was
-    cash is the difference between what the owner collects and what is simply there."""
+    cash is the difference between what the owner collects and what is simply there.
+
+    A tile each, named as the report names them — «Կանխիկ · Քարտ» in one tile carried
+    two abbreviated figures and matched nothing on any other page."""
     await _a_days_trading()
     await login(client, "@ownerhandle")
 
     page = await client.get("/statistics?period=7")
 
-    assert "Կանխիկ · Քարտ" in page.text
-
-
-async def test_money_given_away_at_the_counter_has_its_own_figure(client):
-    """A haggle is not a retail sale, and the only way to notice a habit of it is to see
-    the total."""
-    owner_id = await make_owner("@ownerhandle")
-    store_id = await make_store(owner_id, "Խանութ 1", lat=YEREVAN_LAT, lng=YEREVAN_LNG)
-    item_id = await make_item(
-        owner_id, store_id, "HQD Cuvie", count=50,
-        self_price="1500.00", sell_price="3500.00",
-    )
-    await _sold(
-        owner_id, store_id,
-        [{"item_id": item_id, "quantity": 1, "unit_price": "3000.00",
-          "price_kind": "custom", "payment_method": "cash"}],
-    )
-    await login(client, "@ownerhandle")
-
-    page = await client.get("/statistics?period=7")
-
-    assert "Փոփոխված գնով" in page.text
-    assert "3,000.00" in page.text
+    assert "Կանխիկ վաճառք" in page.text
+    assert "Քարտով վաճառք" in page.text
+    assert "Կանխիկ · Քարտ" not in page.text
 
 
 async def test_breakage_can_be_broken_back_down(client):
