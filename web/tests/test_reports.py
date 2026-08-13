@@ -200,6 +200,23 @@ async def test_the_detail_view_shows_shifts_receipts_and_the_ledger(client):
     assert "8,000.00" in response.text
 
 
+async def test_taking_money_out_of_the_till_is_not_hidden_behind_a_triangle(client):
+    """It was collapsed at the foot of the ledger and got reported as missing — the
+    owner could find no way to take cash out of the drawer, and this was it. Same
+    lesson as «Ավելացնել մոռացված վաճառք», which was opened for the same reason."""
+    _, _, worker, _ = await _a_completed_shift()
+    await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    form = re.search(r'<details[^>]*id="add-movement"[^>]*>', page.text)
+    assert form and "open" in form.group(0), "the form is folded away again"
+    assert "Հանել դրամարկղից" in page.text
+    assert 'href="#add-movement"' in page.text, "and it is pointed at from the till figures"
+
+
 async def test_a_voided_receipt_stays_visible_with_who_voided_it(client):
     """A worker undoing their own slip must not be able to hide it."""
     _, _, worker, _ = await _a_completed_shift()

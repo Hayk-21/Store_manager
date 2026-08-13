@@ -14,6 +14,7 @@ import pytest
 
 from app.db import db
 from app.errors import BotError
+from app.repo import audit as audit_repo
 from app.repo import money as money_repo
 from app.services import shifts as shifts_service
 from app.services import write_offs as write_offs_service
@@ -229,3 +230,141 @@ async def test_the_till_is_untouched_by_breakage(client):
     totals = await money_repo.totals_for_session(session_id)
     assert totals["cash"] == Decimal("0")
     assert totals["card"] == Decimal("0")
+
+
+# -- the owner writing one off themselves -------------------------------------
+
+async def _csrf() -> str:
+    return await db.fetchval(
+        "SELECT csrf_token FROM auth_sessions ORDER BY created_at DESC LIMIT 1"
+    )
+
+
+async def _a_shut_shop(count=20, self_price="1500.00"):
+    """An evening that is over: the shift closed out and the store with it, which is
+    when the owner finds the broken box and has nobody to attribute it to."""
+    owner_id, _, item_id, worker, _ = await _on_shift(count=count, self_price=self_price)
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", close_store_too=True)
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    return owner_id, item_id, session_id
+
+
+async def _write_off_from_the_report(client, session_id, item_id, quantity, reason=""):
+    return await client.post(
+        f"/store-sessions/{session_id}/write-offs",
+        data={"csrf_token": await _csrf(), "item_id": str(item_id),
+              "quantity": str(quantity), "reason": reason},
+    )
+
+
+async def test_the_owner_can_write_off_stock_with_nobody_on_shift(client):
+    """The bot path needs a worker standing in an open shift, so a box found broken
+    after the shop had shut could not be recorded at all."""
+    _, item_id, session_id = await _a_shut_shop(count=20)
+    await login(client, "@ownerhandle")
+
+    response = await _write_off_from_the_report(client, session_id, item_id, 3, "կոտրված")
+
+    assert response.status_code == 303
+    assert await db.fetchval("SELECT count FROM items WHERE id = $1", item_id) == 17
+    row = await db.fetchrow("SELECT worker_id, store_session_id, reason FROM write_offs")
+    assert row["worker_id"] is None, "nobody was on duty to attribute it to"
+    assert row["store_session_id"] == session_id
+    assert row["reason"] == "կոտրված"
+
+
+async def test_the_owners_write_off_costs_what_the_shop_paid(client):
+    """The same rule as the cashier's: what we paid, not what we would have sold it
+    for — that profit was never made."""
+    _, item_id, session_id = await _a_shut_shop(self_price="1500.00")
+    await login(client, "@ownerhandle")
+
+    await _write_off_from_the_report(client, session_id, item_id, 3)
+
+    assert await db.fetchval("SELECT total_cost FROM write_offs") == Decimal("4500.00")
+
+
+async def test_the_owner_cannot_write_off_more_than_the_shelf_holds(client):
+    """Stock going negative is a lie about the shelf, and nothing on the page would
+    show which count it was."""
+    _, item_id, session_id = await _a_shut_shop(count=4)
+    await login(client, "@ownerhandle")
+
+    response = await _write_off_from_the_report(client, session_id, item_id, 9)
+
+    assert response.status_code == 422
+    assert await db.fetchval("SELECT count FROM items WHERE id = $1", item_id) == 4
+    assert await db.fetchval("SELECT count(*) FROM write_offs") == 0
+
+
+async def test_the_owners_write_off_moves_no_money(client):
+    """Breakage is stock lost, not money paid: the money left when it was bought."""
+    _, item_id, session_id = await _a_shut_shop()
+    await login(client, "@ownerhandle")
+    before = await money_repo.totals_for_session(session_id)
+
+    await _write_off_from_the_report(client, session_id, item_id, 3)
+
+    after = await money_repo.totals_for_session(session_id)
+    assert after["cash"] == before["cash"]
+    assert after["card"] == before["card"]
+
+
+async def test_the_owners_write_off_can_be_undone_from_the_history(client):
+    """Every owner correction is reversible, and reversing this one means the vape
+    did not break after all — so it goes back on the shelf."""
+    owner_id, item_id, session_id = await _a_shut_shop(count=20)
+    await login(client, "@ownerhandle")
+    await _write_off_from_the_report(client, session_id, item_id, 3, "կոտրված")
+    event = await audit_repo.newest_pending(owner_id)
+
+    response = await client.post(
+        f"/history/{event['id']}/revert", data={"csrf_token": await _csrf()}
+    )
+
+    assert response.status_code == 303
+    assert await db.fetchval("SELECT count(*) FROM write_offs") == 0
+    assert await db.fetchval("SELECT count FROM items WHERE id = $1", item_id) == 20
+
+
+async def test_undoing_a_write_off_that_was_already_deleted_invents_no_stock(client):
+    """Deleting one from the report restores the count and leaves no event behind it,
+    so an undo of the entry afterwards must not put the same goods back twice."""
+    owner_id, item_id, session_id = await _a_shut_shop(count=20)
+    await login(client, "@ownerhandle")
+    await _write_off_from_the_report(client, session_id, item_id, 3, "կոտրված")
+    event = await audit_repo.newest_pending(owner_id)
+    write_off_id = await db.fetchval("SELECT id FROM write_offs")
+    await client.post(
+        f"/write-offs/{write_off_id}/delete", data={"csrf_token": await _csrf()}
+    )
+
+    await client.post(
+        f"/history/{event['id']}/revert", data={"csrf_token": await _csrf()}
+    )
+
+    assert await db.fetchval("SELECT count FROM items WHERE id = $1", item_id) == 20
+
+
+async def test_the_report_offers_the_form_on_an_evening_when_nothing_broke(client):
+    """The section only appeared once something had been written off, which is the
+    one evening the owner does not need it: they are here to record the first one."""
+    _, _, session_id = await _a_shut_shop()
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "Գրանցել խոտան" in page.text
+    assert "Այս հերթափոխին խոտան չի գրանցվել" in page.text
+
+
+async def test_another_owner_cannot_write_off_against_a_session_that_is_not_theirs(client):
+    """A session belonging to somebody else reads as missing, like every other row."""
+    _, item_id, session_id = await _a_shut_shop(count=20)
+    await make_owner("@ownerother")
+    await login(client, "@ownerother")
+
+    response = await _write_off_from_the_report(client, session_id, item_id, 2)
+
+    assert response.status_code == 404
+    assert await db.fetchval("SELECT count FROM items WHERE id = $1", item_id) == 20

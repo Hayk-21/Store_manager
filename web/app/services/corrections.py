@@ -53,6 +53,7 @@ ACTION_LABELS = {
     "set_bonus": "Բոնուսի փոփոխում",
     "delete_till_count": "Դրամարկղի հաշվարկի ջնջում",
     "set_movement_amount": "Գրառման գումարի փոփոխում",
+    "add_write_off": "Գրանցված խոտան",
 }
 
 
@@ -71,7 +72,7 @@ async def _owned_sale(conn, owner_id: int, sale_id: int):
     row = await conn.fetchrow(
         """
         SELECT id, store_id, worker_id, work_session_id, store_session_id,
-               payment_method, total, voided_at, superseded_by_sale_id
+               payment_method, total, voided_at, superseded_by_sale_id, is_delivery
           FROM sales WHERE id = $1 AND owner_id = $2 FOR UPDATE
         """,
         sale_id, owner_id,
@@ -212,7 +213,7 @@ async def delete_sale(owner_id: int, user_id: int, sale_id: int) -> None:
             """
             SELECT id, store_id, worker_id, work_session_id, store_session_id,
                    payment_method, total, external_id, sold_at, voided_at,
-                   voided_by_worker_id, void_reason, superseded_by_sale_id
+                   voided_by_worker_id, void_reason, superseded_by_sale_id, is_delivery
               FROM sales WHERE id = $1 AND owner_id = $2 FOR UPDATE
             """,
             sale_id, owner_id,
@@ -257,6 +258,7 @@ async def delete_sale(owner_id: int, user_id: int, sale_id: int) -> None:
                     "payment_method": sale["payment_method"],
                     "total": str(sale["total"]),
                     "external_id": sale["external_id"],
+                    "is_delivery": sale["is_delivery"],
                     "was_voided": sale["voided_at"] is not None,
                     "voided_by_worker_id": sale["voided_by_worker_id"],
                     "void_reason": sale["void_reason"],
@@ -340,6 +342,10 @@ async def amend_sale(
             store_session_id=sale["store_session_id"],
             payment_method=payment_method, total=total,
             external_id=f"amend-{sale_id}-{suffix}",
+            # Rides along like the price kind does. Correcting a quantity must not
+            # quietly re-file a delivery as a counter sale — nothing on the form says
+            # anything about the door, so the answer has to come from the original.
+            is_delivery=sale["is_delivery"],
         )
         await sales_repo.insert_lines(conn, owner_id, replacement, applied)
         await money_repo.insert_movement(
@@ -379,11 +385,19 @@ async def add_sale(
     lines: list[dict],
     payment_method: str,
     note: str | None = None,
+    is_delivery: bool = False,
 ) -> int:
     """Record a sale the write-up left out.
 
     Attached to a shift of that session: every sale belongs to somebody, and an
     unattributed one would break the per-worker figures.
+
+    Whether it went out for delivery is asked here for the same reason the bot asks
+    it: it changes no money, and it is the one thing about the sale that cannot be
+    worked out afterwards from anything else in the row. A sale added by hand was
+    always recorded as a counter sale, so the deliveries the cashier forgot to enter
+    — which is most of what gets added here — quietly landed on the wrong side of
+    the counter/delivery split the owner reads to decide whether delivering pays.
     """
     if not lines:
         raise AppError("validation_error", "Ապրանք ընտրված չէ։")
@@ -420,6 +434,7 @@ async def add_sale(
             work_session_id=shift["id"], store_session_id=store_session_id,
             payment_method=payment_method, total=total,
             external_id=f"added-{store_session_id}-{suffix}",
+            is_delivery=is_delivery,
         )
         await sales_repo.insert_lines(conn, owner_id, sale_id, applied)
         await money_repo.insert_movement(
@@ -432,7 +447,8 @@ async def add_sale(
         await _resync_snapshot(conn, store_session_id)
         await audit_repo.record(
             conn, owner_id, user_id, "add_sale",
-            f"Ավելացվեց վաճառք #{sale_id} — {total:,.0f} ֏",
+            f"Ավելացվեց վաճառք #{sale_id} — {total:,.0f} ֏"
+            + (" · առաքում" if is_delivery else ""),
             store_session_id=store_session_id,
             payload={"sale_id": sale_id},
         )
@@ -865,6 +881,10 @@ async def _revert_delete_sale(conn, owner_id: int, payload: dict) -> None:
         payment_method=sale["payment_method"],
         total=Decimal(sale["total"]),
         external_id=sale["external_id"],
+        # Defaulted, because payloads written before deliveries were carried here do
+        # not have the key and an undo must not fail on a receipt it can otherwise
+        # rebuild in full.
+        is_delivery=sale.get("is_delivery", False),
     )
     await sales_repo.insert_lines(
         conn,
@@ -956,6 +976,27 @@ async def _revert_set_bonus(conn, owner_id: int, payload: dict) -> None:
     await _replace_bonus(conn, owner_id, shift, Decimal(payload["previous"]))
 
 
+async def _revert_add_write_off(conn, owner_id: int, payload: dict) -> None:
+    """Take back an owner's breakage entry: the row goes, the goods go back on the shelf.
+
+    Only if the row is still there. Deleting a write-off from the report already
+    restores the count and writes no event of its own, so an undo that assumed the
+    row was still standing would put the same goods back a second time and invent
+    stock the shop does not have. Gone means the entry has already been taken back
+    by other means, and there is nothing left to undo.
+    """
+    row = await conn.fetchrow(
+        "DELETE FROM write_offs WHERE id = $1 AND owner_id = $2 RETURNING item_id, quantity",
+        payload["write_off_id"], owner_id,
+    )
+    if row is None:
+        return
+    await conn.execute(
+        "UPDATE items SET count = count + $2, updated_at = now() WHERE id = $1",
+        row["item_id"], row["quantity"],
+    )
+
+
 async def _revert_delete_till_count(conn, owner_id: int, payload: dict) -> None:
     # Imported here: till imports nothing from this module, but keeping the reverter
     # beside its siblings means the dispatcher below stays the one list of them.
@@ -978,4 +1019,5 @@ _REVERTERS = {
     "set_bonus": _revert_set_bonus,
     "delete_till_count": _revert_delete_till_count,
     "set_movement_amount": _revert_set_movement_amount,
+    "add_write_off": _revert_add_write_off,
 }

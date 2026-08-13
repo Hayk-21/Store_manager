@@ -37,6 +37,7 @@ from app.services import money as money_service
 from app.services import shifts as shifts_service
 from app.services import till as till_service
 from app.services import transfers as transfers_service
+from app.services import write_offs as write_offs_service
 from app.templating import render
 
 log = logging.getLogger("storemanager.pages")
@@ -834,14 +835,21 @@ async def add_sale(
     price_kind: list[str] = Form(default=[]),
     payment_method: str = Form("cash"),
     note: str = Form(""),
+    is_delivery: str = Form(""),
     back: str | None = None,
     user: CurrentUser = Depends(require_csrf),
 ):
+    """A sale the write-up left out — including one that went out of the door.
+
+    Delivery arrives as a string like every other form field, and a page rendered
+    before this box existed simply does not send it, which reads as a counter sale.
+    """
     await corrections.add_sale(
         user.id, user.id, store_session_id,
         forms.whole(worker_id, "Աշխատող", minimum=1),
         _basket(item_id, quantity, unit_price, price_kind), payment_method,
         forms.text(note, "Նշում", max_length=300, required=False),
+        is_delivery=is_delivery in {"1", "on", "true"},
     )
     return _back_to_report(store_session_id, back)
 
@@ -863,6 +871,30 @@ async def add_movement(
         forms.text(purpose, "Նպատակ", max_length=300),
     )
     return _back_to_report(store_session_id)
+
+
+@router.post("/store-sessions/{store_session_id}/write-offs")
+async def add_write_off(
+    store_session_id: int,
+    item_id: str = Form(""),
+    quantity: str = Form(""),
+    reason: str = Form(""),
+    back: str | None = None,
+    user: CurrentUser = Depends(require_csrf),
+):
+    """Stock the owner writes off themselves.
+
+    The bot's write-off needs a worker on an open shift, so a box found broken after
+    the shop had shut could not be recorded at all — and the owner's only button here
+    was the one that deletes a write-off somebody else had made.
+    """
+    await write_offs_service.record_by_owner(
+        user.id, user.id, store_session_id,
+        forms.whole(item_id, "Ապրանք", minimum=1),
+        forms.whole(quantity, "Քանակ", minimum=1),
+        forms.text(reason, "Պատճառ", max_length=300, required=False),
+    )
+    return _back_to_report(store_session_id, back)
 
 
 @router.post("/movements/{movement_id}")

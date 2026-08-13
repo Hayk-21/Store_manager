@@ -246,6 +246,11 @@
       հաշվարկից հետո վաճառք է ուղղվել կամ ավելացվել։ Ուղղեք այն ներքևում, եթե
       «Ղեկավարին» գումարը պետք է փոխվի։
     {% endif %}
+    {# Said where the drawer figures are, because that is where the question is asked.
+       The form itself is at the foot of the ledger, which is far enough down the page
+       that the owner reported taking money out as something the site could not do. #}
+    <br><a href="#add-movement">Հանել դրամարկղից</a>՝ գումարը կհանվի այս հերթափոխի
+    դրամարկղից և կերևա ստորև՝ «Դրամարկղի շարժ» բաժնում։
   </p>
 
   <h3>Հերթափոխեր</h3>
@@ -493,6 +498,18 @@
             <option value="card">Քարտ</option>
           </select>
         </div>
+        {# Beside the payment method rather than folded into it: a delivery can be paid
+           in cash at the door or by card in advance, and a fifth «Ձև» option would make
+           «որքան ենք վերցրել կանխիկ» unanswerable. Asked here because a forgotten sale
+           is most often a delivery — the cashier was on the phone, not at the till —
+           and whether it went out of the door is not recoverable from the row later. #}
+        <div class="narrow">
+          <label for="as-delivery">Առաքում</label>
+          <select id="as-delivery" name="is_delivery">
+            <option value="">Ոչ</option>
+            <option value="1">Այո՝ 🚚</option>
+          </select>
+        </div>
         <div class="actions"><button type="submit" class="secondary">Ավելացնել</button></div>
       </div>
       <p class="muted small">
@@ -502,10 +519,10 @@
     </form>
   </details>
 
-  {% if d.write_offs %}
   {# Stock that left without a sale. Kept apart from the receipts on purpose:
      nothing was earned, so it belongs nowhere near the revenue figures. #}
   <h3>Խոտան</h3>
+  {% if d.write_offs %}
   <div class="table-wrap">
     <table class="cards">
       <thead>
@@ -540,7 +557,49 @@
     Կորուստը հաշվվում է ինքնարժեքով՝ այն, ինչ վճարել ենք ապրանքի համար։
     Դրամարկղին չի ազդում՝ փողը դուրս է եկել գնելու պահին։
   </p>
+  {% else %}
+  <p class="muted">Այս հերթափոխին խոտան չի գրանցվել։</p>
   {% endif %}
+
+  {# The section used to appear only when a cashier had written something off, and
+     writing something off needed a cashier standing in an open shift — so a box found
+     broken after the shop had shut could be recorded nowhere, and the owner's only
+     button here was the one that deletes somebody else's entry. Open, and shown even
+     on an evening when nothing broke, for the same reason «Ավելացնել մոռացված վաճառք»
+     is: a form behind a triangle beside a heading reads as a form that does not exist. #}
+  <details class="sub-card" open>
+    <summary><h3>Գրանցել խոտան</h3></summary>
+    <form method="post"
+          action="/store-sessions/{{ d.session.id }}/write-offs?back={{ d.here | urlencode }}">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+      <div class="form-row">
+        <div>
+          <label for="wo-item">Ապրանք</label>
+          <select id="wo-item" name="item_id" required>
+            {% for i in d.stock %}
+              <option value="{{ i.id }}">{{ i.name }} ({{ i.count }} հատ)</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="narrow">
+          <label for="wo-qty">Քանակ</label>
+          <input id="wo-qty" name="quantity" inputmode="numeric" value="1" required>
+        </div>
+        <div>
+          <label for="wo-reason">Պատճառ</label>
+          <input id="wo-reason" name="reason" maxlength="300"
+                 placeholder="օր.՝ կոտրված, հոսում է, ժամկետանց">
+        </div>
+        <div class="actions"><button type="submit" class="secondary">Գրանցել</button></div>
+      </div>
+      <p class="muted small">
+        Ապրանքը դուրս է գրվում պահեստից, կորուստը՝ ինքնարժեքով։ Դրամարկղին չի ազդում՝
+        փողը դուրս է եկել գնելու պահին։ Գրառումը երևում է
+        <a href="/history">պատմության</a> մեջ և կարելի է հետ շրջել՝ ապրանքը կվերադառնա
+        պահեստ։
+      </p>
+    </form>
+  </details>
 
   {% if d.till_counts %}
   {# The three figures of a handover, and they are one sum: the till held X, the
@@ -688,8 +747,14 @@
     </table>
   </div>
 
-  <details class="sub-card">
-    <summary><h3>Ավելացնել գրառում</h3></summary>
+  {# Open, and named after the thing owners come here to do. It was collapsed behind
+     «▸ Ավելացնել գրառում» at the foot of the ledger and was reported as missing — the
+     owner could not find any way to take money out of the till, and this was it all
+     along. The same lesson «Ավելացնել մոռացված վաճառք» taught: a triangle beside a
+     heading does not read as "there is a form here", and «գրառում» is not the word
+     somebody with cash to take out of the drawer scans the page for. #}
+  <details class="sub-card" id="add-movement" open>
+    <summary><h3>Հանել դրամարկղից · Ավելացնել գրառում</h3></summary>
     <form method="post" action="/store-sessions/{{ d.session.id }}/movements">
       <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
       <div class="form-row">
