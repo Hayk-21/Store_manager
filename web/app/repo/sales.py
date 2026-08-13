@@ -194,9 +194,35 @@ async def summary_for_work_session(work_session_id: int) -> asyncpg.Record:
     )
 
 
-async def receipts_in_store_session(store_session_id: int) -> list[asyncpg.Record]:
+# How the receipts on a report can be ordered, and the only two orders there are.
+# Looked up rather than interpolated: whatever arrives in the query string can only
+# ever choose one of these strings, never contribute to them.
+#
+# Time is the default because a report is read as an evening. Name is for the other
+# question the table gets asked — "did we sell any Aokit tonight" — which time order
+# answers by making somebody scan forty rows. Lower-cased so «Aokit» and «aokit» land
+# together rather than in two blocks, and each order falls back to time, so equal
+# names keep the reading of the evening inside the group.
+RECEIPT_ORDERS = {
+    "time": "sold_at DESC, id DESC",
+    "name": "lower(lines) ASC NULLS LAST, sold_at DESC, id DESC",
+}
+DEFAULT_RECEIPT_ORDER = "time"
+
+
+async def receipts_in_store_session(
+    store_session_id: int, order: str = DEFAULT_RECEIPT_ORDER
+) -> list[asyncpg.Record]:
+    """Every receipt of one session, newest first or by what was sold.
+
+    The sort is applied outside the query rather than inside it because the thing
+    being sorted by — the line «Vanter 30000 ×2» — is assembled in the select list,
+    and Postgres will not let an expression in ORDER BY reach an output alias.
+    """
+    ordering = RECEIPT_ORDERS.get(order, RECEIPT_ORDERS[DEFAULT_RECEIPT_ORDER])
     return await db.fetch(
         f"""
+        SELECT * FROM (
         SELECT sa.id, sa.total, sa.payment_method, sa.sold_at, sa.voided_at,
                sa.superseded_by_sale_id, sa.is_delivery,
                {DISPLAY_NAME} AS worker_name,
@@ -217,7 +243,8 @@ async def receipts_in_store_session(store_session_id: int) -> list[asyncpg.Recor
                  FROM sale_items si WHERE si.sale_id = sa.id ORDER BY si.id LIMIT 1
           ) one ON true
          WHERE sa.store_session_id = $1
-         ORDER BY sa.sold_at DESC, sa.id DESC
+        ) r
+         ORDER BY {ordering}
         """,
         store_session_id,
     )

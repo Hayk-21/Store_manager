@@ -252,6 +252,21 @@ money, the sale lines for the margin — and from the ledger rather than from th
 snapshot written at closing time, which is the same number once the shop has shut and
 zero all day while it is still open.
 
+### Reading the receipts in either order
+
+`?receipts=time` (the default) or `?receipts=name`. A report is read as an evening, so
+time order is what it opens in; but the other question this table gets asked is "did we
+sell any Aokit tonight", and time order answers that by making somebody read forty rows.
+Names sort case-insensitively — «Aokit» and «aokit» are one thing on a shelf and should
+not be two blocks in a list — and ties fall back to time, so a group keeps the reading
+of the evening inside it.
+
+The value is looked up in a fixed map (`sales.RECEIPT_ORDERS`) rather than interpolated,
+so a query string can only ever choose an order, never contribute to one; anything
+unrecognised reads as the default rather than as a 400. Every correction form on the
+page carries the current URL as `back`, so amending a price while the rows are in
+alphabetical order does not resort them under the owner's hands.
+
 ### What the owner can fix on a report
 
 Everything a cashier can get wrong, from `/reports?store_session_id=…`, because the

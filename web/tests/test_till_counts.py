@@ -1405,7 +1405,9 @@ async def test_a_forgotten_sale_can_be_added_without_hunting_for_the_form(client
 
     page = await client.get(f"/reports?store_session_id={session_id}")
 
-    assert f'action="/store-sessions/{session_id}/sales"' in page.text
+    # The action carries a ?back= of the page it was submitted from, so that adding a
+    # sale returns to the report in whatever order the owner had put it in.
+    assert f'action="/store-sessions/{session_id}/sales?back=' in page.text
     assert 'class="sub-card" open' in page.text, "the form is open, not collapsed"
 
 

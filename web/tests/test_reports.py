@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 
 from app.db import db
@@ -211,6 +212,113 @@ async def test_a_voided_receipt_stays_visible_with_who_voided_it(client):
     assert "չեղարկվել է" in response.text
     assert "voided" in response.text, "the row is struck through, not removed"
     assert "Չեղարկում" in response.text, "the reversing ledger entry is shown too"
+
+
+# -- putting the receipts in an order ----------------------------------------
+
+async def _an_evening_of_three_sales():
+    """Sold newest-first as Zeta, Aokit, Muji — so no order matches another."""
+    owner_id, store_id, worker, _ = await _a_completed_shift()
+    for index, name in enumerate(["Muji 20000", "aokit 50000", "Zeta 10000"]):
+        item_id = await make_item(owner_id, store_id, name, count=10, sell_price="1000.00")
+        await sales_service.record_sale(
+            worker, [{"item_id": item_id, "quantity": 1}], "cash", f"idem-sorted-{index}"
+        )
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    return worker, session_id
+
+
+def _receipts_table(page: str) -> str:
+    """Only the receipt rows. The same item names appear again further down the page —
+    in the «forgotten sale» picker and in the stock table — and reading order off the
+    whole document would be reading those."""
+    start = page.index('id="receipts"')
+    return page[start:page.index("Ավելացնել մոռացված վաճառք", start)]
+
+
+def _order_of(page: str, names: list[str]) -> list[str]:
+    rows = _receipts_table(page)
+    return sorted(names, key=rows.index)
+
+
+async def _csrf() -> str:
+    return await db.fetchval(
+        "SELECT csrf_token FROM auth_sessions ORDER BY created_at DESC LIMIT 1"
+    )
+
+
+async def test_receipts_are_newest_first_by_default(client):
+    _, session_id = await _an_evening_of_three_sales()
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    names = ["Zeta 10000", "aokit 50000", "Muji 20000", "HQD Cuvie"]
+    assert _order_of(page.text, names) == names
+
+
+async def test_receipts_can_be_read_in_dictionary_order(client):
+    _, session_id = await _an_evening_of_three_sales()
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}&receipts=name")
+
+    names = ["aokit 50000", "HQD Cuvie", "Muji 20000", "Zeta 10000"]
+    assert _order_of(page.text, names) == names, "case is not a second alphabet"
+
+
+async def test_the_chosen_order_is_the_one_shown_as_chosen(client):
+    _, session_id = await _an_evening_of_three_sales()
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}&receipts=name")
+
+    assert re.search(r'receipts=name#receipts"\s+class="is-on"', page.text)
+    assert re.search(r'receipts=time#receipts"\s+class=""', page.text)
+
+
+async def test_an_order_nobody_offers_reads_as_the_default(client):
+    """A sort order is not worth a 400, and it must never reach the SQL."""
+    _, session_id = await _an_evening_of_three_sales()
+    await login(client, "@ownerhandle")
+
+    page = await client.get(
+        f"/reports?store_session_id={session_id}&receipts=id;DROP TABLE sales"
+    )
+
+    assert page.status_code == 200
+    names = ["Zeta 10000", "aokit 50000", "Muji 20000"]
+    assert _order_of(page.text, names) == names
+    assert await db.fetchval("SELECT count(*) FROM sales") == 4
+
+
+async def test_a_correction_leaves_the_table_in_the_order_it_was_in(client):
+    """Editing a price with the rows in alphabetical order must not resort them."""
+    _, session_id = await _an_evening_of_three_sales()
+    await login(client, "@ownerhandle")
+    page = await client.get(f"/reports?store_session_id={session_id}&receipts=name")
+    item_id = await db.fetchval("SELECT id FROM items WHERE name = 'Zeta 10000'")
+    sale_id = await db.fetchval(
+        "SELECT sale_id FROM sale_items WHERE item_id = $1", item_id
+    )
+    back = re.search(rf'action="/sales/{sale_id}/amend\?back=([^"]+)"', page.text).group(1)
+
+    saved = await client.post(
+        f"/sales/{sale_id}/amend?back={back}",
+        data={
+            "csrf_token": await _csrf(),
+            "item_id": str(item_id),
+            "quantity": "1",
+            "unit_price": "1200",
+            "price_kind": "retail",
+            "payment_method": "cash",
+        },
+    )
+    landed = await client.get(saved.headers["location"])
+
+    names = ["aokit 50000", "HQD Cuvie", "Muji 20000", "Zeta 10000"]
+    assert _order_of(landed.text, names) == names
+    assert "1,200.00" in landed.text
 
 
 async def test_another_owners_session_is_not_reachable(client):

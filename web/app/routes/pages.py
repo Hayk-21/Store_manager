@@ -621,9 +621,15 @@ async def delete_expense(
 async def reports_page(
     request: Request,
     store_session_id: int | None = None,
+    receipts: str | None = None,
     user: CurrentUser = Depends(current_user),
 ):
-    """One row per time a store was open — the period the money actually uses."""
+    """One row per time a store was open — the period the money actually uses.
+
+    ``receipts`` orders the receipt table: by the hour of the evening, or by what was
+    sold. Anything else reads as the default rather than as an error — a sort order is
+    not worth a 400, and the repo only ever looks the value up in a fixed map.
+    """
     detail = None
     if store_session_id is not None:
         session = await sessions_repo.get_store_session(user.id, store_session_id)
@@ -631,11 +637,20 @@ async def reports_page(
             raise AppError("not_found", "Հերթափոխը չի գտնվել։")
         counts = await till_repo.for_session(store_session_id)
         totals = await money_repo.totals_for_session(store_session_id)
+        order = (
+            receipts if receipts in sales_repo.RECEIPT_ORDERS
+            else sales_repo.DEFAULT_RECEIPT_ORDER
+        )
         detail = {
             "session": session,
             "totals": totals,
             "shifts": await sessions_repo.shifts_in_session(store_session_id),
-            "receipts": await sales_repo.receipts_in_store_session(store_session_id),
+            "receipts": await sales_repo.receipts_in_store_session(store_session_id, order),
+            # Which order the table is in, so the control can show it, and the page to
+            # come back to after a correction — a price typed while the table was in
+            # alphabetical order should not resort it under the owner's hands.
+            "receipts_order": order,
+            "here": f"/reports?store_session_id={store_session_id}&receipts={order}#receipts",
             "ledger": await money_repo.ledger_for_session(store_session_id),
 # Named "stock", not "items": `d.items` in a template resolves to
             # dict.items and silently renders nothing.
@@ -760,17 +775,22 @@ def _basket(
 
 @router.post("/sales/{sale_id}/void")
 async def void_sale(
-    sale_id: int, reason: str = Form(""), user: CurrentUser = Depends(require_csrf)
+    sale_id: int,
+    reason: str = Form(""),
+    back: str | None = None,
+    user: CurrentUser = Depends(require_csrf),
 ):
     await corrections.void_sale(
         user.id, user.id, sale_id, forms.text(reason, "Պատճառ", max_length=300,
                                               required=False)
     )
-    return _back_to_report(await _session_of_sale(user.id, sale_id))
+    return _back_to_report(await _session_of_sale(user.id, sale_id), back)
 
 
 @router.post("/sales/{sale_id}/delete")
-async def delete_sale(sale_id: int, user: CurrentUser = Depends(require_csrf)):
+async def delete_sale(
+    sale_id: int, back: str | None = None, user: CurrentUser = Depends(require_csrf)
+):
     """Remove a receipt from the books, rather than showing it struck through.
 
     Voiding is the honest correction for a returned sale. This is for a row that
@@ -780,7 +800,7 @@ async def delete_sale(sale_id: int, user: CurrentUser = Depends(require_csrf)):
     """
     store_session_id = await _session_of_sale(user.id, sale_id)
     await corrections.delete_sale(user.id, user.id, sale_id)
-    return _back_to_report(store_session_id)
+    return _back_to_report(store_session_id, back)
 
 
 @router.post("/sales/{sale_id}/amend")
@@ -792,6 +812,7 @@ async def amend_sale(
     price_kind: list[str] = Form(default=[]),
     payment_method: str = Form("cash"),
     reason: str = Form(""),
+    back: str | None = None,
     user: CurrentUser = Depends(require_csrf),
 ):
     store_session_id = await _session_of_sale(user.id, sale_id)
@@ -800,7 +821,7 @@ async def amend_sale(
         payment_method,
         forms.text(reason, "Պատճառ", max_length=300, required=False),
     )
-    return _back_to_report(store_session_id)
+    return _back_to_report(store_session_id, back)
 
 
 @router.post("/store-sessions/{store_session_id}/sales")
@@ -813,6 +834,7 @@ async def add_sale(
     price_kind: list[str] = Form(default=[]),
     payment_method: str = Form("cash"),
     note: str = Form(""),
+    back: str | None = None,
     user: CurrentUser = Depends(require_csrf),
 ):
     await corrections.add_sale(
@@ -821,7 +843,7 @@ async def add_sale(
         _basket(item_id, quantity, unit_price, price_kind), payment_method,
         forms.text(note, "Նշում", max_length=300, required=False),
     )
-    return _back_to_report(store_session_id)
+    return _back_to_report(store_session_id, back)
 
 
 @router.post("/store-sessions/{store_session_id}/movements")
@@ -1203,9 +1225,15 @@ def _back_to(where: str | None, fallback: str):
     return RedirectResponse(fallback, status_code=303)
 
 
-def _back_to_report(store_session_id: int | None):
+def _back_to_report(store_session_id: int | None, back: str | None = None):
+    """The report the correction was made on — the exact page, when it said which.
+
+    A form that carries ``back`` is one made on a table the owner had put in some
+    order, and dropping it would resort the rows under their hands between one
+    correction and the next.
+    """
     target = f"/reports?store_session_id={store_session_id}" if store_session_id else "/reports"
-    return RedirectResponse(target, status_code=303)
+    return _back_to(back, target)
 
 
 @router.post("/stores/{store_id}/till-balance")

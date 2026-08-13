@@ -346,6 +346,29 @@ footer {
 .status-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .status-head h2 { margin: 0; }
 h3 { font-size: 14px; color: var(--muted); margin: 18px 0 8px; font-weight: 600; }
+/* An h3 inside a status-head keeps its own vertical rhythm above and loses the gap
+   below, because the table it names follows immediately. */
+.status-head h3 { margin-bottom: 0; }
+
+/* -- putting a table in an order ------------------------------------------- */
+
+/* Which order the rows are in has to be visible without reading them: the chosen
+   link is filled, the other is not. Pushed to the right so the heading keeps its
+   place whichever of the two is longer. */
+.sort-links { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.sort-links a {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: var(--muted);
+  border: 1px solid transparent;
+}
+.sort-links a:hover { background: var(--panel-2); text-decoration: none; }
+.sort-links a.is-on {
+  background: var(--panel-2);
+  border-color: var(--line);
+  color: var(--text);
+}
 
 .totals { display: flex; gap: 28px; flex-wrap: wrap; }
 .total { display: flex; flex-direction: column; }

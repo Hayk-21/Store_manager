@@ -320,7 +320,25 @@
     {% endif %}
   {% endfor %}
 
-  <h3>Չեկեր</h3>
+  {# Two questions get asked of this table. «What happened this evening» is time
+     order, which is the default because a report is read as an evening. «Did we sell
+     any Aokit tonight» is the other one, and time order answers it by making somebody
+     read forty rows — so the same rows, by name, are one click away. Links rather than
+     a dropdown: there are two of them, and a dropdown hides one behind a click. #}
+  <div class="status-head">
+    <h3 id="receipts">Չեկեր</h3>
+    {% if d.receipts %}
+    <span class="sort-links">
+      <span class="muted small">Դասավորել՝</span>
+      <a href="/reports?store_session_id={{ d.session.id }}&receipts=time#receipts"
+         class="{% if d.receipts_order == 'time' %}is-on{% endif %}"
+         {% if d.receipts_order == 'time' %}aria-current="true"{% endif %}>ըստ ժամի</a>
+      <a href="/reports?store_session_id={{ d.session.id }}&receipts=name#receipts"
+         class="{% if d.receipts_order == 'name' %}is-on{% endif %}"
+         {% if d.receipts_order == 'name' %}aria-current="true"{% endif %}>ըստ անվան</a>
+    </span>
+    {% endif %}
+  </div>
   {% if d.receipts %}
   <div class="table-wrap">
     <table class="cards">
@@ -374,7 +392,8 @@
                       title="Պահպանել">✓</button>
             {% endif %}
             {% if not r.voided_at %}
-              <form method="post" action="/sales/{{ r.id }}/void" class="inline"
+              <form method="post" action="/sales/{{ r.id }}/void?back={{ d.here | urlencode }}"
+                    class="inline"
                     onsubmit="return confirm('Չեղարկե՞լ այս վաճառքը։ Ապրանքը կվերադառնա պահեստ, տողը կմնա՝ գծված։');">
                 <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
                 <input type="hidden" name="reason" value="ուղղում ղեկավարի կողմից">
@@ -383,7 +402,8 @@
             {% endif %}
             {# Void keeps the receipt and shows it was taken back; this removes
                it. Both are undoable from the history page. #}
-            <form method="post" action="/sales/{{ r.id }}/delete" class="inline"
+            <form method="post" action="/sales/{{ r.id }}/delete?back={{ d.here | urlencode }}"
+                  class="inline"
                   onsubmit="return confirm('Ջնջե՞լ այս վաճառքն ամբողջությամբ։ Այն կվերանա հաշվետվությունից։');">
               <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
               <button type="submit" class="danger tiny" title="Ջնջել">✕</button>
@@ -406,7 +426,8 @@
      each row's inputs point at theirs by id. #}
   {% for r in d.receipts %}
     {% if not r.voided_at and r.line_count == 1 %}
-    <form id="amend-{{ r.id }}" method="post" action="/sales/{{ r.id }}/amend">
+    <form id="amend-{{ r.id }}" method="post"
+          action="/sales/{{ r.id }}/amend?back={{ d.here | urlencode }}">
       <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
       <input type="hidden" name="item_id" value="{{ r.item_id }}">
       {# The kind rides along unchanged: editing a quantity on a wholesale line
@@ -427,7 +448,8 @@
      cashier forgot. #}
   <details class="sub-card" open>
     <summary><h3>Ավելացնել մոռացված վաճառք</h3></summary>
-    <form method="post" action="/store-sessions/{{ d.session.id }}/sales">
+    <form method="post"
+          action="/store-sessions/{{ d.session.id }}/sales?back={{ d.here | urlencode }}">
       <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
       <div class="form-row">
         <div>
