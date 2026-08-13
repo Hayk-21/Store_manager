@@ -15,6 +15,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from app.config import settings
+from app.db import db
 from app.repo import expenses as expenses_repo
 from app.repo import spending as spending_repo
 from app.repo import stats as stats_repo
@@ -149,24 +150,66 @@ def _bucketed(rows: list) -> tuple[list[dict], bool]:
 async def overview(
     owner_id: int, since: date, until: date, store_id: int | None = None
 ) -> dict:
-    """Everything the statistics page shows, for one period and one filter."""
+    """Everything the statistics page shows, for one period and one filter.
+
+    The thirteen queries behind it are asked **all at once**. Not one of them
+    consumes another's result — they are thirteen independent questions about the
+    same period — but they used to be awaited one after another, and a dict literal
+    evaluates its values in order, so they serialised for no reason at all. Against a
+    database on the other end of a network that is the whole story of the page's
+    speed: nineteen round-trips at a 20 ms round-trip is 380 ms of pure waiting
+    before any work is done, and it is the same 380 ms whether the queries are fast
+    or slow.
+
+    Gathered, the page waits roughly one round-trip instead. Reads only — nothing
+    here is inside a transaction, and gathering statements that were supposed to be
+    atomic would scatter them across connections and quietly break that.
+    """
     tz = settings.tzname
 
-    summary = await stats_repo.summary(owner_id, since, until, tz, store_id)
-    rows = await stats_repo.daily(owner_id, since, until, tz, store_id)
+    (
+        summary, rows, paid, breakage, stores, top_items, by_store, by_worker,
+        by_category, spending_rows, breakage_rows, hours, stock,
+    ) = await db.fan_out(
+        stats_repo.summary(owner_id, since, until, tz, store_id),
+        stats_repo.daily(owner_id, since, until, tz, store_id),
+        # Every way money left the business, from the one place that knows all of
+        # them — the same query behind «Բոլոր վճարումները» further down this page and
+        # behind the whole of /expenses. It used to be assembled here out of two other
+        # queries, and the assembly left out the money taken out of a drawer: a month
+        # with 62,000 of withdrawals in it reported a profit 62,000 too high, and
+        # disagreed with every report that made it up.
+        spending_repo.totals_between(owner_id, since, until, store_id),
+        # Stock lost, at what it cost — and deliberately *not* part of the spending
+        # figure. Nothing left a drawer or an account the day a vape fell off the
+        # shelf: the money left when the goods were bought. Counting it as spending
+        # charged the business twice for the same thousand drams and made a write-off
+        # look like a payment. It keeps its own figure and its own list.
+        write_offs_repo.cost_between(owner_id, since, until, store_id),
+        stores_repo.list_for_owner(owner_id),
+        stats_repo.top_items(owner_id, since, until, tz, store_id),
+        stats_repo.by_store(owner_id, since, until, tz),
+        stats_repo.by_worker(owner_id, since, until, tz, store_id),
+        expenses_repo.by_category_between(owner_id, since, until),
+        # The individual entries behind the «Ծախսեր» figure. A total that cannot be
+        # broken back down into the things it is made of is a number the owner has to
+        # take on trust, and the first question about it is always "on what?".
+        expenses_repo.list_between(owner_id, since, until),
+        # And the breakage, for the same reason. It was the one third of «Ծախսեր»
+        # with no way back to what it was made of.
+        write_offs_repo.list_between(owner_id, since, until, store_id),
+        # When the shop sells, which the daily chart cannot answer and a rota is
+        # built from.
+        stats_repo.by_hour(owner_id, since, until, tz, store_id),
+        stats_repo.stock_value(owner_id, store_id),
+    )
+
     bars, weekly = _bucketed(rows)
     peak = max((bar["revenue"] for bar in bars), default=ZERO)
     for bar in bars:
         bar["revenue_pct"] = _percent(bar["revenue"], peak)
         bar["profit_pct"] = _percent(bar["profit"], peak)
 
-    # Every way money left the business, from the one place that knows all of them —
-    # the same query behind «Բոլոր վճարումները» further down this page and behind the
-    # whole of /expenses. It used to be assembled here out of two other queries, and
-    # the assembly left out the money taken out of a drawer: a month with 62,000 of
-    # withdrawals in it reported a profit 62,000 too high, and disagreed with every
-    # report that made it up.
-    paid = await spending_repo.totals_between(owner_id, since, until, store_id)
     wages = Decimal(paid.get("salary", ZERO))
     bonuses = Decimal(paid.get("bonus", ZERO))
     withdrawn = Decimal(paid.get("withdrawal", ZERO))
@@ -174,12 +217,7 @@ async def overview(
     # narrowed by the store filter — attributing them per shop would be a guess.
     spending = Decimal(paid.get("expense", ZERO))
     paid_out = Decimal(paid["total"])
-    # Stock lost, at what it cost — and deliberately *not* part of the spending figure
-    # below it. Nothing left a drawer or an account the day a vape fell off the shelf:
-    # the money left when the goods were bought. Counting it as spending charged the
-    # business twice for the same thousand drams and made a write-off look like a
-    # payment. It keeps its own figure and its own list, where it says what it is.
-    breakage = Decimal(await write_offs_repo.cost_between(owner_id, since, until, store_id))
+    breakage = Decimal(breakage)
 
     gross = Decimal(summary["profit"])
     days = (until - since).days + 1
@@ -189,29 +227,19 @@ async def overview(
         "until": until,
         "days": days,
         "store_id": store_id,
-        "stores": await stores_repo.list_for_owner(owner_id),
+        "stores": stores,
         "summary": summary,
         "bars": bars,
         "weekly": weekly,
         "peak": peak,
-        "top_items": await stats_repo.top_items(owner_id, since, until, tz, store_id),
-        "by_store": await stats_repo.by_store(owner_id, since, until, tz),
-        "by_worker": await stats_repo.by_worker(owner_id, since, until, tz, store_id),
-        "by_category": await expenses_repo.by_category_between(owner_id, since, until),
-        # The individual entries behind the «Ծախսեր» figure. A total that cannot
-        # be broken back down into the things it is made of is a number the owner
-        # has to take on trust, and the first question about it is always "on
-        # what?". Wages are the other part of that figure and are an aggregate.
-        "spending_rows": await expenses_repo.list_between(owner_id, since, until),
-        # And the breakage, for the same reason. It was the one third of «Ծախսեր»
-        # with no way back to what it was made of.
-        "breakage_rows": await write_offs_repo.list_between(
-            owner_id, since, until, store_id
-        ),
-        # When the shop sells, which the daily chart cannot answer and a rota is
-        # built from.
-        "hours": _shaped(await stats_repo.by_hour(owner_id, since, until, tz, store_id)),
-        "stock": await stats_repo.stock_value(owner_id, store_id),
+        "top_items": top_items,
+        "by_store": by_store,
+        "by_worker": by_worker,
+        "by_category": by_category,
+        "spending_rows": spending_rows,
+        "breakage_rows": breakage_rows,
+        "hours": _shaped(hours),
+        "stock": stock,
         # Named on the hourly chart, because "when does this shop sell" has a different
         # answer in a different timezone and the page should say which one it used.
         "tzname": tz,

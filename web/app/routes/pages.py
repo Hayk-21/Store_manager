@@ -636,31 +636,46 @@ async def reports_page(
         session = await sessions_repo.get_store_session(user.id, store_session_id)
         if session is None:
             raise AppError("not_found", "Հերթափոխը չի գտնվել։")
-        counts = await till_repo.for_session(store_session_id)
-        totals = await money_repo.totals_for_session(store_session_id)
         order = (
             receipts if receipts in sales_repo.RECEIPT_ORDERS
             else sales_repo.DEFAULT_RECEIPT_ORDER
         )
+        # Nine independent questions about one evening, asked together rather than
+        # nine round-trips deep. Only the session had to be fetched first, because it
+        # is the one answer another question needs — the store the shift was in.
+        (
+            counts, totals, shifts, receipt_rows, ledger, stock, history,
+            write_offs, adjustments,
+        ) = await db.fan_out(
+            till_repo.for_session(store_session_id),
+            money_repo.totals_for_session(store_session_id),
+            sessions_repo.shifts_in_session(store_session_id),
+            sales_repo.receipts_in_store_session(store_session_id, order),
+            money_repo.ledger_for_session(store_session_id),
+            # Named "stock", not "items": `d.items` in a template resolves to
+            # dict.items and silently renders nothing.
+            items_repo.list_for_store(user.id, session["store_id"]),
+            audit_repo.for_session(user.id, store_session_id),
+            write_offs_repo.for_session(store_session_id),
+            # Counts a cashier corrected by hand. Shown because a stock number
+            # that can be changed silently is one that can hide a shortfall.
+            adjustments_repo.for_session(store_session_id),
+        )
         detail = {
             "session": session,
             "totals": totals,
-            "shifts": await sessions_repo.shifts_in_session(store_session_id),
-            "receipts": await sales_repo.receipts_in_store_session(store_session_id, order),
+            "shifts": shifts,
+            "receipts": receipt_rows,
             # Which order the table is in, so the control can show it, and the page to
             # come back to after a correction — a price typed while the table was in
             # alphabetical order should not resort it under the owner's hands.
             "receipts_order": order,
             "here": f"/reports?store_session_id={store_session_id}&receipts={order}#receipts",
-            "ledger": await money_repo.ledger_for_session(store_session_id),
-# Named "stock", not "items": `d.items` in a template resolves to
-            # dict.items and silently renders nothing.
-            "stock": await items_repo.list_for_store(user.id, session["store_id"]),
-            "history": await audit_repo.for_session(user.id, store_session_id),
-            "write_offs": await write_offs_repo.for_session(store_session_id),
-            # Counts a cashier corrected by hand. Shown because a stock number
-            # that can be changed silently is one that can hide a shortfall.
-            "adjustments": await adjustments_repo.for_session(store_session_id),
+            "ledger": ledger,
+            "stock": stock,
+            "history": history,
+            "write_offs": write_offs,
+            "adjustments": adjustments,
             # What was actually in the drawer, against what the books expected. The
             # gap is the figure with no other home.
             "till_counts": counts,

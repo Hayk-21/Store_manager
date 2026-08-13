@@ -37,12 +37,26 @@ _RETRYABLE = (
 )
 
 
+# How many of a page's queries may be in flight at once. The pool holds ten, and a
+# single page asking for thirteen connections would leave nothing for the footer
+# poll, for the bot posting a sale, or for the second person looking at the same
+# page — none of them would fail, they would queue, which is the sluggishness this
+# was meant to remove rather than relocate.
+#
+# Five collects nearly all of the win: what costs the page is round-trips, and
+# thirteen sequential ones become three waves. Going wider buys a fraction of one
+# round-trip and spends the pool to do it.
+FAN_OUT = 5
+
+
 class Database:
     """Owns the connection pool for the process."""
 
     def __init__(self) -> None:
         self._pool: asyncpg.Pool | None = None
         self._bound: asyncpg.Connection | None = None
+        # Created by bind(), and only there. See _run.
+        self._one_at_a_time: asyncio.Lock | None = None
 
     @property
     def pool(self) -> asyncpg.Pool:
@@ -85,8 +99,23 @@ class Database:
 
         Pass ``None`` to release. While bound, the pool is not touched at all, so
         a test suite needs no pool and no server.
+
+        The lock comes with the binding. One asyncpg connection cannot carry two
+        statements at once — it raises «another operation is in progress» — and the
+        read paths now gather their independent queries, so that a page waits for
+        one network round-trip rather than nineteen. In production each of those
+        lands on its own pooled connection and they genuinely overlap; here they
+        queue and run one after another, which gives the same answers. Without it
+        the concurrency would work in production and fail only under test, which is
+        the worst way round.
+
+        It is made here rather than in ``__init__`` because a lock belongs to the
+        event loop it is first awaited in, and each test is given a fresh one — a
+        lock built once at import is bound to the first test's loop and raises in
+        every test after it.
         """
         self._bound = conn
+        self._one_at_a_time = asyncio.Lock() if conn is not None else None
 
     @property
     def is_bound(self) -> bool:
@@ -101,7 +130,8 @@ class Database:
             # abort the test's outer transaction and every later query in that
             # test would fail with "current transaction is aborted" — an artefact
             # of the harness, not of the code under test.
-            async with self._bound.transaction():
+            assert self._one_at_a_time is not None  # noqa: S101 - set by bind()
+            async with self._one_at_a_time, self._bound.transaction():
                 return await getattr(self._bound, method)(query, *args)
         try:
             async with self.pool.acquire() as conn:
@@ -142,6 +172,26 @@ class Database:
             return
         async with self.pool.acquire() as conn, conn.transaction():
             yield conn
+
+    async def fan_out(self, *queries: Any, limit: int = FAN_OUT) -> list[Any]:
+        """Run independent reads together, a few at a time, in the order given.
+
+        A page asks a dozen unrelated questions about the same period, and awaiting
+        them one after another means paying the network round-trip a dozen times
+        before any answer arrives. Against Neon that waiting *is* the page's speed.
+
+        **Reads only.** Statements that have to be atomic belong in
+        ``db.transaction()``, which keeps them on a single connection; scattering
+        those across the pool would leave a sale half-applied and look, from the
+        outside, like nothing had gone wrong at all.
+        """
+        guard = asyncio.Semaphore(limit)
+
+        async def one(query: Any) -> Any:
+            async with guard:
+                return await query
+
+        return await asyncio.gather(*(one(query) for query in queries))
 
     async def healthy(self) -> bool:
         try:
