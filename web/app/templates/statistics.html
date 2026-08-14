@@ -237,11 +237,16 @@
         </tr>
       </thead>
       <tbody>
+        {# Each door with its own payment split. A delivery is paid at the door or
+           in advance, so how much of it is already in the bank is a different
+           question from the same one about the counter. #}
         {% set splits = [
-          ('Խանութում', summary.over_counter, summary.counter_receipts, summary.counter_profit),
-          ('Առաքումով', summary.delivered, summary.deliveries, summary.delivered_profit),
+          ('Խանութում', summary.over_counter, summary.counter_receipts,
+           summary.counter_profit, summary.over_counter_cash, summary.over_counter_card),
+          ('Առաքումով', summary.delivered, summary.deliveries,
+           summary.delivered_profit, summary.delivered_cash, summary.delivered_card),
         ] %}
-        {% for label, revenue, receipts, profit in splits %}
+        {% for label, revenue, receipts, profit, cash, card in splits %}
         <tr>
           <td class="cell-name" data-label="">{{ label }}</td>
           <td class="num" data-label="Վաճառք">{{ revenue | money }}</td>
@@ -263,6 +268,8 @@
           <th>Ընդամենը</th>
           <th class="num">{{ summary.revenue | money }}</th>
           <th class="num">100%</th>
+          <th class="num">{{ summary.cash | money }}</th>
+          <th class="num">{{ summary.card | money }}</th>
           <th class="num">{{ summary.receipts }}</th>
           <th class="num">{{ average_receipt | money }}</th>
           <th class="num">{{ gross_profit | money }}</th>

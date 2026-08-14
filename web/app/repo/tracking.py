@@ -87,16 +87,23 @@ async def set_live_window(
 
 
 async def sold_by_worker_since(conn, worker_id: int, since) -> object:
-    """What one worker has sold since a moment, voids excluded.
+    """What one worker has sold over the counter since a moment, voids excluded.
 
     Used to decide a bonus, so it runs on the caller's connection: the sale that
     just tipped them over the target was written in this same transaction and a
     pooled read would not see it.
+
+    **Deliveries are not in it.** A bonus is a reward for selling, and an order that
+    arrived by phone and was entered into the system is money the shop took without
+    anybody selling anything at the counter. Counting them meant a target could be
+    met by a busy delivery evening, which pays for work nobody did — and paid it out
+    of the same till the shift is settled from.
     """
     return await conn.fetchval(
         """
         SELECT coalesce(sum(total), 0) FROM sales
          WHERE worker_id = $1 AND voided_at IS NULL AND sold_at >= $2
+           AND NOT is_delivery
         """,
         worker_id,
         since,

@@ -198,6 +198,27 @@ def _shift_so_far(shift: dict) -> str:
     else:
         parts.append(texts.REVIEW_SOLD_NOTHING)
 
+    # Below the counter sales and never folded into them. The worker entered these
+    # and the stock left because of them, so the write-up has to show them — but
+    # they are the shop's takings rather than this worker's selling, and the
+    # section says so in as many words.
+    delivered = shift.get("delivered") or []
+    if delivered:
+        totals = shift.get("delivery_totals") or {}
+        parts.append(
+            texts.REVIEW_DELIVERED.format(
+                rows=_rows(delivered, lambda row: texts.REVIEW_SOLD_ROW.format(
+                    name=format.esc(row["name"]),
+                    quantity=row["quantity"],
+                    total=format.money(row["total"]),
+                )),
+                receipts=totals.get("receipts", 0),
+                cash=format.money(totals.get("cash", 0)),
+                card=format.money(totals.get("card", 0)),
+                total=format.money(totals.get("total", 0)),
+            )
+        )
+
     if shift.get("written_off"):
         parts.append(
             texts.REVIEW_WRITTEN_OFF.format(

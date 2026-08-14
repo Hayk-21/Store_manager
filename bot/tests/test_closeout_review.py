@@ -303,3 +303,42 @@ async def test_the_recorded_day_is_remembered_for_the_confirmation():
     await _shown(_shift(), context)
 
     assert context.user_data["co_recorded"]["receipts"] == 1
+
+
+# -- an order that arrived by phone ------------------------------------------
+
+def test_a_delivery_is_shown_under_its_own_heading():
+    """The worker entered it and the stock left because of it, so the write-up has
+    to show it — but nobody sold it over the counter, and «Գրանցված վաճառք» is the
+    figure their bonus is measured against."""
+    shift = _shift(
+        delivered=[{"name": "Vanter 30000", "quantity": 4, "total": "20000.00"}],
+        delivery_totals={"receipts": 1, "cash": "0.00", "card": "20000.00",
+                         "total": "20000.00"},
+    )
+
+    body = closeout._shift_so_far(shift)
+
+    assert "Առաքում" in body
+    assert "Vanter 30000" in body
+    assert "20,000" in body
+    assert "չի հաշվվում" in body, "it says the two are not the same thing"
+    # The counter figure is untouched by it.
+    assert "6,552" in body
+
+
+def test_no_delivery_no_heading():
+    """A heading with nothing under it reads as a thing that failed to load."""
+    body = closeout._shift_so_far(_shift())
+
+    assert "Առաքում" not in body
+
+
+def test_an_older_server_that_does_not_send_the_field_still_renders():
+    """The bot and the web service deploy separately, and one can be ahead."""
+    shift = _shift()
+    shift.pop("sold")
+
+    body = closeout._shift_so_far(shift)
+
+    assert texts.REVIEW_SOLD_NOTHING.strip() in body

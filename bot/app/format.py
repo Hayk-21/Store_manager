@@ -6,6 +6,8 @@ import html
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
+from app import texts
+
 CURRENCY = "֏"
 
 
@@ -100,3 +102,18 @@ def sold_summary(sales: dict) -> str:
     total = money(sales["total"])
     cash, card = money(sales["cash_total"]), money(sales["card_total"])
     return f"{total} (կանխիկ {cash} · քարտ {card})"
+
+
+def delivery_line(deliveries: dict | None) -> str:
+    """The delivery line for the status screen, or nothing at all.
+
+    Nothing, on a shift that has taken no orders: «Առաքում՝ 0 պատվեր» on every
+    screen is a line that says only that the feature exists. Older servers do not
+    send the field, and a bot that has been deployed ahead of them should show the
+    same nothing rather than an error.
+    """
+    if not deliveries or not deliveries.get("receipts"):
+        return ""
+    return texts.STATUS_DELIVERIES.format(
+        receipts=deliveries["receipts"], sold=sold_summary(deliveries)
+    )

@@ -100,6 +100,22 @@ async def summary(
                -- split is not recoverable from anything else in the row.
                coalesce(sum(si.line_total) FILTER (WHERE sa.is_delivery), 0) AS delivered,
                count(DISTINCT sa.id) FILTER (WHERE sa.is_delivery)           AS deliveries,
+               -- Each door's own cash and card. A delivery is paid at the door or in
+               -- advance, so "how much of the delivery money is already in the bank"
+               -- is a different question from the same one about the counter, and the
+               -- page could only answer it for the two of them added together.
+               coalesce(sum(si.line_total) FILTER (
+                   WHERE sa.is_delivery AND sa.payment_method = 'cash'), 0)
+                   AS delivered_cash,
+               coalesce(sum(si.line_total) FILTER (
+                   WHERE sa.is_delivery AND sa.payment_method = 'card'), 0)
+                   AS delivered_card,
+               coalesce(sum(si.line_total) FILTER (
+                   WHERE NOT sa.is_delivery AND sa.payment_method = 'cash'), 0)
+                   AS over_counter_cash,
+               coalesce(sum(si.line_total) FILTER (
+                   WHERE NOT sa.is_delivery AND sa.payment_method = 'card'), 0)
+                   AS over_counter_card,
                -- The other side of each split, so the page can show a comparison
                -- rather than one figure and a percentage the reader has to subtract
                -- from a hundred in their head.

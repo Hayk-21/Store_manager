@@ -169,11 +169,19 @@ async def me(
             "store_id": shift["store_id"],
             "store_name": shift["store_name"],
             "started_at": shift["started_at"].isoformat(),
+            # The counter alone. Deliveries are the shop's takings, not this
+            # worker's selling, and they have their own figures beside these.
             "sales": {
                 "receipts": sold["receipts"],
                 "cash_total": f"{sold['cash_total']:.2f}",
                 "card_total": f"{sold['card_total']:.2f}",
                 "total": f"{sold['total']:.2f}",
+            },
+            "deliveries": {
+                "receipts": sold["delivery_receipts"],
+                "cash_total": f"{sold['delivery_cash']:.2f}",
+                "card_total": f"{sold['delivery_card']:.2f}",
+                "total": f"{sold['delivery_total']:.2f}",
             },
             "store_totals": {
                 "cash": f"{totals['cash']:.2f}",
@@ -516,19 +524,37 @@ async def review_this_shift(telegram_id: int = Query(gt=0)) -> dict:
         "ok": True,
         "store_name": shift["store_name"],
         "started_at": shift["started_at"].isoformat(),
+        # What this worker sold at the counter, and — kept apart — what went out by
+        # delivery. A delivery is an order the shop took: somebody entered it, but
+        # nobody sold it across the counter, and running the two together told a
+        # cashier they had sold six of something when they handed over two.
         "sold": [
             {
                 "name": row["name"],
                 "quantity": row["quantity"],
                 "total": f"{Decimal(row['total']):.2f}",
             }
-            for row in lines
+            for row in lines if not row["is_delivery"]
+        ],
+        "delivered": [
+            {
+                "name": row["name"],
+                "quantity": row["quantity"],
+                "total": f"{Decimal(row['total']):.2f}",
+            }
+            for row in lines if row["is_delivery"]
         ],
         "totals": {
             "receipts": totals["receipts"],
             "cash": f"{totals['cash_total']:.2f}",
             "card": f"{totals['card_total']:.2f}",
             "total": f"{totals['total']:.2f}",
+        },
+        "delivery_totals": {
+            "receipts": totals["delivery_receipts"],
+            "cash": f"{totals['delivery_cash']:.2f}",
+            "card": f"{totals['delivery_card']:.2f}",
+            "total": f"{totals['delivery_total']:.2f}",
         },
         "written_off": [
             {"name": row["name"], "quantity": row["quantity"], "reason": row["reason"]}

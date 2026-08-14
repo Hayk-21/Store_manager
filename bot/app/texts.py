@@ -184,6 +184,17 @@ REVIEW_SOLD_ROW = "• {name} ×{quantity} — {total}"
 REVIEW_SOLD_NOTHING = (
     "🧾 <b>Գրանցված վաճառք</b>\nԴեռ ոչինչ գրանցված չէ։\n"
 )
+# Its own section, under its own heading. An order that came by phone is money the
+# shop took, but the worker did not sell it over the counter — adding it to «you
+# sold» credited them with orders they had no hand in, and the same figure decided
+# their bonus. Shown rather than hidden: they entered it, and the stock left because
+# of it, so leaving it out of the write-up would make the shelf look wrong.
+REVIEW_DELIVERED = (
+    "🚚 <b>Առաքում</b>\n{rows}\n"
+    "Պատվեր՝ {receipts} · Կանխիկ՝ {cash} · Քարտ՝ {card}\n"
+    "Ընդամենը՝ <b>{total}</b>\n"
+    "<i>Առաքումը ձեր վաճառքի մեջ չի հաշվվում։</i>\n"
+)
 REVIEW_WRITTEN_OFF = "🗑 <b>Խոտան</b>\n{rows}\n"
 REVIEW_WRITTEN_OFF_ROW = "• {name} ×{quantity} — {reason}"
 REVIEW_STOCK_FIXED = "📦 <b>Պահեստի ուղղումներ</b>\n{rows}\n"
@@ -256,10 +267,15 @@ VOID_DONE = (
 STATUS = (
     "<b>{store}</b>\n"
     "Հերթափոխը՝ {since}-ից ({duration})\n\n"
-    "Ձեր վաճառքը՝ {receipts} չեկ, {sold}\n\n"
+    "Ձեր վաճառքը՝ {receipts} չեկ, {sold}\n"
+    "{deliveries}\n"
     "Դրամարկղում կանխիկ՝ {cash}\n"
     "Քարտով մուտք՝ {card}"
 )
+# Slotted into STATUS, and empty on a shift that has taken none. «Ձեր վաճառքը»
+# above is this worker's own selling, and the figure their bonus is measured
+# against; this is the shop's takings through the other door.
+STATUS_DELIVERIES = "Առաքում՝ {receipts} պատվեր, {sold}\n"
 STATUS_NO_SHIFT = "Դուք հերթափոխի մեջ չեք։ Սեղմեք «{open_button}»։"
 
 SHIFT_ENDED = (
@@ -267,6 +283,13 @@ SHIFT_ENDED = (
     "Տևողությունը՝ {duration}\n"
     "Վաճառք՝ {receipts} չեկ, {sold}\n"
     "Աշխատավարձ՝ {salary}\n"
+)
+# Appended when the shift also handled deliveries. Its own line, under the sales
+# rather than inside them: the shop took that money, the worker did not sell it,
+# and «Վաճառք» above is the figure their bonus is measured against.
+SHIFT_ENDED_DELIVERIES = (
+    "Առաքում՝ {receipts} պատվեր, {sold}\n"
+    "<i>Առաքումը վաճառքի մեջ չի հաշվվում։</i>\n"
 )
 # Appended when the wage came to half. A worker paid less than they expected
 # will ask why, and the answer should already be on the screen.

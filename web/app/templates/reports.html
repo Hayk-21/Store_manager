@@ -169,6 +169,22 @@
       <span class="total-value">{{ d.wage_bonus | money }}</span>
     </div>
   </div>
+  {# The same takings again, split by the door rather than by the payment. Two
+     different kinds of work: somebody stood at the counter and sold the first, and
+     the second arrived by phone and was entered. «Վաճառք» above is still both of
+     them together — this says what it is made of, and it is the split the cashier's
+     own figures and their bonus are measured on. Each half has its own cash and
+     card, because a delivery is paid at the door or in advance. #}
+  <p class="muted small">
+    Վաճառքից՝ խանութում <b>{{ d.totals.counter_sales | money }}</b>
+    (կանխիկ {{ d.totals.counter_sale_cash | money }} ·
+    քարտով {{ d.totals.counter_sale_card | money }})
+    · առաքումով <b>{{ d.totals.delivery_sales | money }}</b>
+    (կանխիկ {{ d.totals.delivery_sale_cash | money }} ·
+    քարտով {{ d.totals.delivery_sale_card | money }})։
+    <br><span class="muted">Առաքումը աշխատողի վաճառքի մեջ չի հաշվվում՝ ոչ բոտում,
+    ոչ բոնուսի հաշվարկում։ Խանութի ընդհանուր վաճառքի մեջ՝ հաշվվում է։</span>
+  </p>
   {# Both figures are subtractions, and a subtraction whose parts are not shown is a
      number the owner has to take on trust. #}
   <p class="muted small">

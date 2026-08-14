@@ -696,11 +696,21 @@ async def _end_payload(row, *, duplicate: bool) -> dict:
             "started_at": started.isoformat(),
             "ended_at": ended.isoformat() if ended else None,
             "duration_minutes": int((ended - started).total_seconds() // 60) if ended else None,
+            # The counter alone: what this worker actually sold. Deliveries were in
+            # here too, so a shift that took four phone orders and served nobody
+            # reported the worker as having sold all of it. They have their own
+            # figures below, because the shop did take that money.
             "sales": {
                 "receipts": sales["receipts"],
                 "cash_total": f"{sales['cash_total']:.2f}",
                 "card_total": f"{sales['card_total']:.2f}",
                 "total": f"{sales['total']:.2f}",
+            },
+            "deliveries": {
+                "receipts": sales["delivery_receipts"],
+                "cash_total": f"{sales['delivery_cash']:.2f}",
+                "card_total": f"{sales['delivery_card']:.2f}",
+                "total": f"{sales['delivery_total']:.2f}",
             },
             "salary_deducted": f"{Decimal(row['salary_paid'] or 0):.2f}",
             # What the drawer could not cover, and so the owner still owes. Sent

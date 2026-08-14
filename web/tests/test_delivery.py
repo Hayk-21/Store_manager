@@ -17,6 +17,7 @@ from decimal import Decimal
 
 from app.config import settings
 from app.db import db
+from app.repo import money as money_repo
 from app.repo import sales as sales_repo
 from app.services import sales as sales_service
 from app.services import shifts as shifts_service
@@ -232,3 +233,169 @@ async def test_the_statistics_split_deliveries_out(client):
     assert Decimal(overview["summary"]["revenue"]) == Decimal("10500.00"), (
         "the delivery is part of the takings, not instead of them"
     )
+
+
+# -- whose sale is it, though ------------------------------------------------
+#
+# A delivery is money the shop took, not something this worker sold over the
+# counter. Nobody stood there and sold it; somebody entered an order that arrived
+# by phone. So the two are kept apart everywhere the *worker* is the subject —
+# their own figures, their write-up, their bonus — and added together everywhere
+# the *shop* is.
+
+async def _a_counter_sale_and_a_delivery(worker, item_id):
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-counter-1"
+    )
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 4}], "card", "idem-delivery-1",
+        is_delivery=True,
+    )
+
+
+async def test_the_workers_own_total_leaves_deliveries_out(client):
+    _, _, worker, item_id, _ = await _open_shift()
+    await _a_counter_sale_and_a_delivery(worker, item_id)
+    shift_id = await db.fetchval("SELECT id FROM work_sessions")
+
+    sold = await sales_repo.summary_for_work_session(shift_id)
+
+    assert sold["total"] == Decimal("7000.00"), "two at 3,500, sold at the counter"
+    assert sold["receipts"] == 1
+    assert sold["delivery_total"] == Decimal("14000.00"), "four at 3,500, delivered"
+    assert sold["delivery_receipts"] == 1
+
+
+async def test_each_half_keeps_its_own_cash_and_card(client):
+    """A delivery is paid at the door or in advance, so the split is a real
+    question about each of them separately."""
+    _, _, worker, item_id, _ = await _open_shift()
+    await _a_counter_sale_and_a_delivery(worker, item_id)
+    shift_id = await db.fetchval("SELECT id FROM work_sessions")
+
+    sold = await sales_repo.summary_for_work_session(shift_id)
+
+    assert (sold["cash_total"], sold["card_total"]) == (Decimal("7000.00"), Decimal("0"))
+    assert (sold["delivery_cash"], sold["delivery_card"]) == (
+        Decimal("0"), Decimal("14000.00")
+    )
+
+
+async def test_the_bot_shows_the_two_apart(client, bot_headers):
+    """The write-up is what a cashier checks their day against. Running the two
+    together told them they had sold six of something when they handed over two."""
+    _, _, worker, item_id, telegram_id = await _open_shift()
+    await _a_counter_sale_and_a_delivery(worker, item_id)
+
+    review = await client.get(
+        f"{BASE}/shift/review", params={"telegram_id": telegram_id},
+        headers=bot_headers,
+    )
+    body = review.json()
+
+    assert [row["quantity"] for row in body["sold"]] == [2]
+    assert [row["quantity"] for row in body["delivered"]] == [4]
+    assert body["totals"]["total"] == "7000.00"
+    assert body["delivery_totals"]["total"] == "14000.00"
+
+
+async def test_the_status_screen_keeps_them_apart_too(client, bot_headers):
+    _, _, worker, item_id, telegram_id = await _open_shift()
+    await _a_counter_sale_and_a_delivery(worker, item_id)
+
+    me = await client.get(
+        f"{BASE}/me", params={"telegram_id": telegram_id}, headers=bot_headers
+    )
+    session = me.json()["session"]
+
+    assert session["sales"]["total"] == "7000.00"
+    assert session["deliveries"]["total"] == "14000.00"
+
+
+async def test_a_delivery_does_not_earn_a_bonus(client):
+    """A bonus rewards selling. An order that arrived by phone and was typed in is
+    money the shop took without anybody selling anything at the counter — and the
+    bonus is paid out of the same till the shift is settled from."""
+    owner_id, _, worker, item_id, _ = await _open_shift()
+    await db.execute(
+        """
+        UPDATE workers SET bonus_threshold = 10000, bonus_amount = 2000,
+               bonus_period = 'day' WHERE id = $1
+        """,
+        worker.id,
+    )
+    # 14,000 of deliveries, comfortably past a 10,000 target, and 7,000 over the
+    # counter, comfortably short of it.
+    await _a_counter_sale_and_a_delivery(worker, item_id)
+
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", close_store_too=True)
+
+    # Null rather than zero: the column is only written when a bonus is earned.
+    assert await db.fetchval(
+        "SELECT coalesce(bonus_paid, 0) FROM work_sessions"
+    ) == Decimal("0")
+    assert await db.fetchval(
+        "SELECT count(*) FROM cash_movements WHERE kind = 'bonus'"
+    ) == 0
+
+
+async def test_the_counter_alone_still_earns_one(client):
+    """The other half of the rule: nothing about deliveries makes a bonus harder
+    to earn on sales the worker did make."""
+    owner_id, _, worker, item_id, _ = await _open_shift()
+    await db.execute(
+        """
+        UPDATE workers SET bonus_threshold = 5000, bonus_amount = 2000,
+               bonus_period = 'day' WHERE id = $1
+        """,
+        worker.id,
+    )
+    await _a_counter_sale_and_a_delivery(worker, item_id)
+
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", close_store_too=True)
+
+    assert await db.fetchval("SELECT bonus_paid FROM work_sessions") == Decimal("2000.00")
+
+
+async def test_the_shop_still_counts_all_of_it(client):
+    """The owner's total is unchanged. Only the question «what did this worker
+    sell» has a different answer than it used to."""
+    _, _, worker, item_id, _ = await _open_shift()
+    await _a_counter_sale_and_a_delivery(worker, item_id)
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+
+    totals = await money_repo.totals_for_session(session_id)
+
+    assert totals["net_sales"] == Decimal("21000.00"), "the shop took all of it"
+    assert totals["counter_sales"] == Decimal("7000.00")
+    assert totals["delivery_sales"] == Decimal("14000.00")
+    assert totals["counter_sales"] + totals["delivery_sales"] == totals["net_sales"]
+
+
+async def test_a_voided_delivery_leaves_the_delivery_half(client):
+    """The reversing ledger row carries the id of the sale it reverses, so it nets
+    out in the half that sale landed in rather than against the counter."""
+    _, _, worker, item_id, _ = await _open_shift()
+    await _a_counter_sale_and_a_delivery(worker, item_id)
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    delivery_id = await db.fetchval("SELECT id FROM sales WHERE is_delivery")
+    await sales_service.void_last_sale(worker, "սխալ", sale_id=delivery_id)
+
+    totals = await money_repo.totals_for_session(session_id)
+
+    assert totals["delivery_sales"] == Decimal("0")
+    assert totals["counter_sales"] == Decimal("7000.00")
+    assert totals["net_sales"] == Decimal("7000.00")
+
+
+async def test_the_report_says_which_half_is_which(client):
+    _, _, worker, item_id, _ = await _open_shift()
+    await _a_counter_sale_and_a_delivery(worker, item_id)
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "Վաճառքից՝ խանութում" in page.text
+    assert "21,000.00" in page.text, "the shop's total is unchanged"
+    assert "7,000.00" in page.text and "14,000.00" in page.text

@@ -132,47 +132,80 @@ async def day_totals_for_store(owner_id: int, store_id: int) -> asyncpg.Record |
 
 
 _TOTALS_SQL = """
-        SELECT coalesce(sum(amount) FILTER (WHERE method = 'cash'), 0)  AS cash,
-               coalesce(sum(amount) FILTER (WHERE method = 'card'), 0)  AS card,
-               coalesce(sum(amount) FILTER (WHERE kind = 'sale'), 0)    AS sales,
+        SELECT coalesce(sum(m.amount) FILTER (WHERE m.method = 'cash'), 0)  AS cash,
+               coalesce(sum(m.amount) FILTER (WHERE m.method = 'card'), 0)  AS card,
+               coalesce(sum(m.amount) FILTER (WHERE m.kind = 'sale'), 0)    AS sales,
                -- The takings split by how they were paid, which is *not* the two
                -- balances above: those have wages, petty cash and the handover
                -- already taken off them. An owner reading «cash 2,500 · card 16,000»
                -- beside «sales 101,500» is being shown three numbers that cannot
                -- all be about the same thing, and the cash sales were 85,500.
-               coalesce(sum(amount) FILTER (WHERE kind = 'sale' AND method = 'cash'), 0)
+               coalesce(sum(m.amount) FILTER (WHERE m.kind = 'sale' AND m.method = 'cash'), 0)
                    AS sale_cash,
-               coalesce(sum(amount) FILTER (WHERE kind = 'sale' AND method = 'card'), 0)
+               coalesce(sum(m.amount) FILTER (WHERE m.kind = 'sale' AND m.method = 'card'), 0)
                    AS sale_card,
                -- The same three with the reversals folded in. A voided sale is not a
                -- sale, and a day where everything was taken back read as a day that
                -- sold 7,000 — the void row carries the method of the sale it reverses,
                -- so the split nets out with it.
-               coalesce(sum(amount) FILTER (WHERE kind IN ('sale', 'void')), 0)
+               coalesce(sum(m.amount) FILTER (WHERE m.kind IN ('sale', 'void')), 0)
                    AS net_sales,
-               coalesce(sum(amount) FILTER (
-                   WHERE kind IN ('sale', 'void') AND method = 'cash'), 0)
+               coalesce(sum(m.amount) FILTER (
+                   WHERE m.kind IN ('sale', 'void') AND m.method = 'cash'), 0)
                    AS net_sale_cash,
-               coalesce(sum(amount) FILTER (
-                   WHERE kind IN ('sale', 'void') AND method = 'card'), 0)
+               coalesce(sum(m.amount) FILTER (
+                   WHERE m.kind IN ('sale', 'void') AND m.method = 'card'), 0)
                    AS net_sale_card,
-               coalesce(-sum(amount) FILTER (WHERE kind = 'void'), 0)   AS voided,
-               coalesce(-sum(amount) FILTER (WHERE kind = 'salary'), 0) AS salaries,
-               coalesce(-sum(amount) FILTER (WHERE kind = 'bonus'), 0)  AS bonuses,
-               coalesce(-sum(amount) FILTER (WHERE kind = 'withdrawal'), 0) AS withdrawn,
-               coalesce(sum(amount) FILTER (WHERE kind = 'deposit'), 0) AS deposited,
+               coalesce(-sum(m.amount) FILTER (WHERE m.kind = 'void'), 0)   AS voided,
+               coalesce(-sum(m.amount) FILTER (WHERE m.kind = 'salary'), 0) AS salaries,
+               coalesce(-sum(m.amount) FILTER (WHERE m.kind = 'bonus'), 0)  AS bonuses,
+               coalesce(-sum(m.amount) FILTER (WHERE m.kind = 'withdrawal'), 0) AS withdrawn,
+               coalesce(sum(m.amount) FILTER (WHERE m.kind = 'deposit'), 0) AS deposited,
                -- The float the shop carried in this morning: the one deposit nobody
                -- typed. It is what stays on the premises when a session ends without
                -- anybody counting the drawer, because nothing then changes the shop's
                -- balance — so it is also what tomorrow will open with.
-               coalesce(sum(amount) FILTER (
-                   WHERE kind = 'deposit' AND created_by = 'system'), 0) AS carried_in,
+               coalesce(sum(m.amount) FILTER (
+                   WHERE m.kind = 'deposit' AND m.created_by = 'system'), 0) AS carried_in,
                -- Signed, unlike the two above: an owner's correction can go either
                -- way, and forcing it positive would make «+5,000» and «−5,000» look
                -- like the same entry in the one line that explains the till.
-               coalesce(sum(amount) FILTER (WHERE kind = 'adjustment'), 0) AS adjusted
-          FROM cash_movements
-         WHERE store_session_id = $1
+               -- The same takings again, split by the door they came through rather
+               -- than by how they were paid. A delivery is an order the shop took:
+               -- the goods leave and the money arrives, but nobody stood at the
+               -- counter and sold it, and the two are different work. The total is
+               -- unchanged — these say what it is made of — and each half carries its
+               -- own cash and card, because a delivery is paid at the door or in
+               -- advance.
+               --
+               -- Taken off the ledger rather than off `sales`, so a reversal nets out
+               -- here the way it does everywhere else: a void row carries the id of
+               -- the sale it reverses, so it lands in the half that sale landed in.
+               coalesce(sum(m.amount) FILTER (
+                   WHERE m.kind IN ('sale', 'void') AND NOT sa.is_delivery), 0)
+                   AS counter_sales,
+               coalesce(sum(m.amount) FILTER (
+                   WHERE m.kind IN ('sale', 'void') AND NOT sa.is_delivery
+                     AND m.method = 'cash'), 0)                     AS counter_sale_cash,
+               coalesce(sum(m.amount) FILTER (
+                   WHERE m.kind IN ('sale', 'void') AND NOT sa.is_delivery
+                     AND m.method = 'card'), 0)                     AS counter_sale_card,
+               coalesce(sum(m.amount) FILTER (
+                   WHERE m.kind IN ('sale', 'void') AND sa.is_delivery), 0)
+                   AS delivery_sales,
+               coalesce(sum(m.amount) FILTER (
+                   WHERE m.kind IN ('sale', 'void') AND sa.is_delivery
+                     AND m.method = 'cash'), 0)                     AS delivery_sale_cash,
+               coalesce(sum(m.amount) FILTER (
+                   WHERE m.kind IN ('sale', 'void') AND sa.is_delivery
+                     AND m.method = 'card'), 0)                     AS delivery_sale_card,
+               coalesce(sum(m.amount) FILTER (WHERE m.kind = 'adjustment'), 0)
+                   AS adjusted
+          FROM cash_movements m
+          -- Only sale and void rows have one; everything else is a wage or
+          -- petty cash, which came through no door at all.
+          LEFT JOIN sales sa ON sa.id = m.sale_id
+         WHERE m.store_session_id = $1
 """
 
 
@@ -187,53 +220,13 @@ async def totals_on(conn, store_session_id: int) -> asyncpg.Record:
 
 
 async def totals_for_session(store_session_id: int) -> asyncpg.Record:
-    """Cash, card and the breakdown behind them, for one store session."""
-    return await db.fetchrow(
-        """
-        SELECT coalesce(sum(amount) FILTER (WHERE method = 'cash'), 0)  AS cash,
-               coalesce(sum(amount) FILTER (WHERE method = 'card'), 0)  AS card,
-               coalesce(sum(amount) FILTER (WHERE kind = 'sale'), 0)    AS sales,
-               -- The takings split by how they were paid, which is *not* the two
-               -- balances above: those have wages, petty cash and the handover
-               -- already taken off them. An owner reading «cash 2,500 · card 16,000»
-               -- beside «sales 101,500» is being shown three numbers that cannot
-               -- all be about the same thing, and the cash sales were 85,500.
-               coalesce(sum(amount) FILTER (WHERE kind = 'sale' AND method = 'cash'), 0)
-                   AS sale_cash,
-               coalesce(sum(amount) FILTER (WHERE kind = 'sale' AND method = 'card'), 0)
-                   AS sale_card,
-               -- The same three with the reversals folded in. A voided sale is not a
-               -- sale, and a day where everything was taken back read as a day that
-               -- sold 7,000 — the void row carries the method of the sale it reverses,
-               -- so the split nets out with it.
-               coalesce(sum(amount) FILTER (WHERE kind IN ('sale', 'void')), 0)
-                   AS net_sales,
-               coalesce(sum(amount) FILTER (
-                   WHERE kind IN ('sale', 'void') AND method = 'cash'), 0)
-                   AS net_sale_cash,
-               coalesce(sum(amount) FILTER (
-                   WHERE kind IN ('sale', 'void') AND method = 'card'), 0)
-                   AS net_sale_card,
-               coalesce(-sum(amount) FILTER (WHERE kind = 'void'), 0)   AS voided,
-               coalesce(-sum(amount) FILTER (WHERE kind = 'salary'), 0) AS salaries,
-               coalesce(-sum(amount) FILTER (WHERE kind = 'bonus'), 0)  AS bonuses,
-               coalesce(-sum(amount) FILTER (WHERE kind = 'withdrawal'), 0) AS withdrawn,
-               coalesce(sum(amount) FILTER (WHERE kind = 'deposit'), 0) AS deposited,
-               -- The float the shop carried in this morning: the one deposit nobody
-               -- typed. It is what stays on the premises when a session ends without
-               -- anybody counting the drawer, because nothing then changes the shop's
-               -- balance — so it is also what tomorrow will open with.
-               coalesce(sum(amount) FILTER (
-                   WHERE kind = 'deposit' AND created_by = 'system'), 0) AS carried_in,
-               -- Signed, unlike the two above: an owner's correction can go either
-               -- way, and forcing it positive would make «+5,000» and «−5,000» look
-               -- like the same entry in the one line that explains the till.
-               coalesce(sum(amount) FILTER (WHERE kind = 'adjustment'), 0) AS adjusted
-          FROM cash_movements
-         WHERE store_session_id = $1
-        """,
-        store_session_id,
-    )
+    """Cash, card and the breakdown behind them, for one store session.
+
+    The same query as ``totals_on``, on a pooled connection. It used to be a second
+    copy of the SQL, which is how one of them can grow a column the other has not
+    got — and both of them answer «what is in this till».
+    """
+    return await db.fetchrow(_TOTALS_SQL, store_session_id)
 
 
 async def insert_movement(

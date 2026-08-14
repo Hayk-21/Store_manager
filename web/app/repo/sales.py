@@ -162,17 +162,23 @@ async def lines_in_work_session(work_session_id: int) -> list[asyncpg.Record]:
 
     Voided receipts are left out — they were taken back, and showing them would
     invite the worker to declare them again in the write-up.
+
+    Grouped by door as well as by product, so the two can be listed apart: a
+    delivery is an order the shop took rather than something this worker sold, and
+    running the two together tells them they sold six of something when they handed
+    over two and posted four.
     """
     return await db.fetch(
         """
         SELECT i.name,
+               sa.is_delivery,
                sum(si.quantity)   AS quantity,
                sum(si.line_total) AS total
           FROM sale_items si
           JOIN sales sa ON sa.id = si.sale_id
           JOIN items i  ON i.id = si.item_id
          WHERE sa.work_session_id = $1 AND sa.voided_at IS NULL
-         GROUP BY i.name
+         GROUP BY i.name, sa.is_delivery
          ORDER BY lower(i.name)
         """,
         work_session_id,
@@ -180,13 +186,35 @@ async def lines_in_work_session(work_session_id: int) -> list[asyncpg.Record]:
 
 
 async def summary_for_work_session(work_session_id: int) -> asyncpg.Record:
-    """What one worker sold during one shift, voids excluded."""
+    """What one worker sold during one shift, voids excluded — over the counter and
+    by delivery, kept apart.
+
+    They are not the same work and the worker should not be shown one number for
+    both. A delivery is an order the shop took: the goods leave, the money arrives,
+    and somebody enters it — but nobody stood at the counter and sold it. Counting
+    it into «you sold 57,500 today» credited the cashier with orders they had no
+    hand in, and the same figure decided their bonus.
+
+    So ``receipts``/``cash_total``/``card_total``/``total`` are the counter alone, and
+    the delivery figures sit beside them under their own names. Anything reading
+    ``total`` gets the honest answer to "what did this worker sell" without having to
+    know the distinction exists; anything that wants the shop's whole takings for the
+    shift adds the two, or asks the ledger, which never split them in the first place.
+    """
     return await db.fetchrow(
         """
-        SELECT count(*)                                                      AS receipts,
-               coalesce(sum(total) FILTER (WHERE payment_method = 'cash'), 0) AS cash_total,
-               coalesce(sum(total) FILTER (WHERE payment_method = 'card'), 0) AS card_total,
-               coalesce(sum(total), 0)                                        AS total
+        SELECT count(*) FILTER (WHERE NOT is_delivery)                     AS receipts,
+               coalesce(sum(total) FILTER (
+                   WHERE NOT is_delivery AND payment_method = 'cash'), 0)  AS cash_total,
+               coalesce(sum(total) FILTER (
+                   WHERE NOT is_delivery AND payment_method = 'card'), 0)  AS card_total,
+               coalesce(sum(total) FILTER (WHERE NOT is_delivery), 0)      AS total,
+               count(*) FILTER (WHERE is_delivery)                    AS delivery_receipts,
+               coalesce(sum(total) FILTER (
+                   WHERE is_delivery AND payment_method = 'cash'), 0)  AS delivery_cash,
+               coalesce(sum(total) FILTER (
+                   WHERE is_delivery AND payment_method = 'card'), 0)  AS delivery_card,
+               coalesce(sum(total) FILTER (WHERE is_delivery), 0)      AS delivery_total
           FROM sales
          WHERE work_session_id = $1 AND voided_at IS NULL
         """,

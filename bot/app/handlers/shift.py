@@ -244,6 +244,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             duration=format.duration_since(session["started_at"]),
             receipts=session["sales"]["receipts"],
             sold=format.sold_summary(session["sales"]),
+            deliveries=format.delivery_line(session.get("deliveries")),
             cash=format.money(session["store_totals"]["cash"]),
             card=format.money(session["store_totals"]["card"]),
         ),
@@ -273,6 +274,13 @@ async def report_end(update: Update, summary: dict) -> None:
         sold=format.sold_summary(summary["sales"]),
         salary=format.money(summary["salary_deducted"]),
     )
+    # Only when there were any. A line reading «Առաքում՝ 0 պատվեր» on every shift
+    # that never took one is noise on the screen a worker reads once.
+    deliveries = summary.get("deliveries") or {}
+    if deliveries.get("receipts"):
+        message += texts.SHIFT_ENDED_DELIVERIES.format(
+            receipts=deliveries["receipts"], sold=format.sold_summary(deliveries)
+        )
     if summary.get("salary_halved"):
         message += texts.SALARY_HALVED.format(
             hours=summary.get("full_shift_hours", 8)
