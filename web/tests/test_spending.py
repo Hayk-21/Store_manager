@@ -15,6 +15,7 @@ a ring that can be asked which payments a category is made of.
 
 from __future__ import annotations
 
+import html
 import re
 from datetime import timedelta
 from decimal import Decimal
@@ -845,3 +846,99 @@ def test_a_category_of_the_owners_own_called_other_keeps_its_colour():
     assert ring["segments"][0]["label"] == "Այլ"
     assert ring["segments"][0]["members"] == ["Այլ"]
     assert ring["segments"][0]["colour"] == charts.SLOTS[0], "not the grey of the fold"
+
+
+# -- clicking a slice without reloading the page -----------------------------
+
+async def test_a_slice_asks_for_the_rows_rather_than_the_page(client):
+    """Answering «which wages» used to cost a whole statistics page — thirteen
+    queries and half a megabyte — to change which rows a list further down showed."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=30")
+
+    assert "/partials/spending?" in page.text
+    assert 'hx-target="#spending-rows"' in page.text
+    assert 'id="spending-rows"' in page.text
+    assert 'id="spending-ring"' in page.text
+
+
+async def test_the_link_still_works_without_the_swap(client):
+    """The href is what the address bar is given and what happens if the swap
+    cannot run, so it has to stay a real page URL."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=30")
+    href = re.search(r'<a href="(/statistics[^"]*category=[^"]*)"', page.text).group(1)
+    landed = await client.get(html.unescape(href))
+
+    assert landed.status_code == 200
+    assert "Ցուցադրվում է միայն" in landed.text
+
+
+async def test_the_fragment_filters_and_carries_the_ring_with_it(client):
+    """Both halves change when a slice is clicked: the list shows that slice's
+    payments, and the ring has to show which slice is chosen."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    await login(client, "@ownerhandle")
+    today = settings.local_day()
+
+    fragment = await client.get(
+        "/partials/spending",
+        params={
+            "since": (today - timedelta(days=30)).isoformat(),
+            "until": today.isoformat(),
+            "page": "/statistics?period=30",
+            "category": "Աշխատավարձ",
+        },
+    )
+
+    assert fragment.status_code == 200
+    assert 'hx-swap-oob="true"' in fragment.text, "the ring goes back too"
+    assert "Ցուցադրվում է միայն" in fragment.text
+    assert "<html" not in fragment.text, "a fragment, not a page"
+
+
+async def test_the_fragment_is_the_smaller_half_of_the_page(client):
+    """The point of the whole thing: the statistics page answers a dozen questions
+    this does not have to ask again just to narrow a list."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    await login(client, "@ownerhandle")
+    today = settings.local_day()
+
+    page = await client.get("/statistics?period=30")
+    fragment = await client.get(
+        "/partials/spending",
+        params={
+            "since": (today - timedelta(days=30)).isoformat(),
+            "until": today.isoformat(),
+            "page": "/statistics?period=30",
+        },
+    )
+
+    assert len(fragment.text) < len(page.text) / 2
+
+
+async def test_a_fragment_cannot_be_pointed_at_another_site(client):
+    """`page` comes from the browser and becomes the base of every link and every
+    edit form inside the answer."""
+    owner_id, store_id, item_id = await _a_shop()
+    await _a_day(owner_id, store_id, item_id)
+    await login(client, "@ownerhandle")
+    today = settings.local_day()
+
+    response = await client.get(
+        "/partials/spending",
+        params={
+            "since": today.isoformat(), "until": today.isoformat(),
+            "page": "//evil.example/statistics",
+        },
+    )
+
+    assert response.status_code == 422

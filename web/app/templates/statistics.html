@@ -480,9 +480,9 @@
 
   {# Where the money went, before the rows that make it up. The tile above is one
      number; this is its shape, and it is the first thing an owner wants from it. #}
-  {% if donut.segments %}
-    {% include "_donut.html" %}
-  {% endif %}
+  <div id="spending-ring">
+    {% if donut.segments %}{% include "_donut.html" %}{% endif %}
+  </div>
 
   {% if spending_rows or paid_out %}
   <div class="table-wrap">
@@ -550,11 +550,15 @@
     <h2>Բոլոր վճարումները</h2>
     <span class="muted small">{{ payments | length }} գրառում</span>
   </div>
-  {% if payments %}
-    {% include "_spending.html" %}
-  {% else %}
-    <p class="muted">Այս ժամանակահատվածում վճարում գրանցված չէ։</p>
-  {% endif %}
+  {# Swapped in place when a slice of the ring is clicked. The id is the target,
+     and the ring above carries the same one out of band. #}
+  <div id="spending-rows">
+    {% if payments %}
+      {% include "_spending.html" %}
+    {% else %}
+      <p class="muted">Այս ժամանակահատվածում վճարում գրանցված չէ։</p>
+    {% endif %}
+  </div>
 </div>
 
 {# -- what broke ------------------------------------------------------------

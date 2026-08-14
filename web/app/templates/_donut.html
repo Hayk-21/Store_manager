@@ -14,6 +14,13 @@
    that cannot be asked leaves the owner scrolling a list of everything to find out.
    Clicking the slice that is already showing goes back to the whole.
 
+   It swaps the list rather than reloading the page. Answering "which wages" used to
+   cost a fresh statistics page — thirteen queries, half a megabyte of HTML — and left
+   the owner at the top of it, scrolling back down to the list they had just filtered.
+   The `href` is still there and still correct: it is what the address bar is given,
+   so a refresh keeps the filter and the back button undoes it, and it is what happens
+   if the swap cannot run at all.
+
    Takes `donut` (from charts.donut) and an optional `donut_title`. #}
 <div class="donut-wrap">
   <svg class="donut" viewBox="0 0 42 42" role="img"
@@ -22,7 +29,9 @@
     <circle class="donut-track" cx="21" cy="21" r="15.9155"
             fill="none" stroke-width="4"></circle>
     {% for s in donut.segments %}
-      <a href="{{ s.href }}" class="donut-slice{% if s.selected %} is-on{% endif %}">
+      <a href="{{ s.href }}" class="donut-slice{% if s.selected %} is-on{% endif %}"
+         hx-get="{{ s.fragment }}" hx-target="#spending-rows" hx-swap="innerHTML"
+         hx-push-url="{{ s.href }}" hx-indicator="#spending-rows">
         <circle cx="21" cy="21" r="15.9155" fill="none" stroke-width="4"
                 stroke="{{ s.colour }}"
                 stroke-dasharray="{{ s.dash }}"
@@ -45,6 +54,8 @@
     {% for s in donut.segments %}
     <li>
       <a href="{{ s.href }}" class="donut-row{% if s.selected %} is-on{% endif %}"
+         hx-get="{{ s.fragment }}" hx-target="#spending-rows" hx-swap="innerHTML"
+         hx-push-url="{{ s.href }}" hx-indicator="#spending-rows"
          {% if s.selected %}aria-current="true"{% endif %}>
         <i class="donut-swatch" style="background: {{ s.colour }}"></i>
         <span class="donut-name">{{ s.label }}</span>

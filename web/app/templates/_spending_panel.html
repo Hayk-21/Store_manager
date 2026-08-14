@@ -1,0 +1,21 @@
+{# The ring and the payments under it, as one answer.
+
+   Both pages that show spending draw these two things apart — the ring sits in one
+   card and the list in another, with other sections between them — but they are one
+   question, and clicking a slice changes both: the ring has to show which slice is
+   chosen, and the list has to show that slice's payments.
+
+   So the ring is swapped out of band. HTMX replaces `#spending-rows` with the second
+   half of this, and the browser puts the first half wherever `#spending-ring` happens
+   to be on the page. Neither page has to know it is being updated in two places. #}
+<div id="spending-ring" hx-swap-oob="true">
+  {% if donut.segments %}{% include "_donut.html" %}{% endif %}
+</div>
+
+<div id="spending-rows">
+  {% if payments %}
+    {% include "_spending.html" %}
+  {% else %}
+    <p class="muted">Այս ժամանակահատվածում վճարում գրանցված չէ։</p>
+  {% endif %}
+</div>

@@ -1212,7 +1212,14 @@ async def _spending_context(
         # A slice already showing goes back to the whole rather than nowhere: clicking
         # it a second time is how anybody expects to undo the first click.
         picked = set(segment["members"]) == set(chosen)
-        segment["href"] = _filtered_by(page, [] if picked else segment["members"])
+        labels = [] if picked else segment["members"]
+        segment["href"] = _filtered_by(page, labels)
+        # The same question asked of the fragment endpoint. Clicking a slice used to
+        # reload the whole statistics page — thirteen queries, a full render and a
+        # jump back to the top — to change which rows a list underneath was showing.
+        # ``href`` stays, and is what the address bar is given, so the filter survives
+        # a refresh and the back button still works.
+        segment["fragment"] = _spending_fragment(page, since, until, store_id, labels)
         segment["selected"] = picked
     return {
         "payments": rows,
@@ -1241,10 +1248,32 @@ async def _spending_context(
             owner_id, since, until, store_id, categories=chosen
         ) if chosen else None,
         "everything_href": _filtered_by(page, []),
+        "everything_fragment": _spending_fragment(page, since, until, store_id, []),
         "editable": spending_repo.EDITABLE,
         "deletable": spending_repo.DELETABLE,
         "back": here,
     }
+
+
+def _spending_fragment(
+    page: str, since: date, until: date, store_id: int | None, labels: Sequence[str]
+) -> str:
+    """The same view of the same period, as a fragment rather than a whole page.
+
+    Carries the period explicitly instead of the page's own way of saying it — one
+    page says ``?month=2026-08`` and the other ``?period=30``, and the fragment
+    should not have to know which — plus the page it belongs to, because that is
+    where its edit and delete forms have to return to.
+    """
+    query = [
+        ("since", since.isoformat()),
+        ("until", until.isoformat()),
+        ("page", page),
+        *(("category", label) for label in labels),
+    ]
+    if store_id is not None:
+        query.append(("store_id", str(store_id)))
+    return f"/partials/spending?{urlencode(query)}"
 
 
 def _back_to(where: str | None, fallback: str):

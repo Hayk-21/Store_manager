@@ -350,6 +350,45 @@ h3 { font-size: 14px; color: var(--muted); margin: 18px 0 8px; font-weight: 600;
    below, because the table it names follows immediately. */
 .status-head h3 { margin-bottom: 0; }
 
+/* -- things opening and changing ------------------------------------------- */
+
+/* A section that opens should look like it opened rather than like the page
+   jumped. Only the opening is animated: a <details> removes its content the
+   instant it closes, so there is nothing left to animate on the way out, and
+   faking that needs script for very little.
+
+   Content, not the whole element — animating the <details> itself would drag the
+   summary along and the heading would appear to slide out from under the cursor
+   that just clicked it. */
+details[open] > *:not(summary) {
+  animation: unfold 140ms ease-out;
+}
+@keyframes unfold {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* The rows swapped in when a slice of the ring is clicked. Brief and small: this
+   is feedback that something answered, not an effect. */
+#spending-rows.htmx-added,
+#spending-rows > * { animation: unfold 160ms ease-out; }
+
+/* While the answer is in flight. The list dims rather than disappearing, so the
+   page does not resize under the reader and the old figures stay legible until
+   the new ones land — and a fast answer never flashes, because the fade takes
+   longer to arrive than a quick response does. */
+#spending-rows.htmx-request {
+  opacity: .45;
+  transition: opacity 120ms ease-in 90ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  details[open] > *:not(summary),
+  #spending-rows.htmx-added,
+  #spending-rows > * { animation: none; }
+  #spending-rows.htmx-request { transition: none; }
+}
+
 /* -- putting a table in an order ------------------------------------------- */
 
 /* Which order the rows are in has to be visible without reading them: the chosen
