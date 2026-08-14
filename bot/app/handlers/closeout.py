@@ -207,15 +207,15 @@ def _shift_so_far(shift: dict) -> str:
         totals = shift.get("delivery_totals") or {}
         parts.append(
             texts.REVIEW_DELIVERED.format(
-                rows=_rows(delivered, lambda row: texts.REVIEW_SOLD_ROW.format(
+                # Products and quantities, and no amounts. What the worker needs
+                # from this section is that the stock left — the shelf they are
+                # about to be asked to count has to add up — and not what the shop
+                # took for it, which is neither their sale nor their business.
+                rows=_rows(delivered, lambda row: texts.REVIEW_DELIVERED_ROW.format(
                     name=format.esc(row["name"]),
                     quantity=row["quantity"],
-                    total=format.money(row["total"]),
                 )),
                 receipts=totals.get("receipts", 0),
-                cash=format.money(totals.get("cash", 0)),
-                card=format.money(totals.get("card", 0)),
-                total=format.money(totals.get("total", 0)),
             )
         )
 

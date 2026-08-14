@@ -399,3 +399,40 @@ async def test_the_report_says_which_half_is_which(client):
     assert "Վաճառքից՝ խանութում" in page.text
     assert "21,000.00" in page.text, "the shop's total is unchanged"
     assert "7,000.00" in page.text and "14,000.00" in page.text
+
+
+async def test_the_running_line_after_a_sale_leaves_deliveries_out(client):
+    """The line under a confirmed sale said «Կանխիկ՝ 18,000 · Քարտ՝ 16,000» — the
+    drawer and the shop's card income. A cashier who had taken one card payment of
+    their own was being shown 3,000 of somebody else's delivery in it."""
+    _, _, worker, item_id, _ = await _open_shift()
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "card", "idem-delivery-1",
+        is_delivery=True,
+    )
+
+    result = await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-counter-1"
+    )
+
+    assert result["sold_totals"]["cash"] == "7000.00", "two at 3,500, over the counter"
+    assert result["sold_totals"]["card"] == "0.00", "the 3,500 card sale was a delivery"
+    # The drawer is untouched by any of this: the shop did take that money.
+    assert result["store_totals"]["card"] == "3500.00"
+
+
+async def test_the_drawer_still_holds_what_a_cash_delivery_paid(client):
+    """The one figure that must not have deliveries taken out of it. A delivery paid
+    in cash at the door is physically in the drawer, and this is the number the
+    worker counts against at closing."""
+    _, _, worker, item_id, _ = await _open_shift()
+
+    result = await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "cash", "idem-delivery-1",
+        is_delivery=True,
+    )
+
+    assert result["sold_totals"]["cash"] == "0.00", "not the worker's sale"
+    assert Decimal(result["store_totals"]["cash"]) >= Decimal("3500.00"), (
+        "but the cash is in the drawer and has to be counted"
+    )

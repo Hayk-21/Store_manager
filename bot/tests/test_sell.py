@@ -439,3 +439,31 @@ async def test_one_sale_keeps_one_key_across_retries():
         await sell.choose_method(_tap("p:cash"), context)
 
     assert keys[0] == keys[1]
+
+
+# -- whose money is on the confirmation --------------------------------------
+
+def test_the_confirmation_shows_the_counter_and_not_the_drawer():
+    """It used to show the drawer and the shop's card income, so a cashier who had
+    taken one card payment of their own read «Քարտ՝ 16,000» — 3,000 of which was
+    somebody else's delivery, paid in advance."""
+    result = _server_answer()
+    result["sold_totals"] = {"cash": "7000.00", "card": "0.00"}
+
+    body = sell._confirmation(result, "cash")
+
+    assert "7,000" in body
+    assert "27,000" not in body, "the drawer is not this worker's sales"
+    assert "4,000" not in body, "and neither is the shop's card income"
+
+
+def test_an_older_service_still_renders_the_confirmation():
+    """The bot and the web service deploy separately and either can be ahead. A
+    sale is already in the books by this point, so nothing here may fail."""
+    result = _server_answer()
+    result.pop("sold_totals", None)
+
+    body = sell._confirmation(result, "cash")
+
+    assert "HQD Cuvie" in body
+    assert "27,000" in body, "falls back to what the older service does send"

@@ -203,3 +203,27 @@ async def test_a_full_wage_says_nothing_about_halving():
     sent = await _sent(_summary(halved=False))
 
     assert "կիսով չափ" not in sent[0][0]
+
+
+# -- deliveries, which are not this worker's sales ---------------------------
+
+async def test_the_summary_counts_deliveries_without_pricing_them():
+    """The shop took that money; the worker did not sell it, and their wage and
+    bonus do not turn on it. So they are told how many orders went out — enough to
+    tell that what they entered landed — and not what it came to."""
+    summary = _summary()
+    summary["deliveries"] = {"receipts": 3, "cash_total": "0.00",
+                             "card_total": "44000.00", "total": "44000.00"}
+
+    body = (await _sent(summary))[0][0]
+
+    assert "Առաքում՝ 3 պատվեր" in body
+    assert "44,000" not in body
+    assert "չի հաշվվում" in body
+    assert "500,000" in body, "their own sales are untouched"
+
+
+async def test_a_shift_with_no_deliveries_says_nothing_about_them():
+    body = (await _sent(_summary()))[0][0]
+
+    assert "Առաքում" not in body

@@ -36,19 +36,54 @@ against the counter.
   քարտ               = the same, and payment_method = 'card'
   չեկ                = count of those sales
 
-Առաքում              = Σ sales.total   where work_session = this shift
+Առաքում              = count of sales  where work_session = this shift
                                          and is_delivery
-  կանխիկ / քարտ      = the same, split by payment_method
-  պատվեր             = count of those sales
+                       — the count, and nothing else
 ```
 
-**These two never add together on the worker's screen.** «Ձեր վաճառքը» is the first
-line, «Առաքում» is its own line underneath, and the delivery line is not shown at
-all on a shift that took no orders.
+**The worker is never shown what a delivery was worth.** They did not sell it, and
+neither their wage nor their bonus turns on it, so what it came to is the owner's
+business. What they do get is the count — enough to tell that the orders they
+entered actually landed — and, in the write-up, the products and quantities, so the
+shelf they are about to be asked to count adds up.
+
+**The two never add together on the worker's screen.** «Ձեր վաճառքը» is the first
+line, «Առաքում» is its own line underneath, and nothing is shown at all on a shift
+that took no orders.
 
 Where it appears: the status screen (`/me`), the end-of-shift summary, and the
-write-up before closing (`/shift/review`), where the products are also listed in
-two sections rather than one.
+write-up before closing (`/shift/review`), where the products are listed in two
+sections — «Գրանցված վաճառք» with amounts, «Առաքում» without.
+
+### The running line after each sale
+
+```
+Ձեր վաճառքը՝ կանխիկ X · քարտ Y
+  X = Σ ledger amount  where kind in ('sale','void') and NOT is_delivery
+                         and method = 'cash'
+  Y = the same, and method = 'card'
+```
+
+This line used to be the **drawer** and the shop's card income — which is how a
+cashier who had taken one card payment of their own came to read «Քարտ՝ 16,000»
+with 3,000 of somebody else's delivery inside it.
+
+### The one figure that keeps its deliveries
+
+```
+Դրամարկղում կանխիկ = Σ ledger amount where method = 'cash'   ← everything
+```
+
+**A delivery paid in cash at the door is physically in the drawer.** This is the
+number the worker counts against when they close up, so taking anything out of it
+would make their count come out over. It is labelled as the drawer and it is the
+only worker-facing figure that still contains delivery money.
+
+The card line that used to sit beside it on the status screen is gone: card money
+is not in the drawer, and the worker's own card sales are already in «Ձեր վաճառքը».
+
+The delivery money still exists, is still in every owner-facing figure below, and
+is still sent to the bot by the API; the bot simply never puts it on the screen.
 
 ---
 

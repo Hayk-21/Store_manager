@@ -320,11 +320,27 @@ def test_a_delivery_is_shown_under_its_own_heading():
     body = closeout._shift_so_far(shift)
 
     assert "Առաքում" in body
-    assert "Vanter 30000" in body
-    assert "20,000" in body
+    assert "Vanter 30000" in body, "which products left the shelf"
+    assert "×4" in body, "and how many"
     assert "չի հաշվվում" in body, "it says the two are not the same thing"
     # The counter figure is untouched by it.
     assert "6,552" in body
+
+
+def test_a_delivery_never_shows_the_worker_what_it_was_worth():
+    """The worker did not sell it and is not measured on it, so what the shop took
+    for it is the owner's business. The count is there so they can tell the orders
+    they entered actually landed; the amount is not."""
+    shift = _shift(
+        delivered=[{"name": "Vanter 30000", "quantity": 4, "total": "20000.00"}],
+        delivery_totals={"receipts": 1, "cash": "0.00", "card": "20000.00",
+                         "total": "20000.00"},
+    )
+
+    body = closeout._shift_so_far(shift)
+
+    assert "20,000" not in body
+    assert "Պատվեր՝ 1" in body
 
 
 def test_no_delivery_no_heading():

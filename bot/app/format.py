@@ -105,15 +105,17 @@ def sold_summary(sales: dict) -> str:
 
 
 def delivery_line(deliveries: dict | None) -> str:
-    """The delivery line for the status screen, or nothing at all.
+    """How many orders went out, for the status screen — and not what they came to.
 
-    Nothing, on a shift that has taken no orders: «Առաքում՝ 0 պատվեր» on every
+    The count, never the money. A worker did not sell these and is not measured on
+    them, so what they were worth is the owner's business; the count is there so the
+    worker can tell whether the orders they entered actually landed.
+
+    Nothing at all on a shift that has taken none: «Առաքում՝ 0 պատվեր» on every
     screen is a line that says only that the feature exists. Older servers do not
-    send the field, and a bot that has been deployed ahead of them should show the
-    same nothing rather than an error.
+    send the field, and a bot deployed ahead of one should show the same nothing
+    rather than an error.
     """
     if not deliveries or not deliveries.get("receipts"):
         return ""
-    return texts.STATUS_DELIVERIES.format(
-        receipts=deliveries["receipts"], sold=sold_summary(deliveries)
-    )
+    return texts.STATUS_DELIVERIES.format(receipts=deliveries["receipts"])

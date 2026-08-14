@@ -245,8 +245,13 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             receipts=session["sales"]["receipts"],
             sold=format.sold_summary(session["sales"]),
             deliveries=format.delivery_line(session.get("deliveries")),
+            # The drawer, and only the drawer. It stays the real figure — a delivery
+            # paid in cash at the door is physically in there, and this is the number
+            # the worker counts against at closing, so hiding part of it would make
+            # their count come out over. The card line that used to sit beside it is
+            # gone: card money is not in the drawer, it is the shop's income, and a
+            # cashier's own card sales are already in «Ձեր վաճառքը» above.
             cash=format.money(session["store_totals"]["cash"]),
-            card=format.money(session["store_totals"]["card"]),
         ),
         parse_mode=ParseMode.HTML,
         reply_markup=keyboards.on_shift(),
@@ -278,9 +283,9 @@ async def report_end(update: Update, summary: dict) -> None:
     # that never took one is noise on the screen a worker reads once.
     deliveries = summary.get("deliveries") or {}
     if deliveries.get("receipts"):
-        message += texts.SHIFT_ENDED_DELIVERIES.format(
-            receipts=deliveries["receipts"], sold=format.sold_summary(deliveries)
-        )
+        # How many, not how much. The worker did not sell these and their wage and
+        # bonus do not turn on them, so the amount is the owner's to know.
+        message += texts.SHIFT_ENDED_DELIVERIES.format(receipts=deliveries["receipts"])
     if summary.get("salary_halved"):
         message += texts.SALARY_HALVED.format(
             hours=summary.get("full_shift_hours", 8)

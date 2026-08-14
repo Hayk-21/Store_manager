@@ -137,7 +137,7 @@ ASK_PAYMENT = "«{item}» ×{quantity} = <b>{total}</b>\n\nԻնչպե՞ս վճա
 SALE_DONE = (
     "✅ Գրանցվեց՝ <b>{item}</b> ×{quantity} — {total} ({method})\n"
     "Մնացորդը՝ {remaining} հատ\n\n"
-    "Կանխիկ՝ {cash} · Քարտ՝ {card}"
+    "Ձեր վաճառքը՝ կանխիկ {cash} · քարտ {card}"
 )
 SALE_ALREADY_RECORDED = "Այս վաճառքն արդեն գրանցված էր։"
 # The fallback when the confirmation cannot be built. The sale is already in the
@@ -191,10 +191,14 @@ REVIEW_SOLD_NOTHING = (
 # of it, so leaving it out of the write-up would make the shelf look wrong.
 REVIEW_DELIVERED = (
     "🚚 <b>Առաքում</b>\n{rows}\n"
-    "Պատվեր՝ {receipts} · Կանխիկ՝ {cash} · Քարտ՝ {card}\n"
-    "Ընդամենը՝ <b>{total}</b>\n"
+    "Պատվեր՝ {receipts}\n"
     "<i>Առաքումը ձեր վաճառքի մեջ չի հաշվվում։</i>\n"
 )
+# Which products went out and how many — and no money. The worker did not sell
+# these and is not measured on them, so what they came to is the owner's business.
+# What the worker needs from this section is that the stock left, so that the shelf
+# they are about to be asked about adds up.
+REVIEW_DELIVERED_ROW = "• {name} ×{quantity}"
 REVIEW_WRITTEN_OFF = "🗑 <b>Խոտան</b>\n{rows}\n"
 REVIEW_WRITTEN_OFF_ROW = "• {name} ×{quantity} — {reason}"
 REVIEW_STOCK_FIXED = "📦 <b>Պահեստի ուղղումներ</b>\n{rows}\n"
@@ -259,7 +263,7 @@ STOCK_EMPTY = "Այս խանութում ապրանք դեռ գրանցված չ
 VOID_DONE = (
     "↩️ Չեղարկվեց վերջին վաճառքը՝ {total}։\n"
     "Ապրանքը վերադարձվեց պահեստ։\n\n"
-    "Կանխիկ՝ {cash} · Քարտ՝ {card}"
+    "Ձեր վաճառքը՝ կանխիկ {cash} · քարտ {card}"
 )
 
 # -- status and closing -----------------------------------------------------
@@ -269,13 +273,12 @@ STATUS = (
     "Հերթափոխը՝ {since}-ից ({duration})\n\n"
     "Ձեր վաճառքը՝ {receipts} չեկ, {sold}\n"
     "{deliveries}\n"
-    "Դրամարկղում կանխիկ՝ {cash}\n"
-    "Քարտով մուտք՝ {card}"
+    "Դրամարկղում կանխիկ՝ {cash}"
 )
 # Slotted into STATUS, and empty on a shift that has taken none. «Ձեր վաճառքը»
 # above is this worker's own selling, and the figure their bonus is measured
 # against; this is the shop's takings through the other door.
-STATUS_DELIVERIES = "Առաքում՝ {receipts} պատվեր, {sold}\n"
+STATUS_DELIVERIES = "Առաքում՝ {receipts} պատվեր\n"
 STATUS_NO_SHIFT = "Դուք հերթափոխի մեջ չեք։ Սեղմեք «{open_button}»։"
 
 SHIFT_ENDED = (
@@ -288,7 +291,7 @@ SHIFT_ENDED = (
 # rather than inside them: the shop took that money, the worker did not sell it,
 # and «Վաճառք» above is the figure their bonus is measured against.
 SHIFT_ENDED_DELIVERIES = (
-    "Առաքում՝ {receipts} պատվեր, {sold}\n"
+    "Առաքում՝ {receipts} պատվեր\n"
     "<i>Առաքումը վաճառքի մեջ չի հաշվվում։</i>\n"
 )
 # Appended when the wage came to half. A worker paid less than they expected

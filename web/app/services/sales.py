@@ -364,6 +364,15 @@ async def void_last_sale(
             ],
         },
         "store_totals": {"cash": f"{totals['cash']:.2f}", "card": f"{totals['card']:.2f}"},
+        # What has been sold across the counter this session, which is what the
+        # bot shows the worker. The two above are the drawer and the card income
+        # of the whole shop — a delivery paid by card is in them, and a cashier
+        # reading «Քարտ՝ 16,000» after their own sale was being shown 3,000 of
+        # somebody else's order.
+        "sold_totals": {
+            "cash": f"{totals['counter_sale_cash']:.2f}",
+            "card": f"{totals['counter_sale_card']:.2f}",
+        },
     }
 
 
@@ -405,4 +414,13 @@ async def _sale_payload(sale_id: int, *, duplicate: bool) -> dict:
             ],
         },
         "store_totals": {"cash": f"{totals['cash']:.2f}", "card": f"{totals['card']:.2f}"},
+        # What has been sold across the counter this session, which is what the
+        # bot shows the worker. The two above are the drawer and the card income
+        # of the whole shop — a delivery paid by card is in them, and a cashier
+        # reading «Քարտ՝ 16,000» after their own sale was being shown 3,000 of
+        # somebody else's order.
+        "sold_totals": {
+            "cash": f"{totals['counter_sale_cash']:.2f}",
+            "card": f"{totals['counter_sale_card']:.2f}",
+        },
     }

@@ -305,7 +305,10 @@ async def undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await query.edit_message_reply_markup(reply_markup=None)
-    voided, totals = result["voided"], result["store_totals"]
+    # The counter's own takings, not the drawer: a delivery paid by card is in
+    # the drawer figure and is not this worker's sale.
+    voided = result["voided"]
+    totals = result.get("sold_totals") or result["store_totals"]
     await query.message.reply_text(
         texts.VOID_DONE.format(
             total=format.money(voided["total"]),
@@ -326,7 +329,12 @@ def _confirmation(result: dict, method: str) -> str:
     """
     try:
         line = result["sale"]["lines"][0]
-        totals = result["store_totals"]
+        # What this worker has sold across the counter. It used to be the drawer
+        # and the shop's card income, so a cashier who had sold nothing on a card
+        # was shown «Քարտ՝ 16,000» — somebody else's delivery, paid in advance.
+        # `.get` with the old key behind it: the bot and the service deploy
+        # separately and either can be the one that is ahead.
+        totals = result.get("sold_totals") or result["store_totals"]
         body = texts.SALE_DONE.format(
             item=format.esc(line["name"]),
             quantity=line["quantity"],
