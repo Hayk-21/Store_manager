@@ -623,13 +623,15 @@ async def reports_page(
     request: Request,
     store_session_id: int | None = None,
     receipts: str | None = None,
+    only: str | None = None,
     user: CurrentUser = Depends(current_user),
 ):
     """One row per time a store was open — the period the money actually uses.
 
     ``receipts`` orders the receipt table: by the hour of the evening, or by what was
-    sold. Anything else reads as the default rather than as an error — a sort order is
-    not worth a 400, and the repo only ever looks the value up in a fixed map.
+    sold. ``only`` narrows it to one kind — cash, card, or what went out by delivery.
+    Anything else reads as the default rather than as an error: neither is worth a
+    400, and the repo only ever looks the value up in a fixed map.
     """
     detail = None
     if store_session_id is not None:
@@ -639,6 +641,10 @@ async def reports_page(
         order = (
             receipts if receipts in sales_repo.RECEIPT_ORDERS
             else sales_repo.DEFAULT_RECEIPT_ORDER
+        )
+        kind = (
+            only if only in sales_repo.RECEIPT_KINDS
+            else sales_repo.DEFAULT_RECEIPT_KIND
         )
         # Nine independent questions about one evening, asked together rather than
         # nine round-trips deep. Only the session had to be fetched first, because it
@@ -650,7 +656,7 @@ async def reports_page(
             till_repo.for_session(store_session_id),
             money_repo.totals_for_session(store_session_id),
             sessions_repo.shifts_in_session(store_session_id),
-            sales_repo.receipts_in_store_session(store_session_id, order),
+            sales_repo.receipts_in_store_session(store_session_id, order, kind),
             money_repo.ledger_for_session(store_session_id),
             # Named "stock", not "items": `d.items` in a template resolves to
             # dict.items and silently renders nothing.
@@ -670,7 +676,11 @@ async def reports_page(
             # come back to after a correction — a price typed while the table was in
             # alphabetical order should not resort it under the owner's hands.
             "receipts_order": order,
-            "here": f"/reports?store_session_id={store_session_id}&receipts={order}#receipts",
+            "receipts_kind": kind,
+            "here": (
+                f"/reports?store_session_id={store_session_id}"
+                f"&receipts={order}&only={kind}#receipts"
+            ),
             "ledger": ledger,
             "stock": stock,
             "history": history,

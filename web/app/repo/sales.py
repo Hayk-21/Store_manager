@@ -237,17 +237,36 @@ RECEIPT_ORDERS = {
 }
 DEFAULT_RECEIPT_ORDER = "time"
 
+# Which receipts to show at all. Looked up the same way and for the same reason:
+# whatever arrives in the query string can only choose one of these, never add to it.
+#
+# The three are not a partition and are not meant to read as one — a delivery is paid
+# in cash or by card like anything else, so «Առաքում» overlaps both of the others.
+# They are three questions an owner actually asks of this table («which ones were
+# cash», «what went out of the door»), not three buckets that add up to the whole.
+RECEIPT_KINDS = {
+    "all": "TRUE",
+    "cash": "payment_method = 'cash'",
+    "card": "payment_method = 'card'",
+    "delivery": "is_delivery",
+}
+DEFAULT_RECEIPT_KIND = "all"
+
 
 async def receipts_in_store_session(
-    store_session_id: int, order: str = DEFAULT_RECEIPT_ORDER
+    store_session_id: int,
+    order: str = DEFAULT_RECEIPT_ORDER,
+    kind: str = DEFAULT_RECEIPT_KIND,
 ) -> list[asyncpg.Record]:
-    """Every receipt of one session, newest first or by what was sold.
+    """Every receipt of one session — or one kind of them — newest first or by name.
 
-    The sort is applied outside the query rather than inside it because the thing
-    being sorted by — the line «Vanter 30000 ×2» — is assembled in the select list,
-    and Postgres will not let an expression in ORDER BY reach an output alias.
+    Both the sort and the filter are applied outside the inner query rather than
+    inside it, because the thing they read — the line «Vanter 30000 ×2», the
+    delivery flag — is assembled in the select list, and Postgres will not let an
+    expression in ORDER BY or WHERE reach an output alias.
     """
     ordering = RECEIPT_ORDERS.get(order, RECEIPT_ORDERS[DEFAULT_RECEIPT_ORDER])
+    only = RECEIPT_KINDS.get(kind, RECEIPT_KINDS[DEFAULT_RECEIPT_KIND])
     return await db.fetch(
         f"""
         SELECT * FROM (
@@ -272,6 +291,7 @@ async def receipts_in_store_session(
           ) one ON true
          WHERE sa.store_session_id = $1
         ) r
+         WHERE {only}
          ORDER BY {ordering}
         """,
         store_session_id,

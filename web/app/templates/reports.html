@@ -129,6 +129,16 @@
       <span class="total-label">Քարտով վաճառք</span>
       <span class="total-value">{{ d.totals.net_sale_card | money }}</span>
     </div>
+    {# How much of «Վաճառք» went out of the door rather than over the counter. It is
+       not a fourth kind of money — the cash and card above already contain it — so it
+       reads as part of the total rather than as something to add to it, which is what
+       the line under these figures spells out. Beside them because it is the split an
+       owner asks about as often as the payment one, and it was only in a sentence
+       underneath. #}
+    <div class="total">
+      <span class="total-label">Առաքումով վաճառք</span>
+      <span class="total-value">{{ d.totals.delivery_sales | money }}</span>
+    </div>
     {# The two an owner actually looks for, so they are coloured and the rest are not.
        Colour used sparingly or it stops pointing at anything. #}
     <div class="total">
@@ -346,17 +356,34 @@
      any Aokit tonight» is the other one, and time order answers it by making somebody
      read forty rows — so the same rows, by name, are one click away. Links rather than
      a dropdown: there are two of them, and a dropdown hides one behind a click. #}
+  {# The sort and the filter are independent, and each link carries the other's
+     current value — choosing «Քարտ» while reading by name must not throw the order
+     away, and neither must the reverse. The three filters are not a partition and
+     are not laid out as one: a delivery is paid in cash or by card like anything
+     else, so «Առաքում» overlaps the two beside it. They are the three questions this
+     table gets asked, not three buckets that add up to the whole. #}
+  {% macro receipts_url(order, kind) -%}
+    /reports?store_session_id={{ d.session.id }}&receipts={{ order }}&only={{ kind }}#receipts
+  {%- endmacro %}
   <div class="status-head">
     <h3 id="receipts">Չեկեր</h3>
-    {% if d.receipts %}
+    {% if d.receipts or d.receipts_kind != 'all' %}
+    <span class="sort-links">
+      <span class="muted small">Ցույց տալ՝</span>
+      {% for kind, label in [('all', 'բոլորը'), ('cash', 'կանխիկ'),
+                             ('card', 'քարտով'), ('delivery', 'առաքում')] %}
+      <a href="{{ receipts_url(d.receipts_order, kind) }}"
+         class="{% if d.receipts_kind == kind %}is-on{% endif %}"
+         {% if d.receipts_kind == kind %}aria-current="true"{% endif %}>{{ label }}</a>
+      {% endfor %}
+    </span>
     <span class="sort-links">
       <span class="muted small">Դասավորել՝</span>
-      <a href="/reports?store_session_id={{ d.session.id }}&receipts=time#receipts"
-         class="{% if d.receipts_order == 'time' %}is-on{% endif %}"
-         {% if d.receipts_order == 'time' %}aria-current="true"{% endif %}>ըստ ժամի</a>
-      <a href="/reports?store_session_id={{ d.session.id }}&receipts=name#receipts"
-         class="{% if d.receipts_order == 'name' %}is-on{% endif %}"
-         {% if d.receipts_order == 'name' %}aria-current="true"{% endif %}>ըստ անվան</a>
+      {% for order, label in [('time', 'ըստ ժամի'), ('name', 'ըստ անվան')] %}
+      <a href="{{ receipts_url(order, d.receipts_kind) }}"
+         class="{% if d.receipts_order == order %}is-on{% endif %}"
+         {% if d.receipts_order == order %}aria-current="true"{% endif %}>{{ label }}</a>
+      {% endfor %}
     </span>
     {% endif %}
   </div>
@@ -460,7 +487,13 @@
     {% endif %}
   {% endfor %}
   {% else %}
-  <p class="muted">Այս հերթափոխին վաճառք չի եղել։</p>
+    {% if d.receipts_kind == 'all' %}
+    <p class="muted">Այս հերթափոխին վաճառք չի եղել։</p>
+    {% else %}
+    {# Not the same thing as an evening with no sales, and it would read as one. #}
+    <p class="muted">Այս ընտրությամբ չեկ չկա։
+      <a href="{{ receipts_url(d.receipts_order, 'all') }}">Ցույց տալ բոլորը</a></p>
+    {% endif %}
   {% endif %}
 
   {# Open by default. It was collapsed behind «▸ Ավելացնել մոռացված վաճառք» and got

@@ -290,8 +290,10 @@ async def test_the_chosen_order_is_the_one_shown_as_chosen(client):
 
     page = await client.get(f"/reports?store_session_id={session_id}&receipts=name")
 
-    assert re.search(r'receipts=name#receipts"\s+class="is-on"', page.text)
-    assert re.search(r'receipts=time#receipts"\s+class=""', page.text)
+    # Each link carries the other control's current value, so the URL has both in
+    # it — choosing an order must not throw away which receipts are being shown.
+    assert re.search(r'receipts=name&only=all#receipts"\s+class="is-on"', page.text)
+    assert re.search(r'receipts=time&only=all#receipts"\s+class=""', page.text)
 
 
 async def test_an_order_nobody_offers_reads_as_the_default(client):
@@ -351,3 +353,95 @@ async def test_another_owners_session_is_not_reachable(client):
 
     detail = await client.get(f"/reports?store_session_id={session_id}")
     assert detail.status_code == 404
+
+
+# -- showing one kind of receipt ---------------------------------------------
+
+async def _an_evening_of_every_kind():
+    """A cash sale, a card sale, and a delivery paid by card."""
+    owner_id, store_id, worker, item_id = await _a_completed_shift()
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "card", "idem-card-1"
+    )
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 1}], "card", "idem-delivery-1",
+        is_delivery=True,
+    )
+    return await db.fetchval("SELECT id FROM store_sessions")
+
+
+async def test_the_receipts_can_be_narrowed_to_one_kind(client):
+    session_id = await _an_evening_of_every_kind()
+    await login(client, "@ownerhandle")
+
+    everything = await client.get(f"/reports?store_session_id={session_id}")
+    cash = await client.get(f"/reports?store_session_id={session_id}&only=cash")
+    card = await client.get(f"/reports?store_session_id={session_id}&only=card")
+    delivery = await client.get(f"/reports?store_session_id={session_id}&only=delivery")
+
+    assert _receipts_table(everything.text).count("<tr") == 4, "a header and three sales"
+    assert _receipts_table(cash.text).count("<tr") == 2, "the opening cash sale"
+    assert _receipts_table(card.text).count("<tr") == 3, "both card sales"
+    assert _receipts_table(delivery.text).count("<tr") == 2, "the delivery, card or not"
+
+
+async def test_the_kinds_overlap_on_purpose(client):
+    """A delivery is paid in cash or by card like anything else, so «Առաքում» is not
+    a third bucket beside them — it is a different question about the same rows."""
+    session_id = await _an_evening_of_every_kind()
+    await login(client, "@ownerhandle")
+
+    card = await client.get(f"/reports?store_session_id={session_id}&only=card")
+
+    assert card.text.count("առաքում") >= 1, "the delivery is in the card list too"
+
+
+async def test_choosing_a_kind_keeps_the_order(client):
+    """And the reverse. Two independent controls, each carrying the other."""
+    session_id = await _an_evening_of_every_kind()
+    await login(client, "@ownerhandle")
+
+    page = await client.get(
+        f"/reports?store_session_id={session_id}&receipts=name&only=card"
+    )
+
+    assert re.search(r'receipts=name&only=card#receipts"\s+class="is-on"', page.text)
+    assert "receipts=name&only=delivery" in page.text, "the other filters keep the order"
+    assert "receipts=time&only=card" in page.text, "and the other order keeps the filter"
+
+
+async def test_a_kind_with_nothing_in_it_says_so(client):
+    """Not the same thing as an evening with no sales, and it would read as one."""
+    _, _, worker, _ = await _a_completed_shift()
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}&only=delivery")
+
+    assert "Այս ընտրությամբ չեկ չկա" in page.text
+    assert "Այս հերթափոխին վաճառք չի եղել" not in page.text
+
+
+async def test_a_kind_nobody_offers_reads_as_all_of_them(client):
+    session_id = await _an_evening_of_every_kind()
+    await login(client, "@ownerhandle")
+
+    page = await client.get(
+        f"/reports?store_session_id={session_id}&only=1;DROP TABLE sales"
+    )
+
+    assert page.status_code == 200
+    assert _receipts_table(page.text).count("<tr") == 4
+    assert await db.fetchval("SELECT count(*) FROM sales") == 3
+
+
+async def test_the_header_carries_the_delivery_figure(client):
+    """It was only in a sentence underneath, and it is the split an owner asks
+    about as often as the payment one."""
+    session_id = await _an_evening_of_every_kind()
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "Առաքումով վաճառք" in page.text
+    assert "3,500.00" in page.text
