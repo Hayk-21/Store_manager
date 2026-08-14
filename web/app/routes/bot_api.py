@@ -42,6 +42,7 @@ from app.schemas import (
     TillCountRequest,
     TransferDecision,
     TransferRequest,
+    UndoAdjustRequest,
     VoidRequest,
     WithdrawRequest,
     WriteOffRequest,
@@ -593,6 +594,21 @@ async def adjust_stock(body: AdjustStockRequest) -> dict:
         [{"item_id": line.item_id, "delta": line.delta} for line in body.lines],
         body.idempotency_key,
         body.note,
+    )
+
+
+@router.post("/items/adjust/undo", status_code=201)
+async def undo_adjust_stock(body: UndoAdjustRequest) -> dict:
+    """Take back a correction the cashier has just made.
+
+    The rows they wrote stay and the opposite correction is written beside them —
+    the same rule a voided sale follows, where the receipt is kept and struck
+    through rather than removed. A worker undoing their own slip must not be able
+    to make it disappear.
+    """
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
+    return await stock_service.undo_by_worker(
+        worker, body.external_id, body.idempotency_key
     )
 
 

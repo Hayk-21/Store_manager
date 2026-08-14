@@ -17,8 +17,9 @@ from decimal import Decimal
 import pytest
 
 from app.db import db
-from app.errors import BotError
+from app.errors import AppError, BotError
 from app.repo import adjustments as adjustments_repo
+from app.services import corrections
 from app.services import shifts as shifts_service
 from app.services import stock as stock_service
 from tests.factories import (
@@ -280,3 +281,181 @@ async def test_the_session_rows_are_readable_on_their_own(client):
     assert rows[0]["name"] == "HQD Cuvie"
     assert rows[0]["delta"] == -3
     assert rows[0]["worker_name"] == "Անի"
+
+
+# -- taking one back ---------------------------------------------------------
+#
+# Two doors, deliberately different. The cashier's undo keeps their mistake on the
+# record and writes the opposite correction beside it — a worker undoing their own
+# slip must not be able to make it disappear, which is the rule a voided sale
+# already follows. The owner's delete removes the row outright, because the owner
+# is who the log is *for*.
+
+async def test_a_cashier_can_take_back_what_they_just_corrected(client):
+    """39 where they meant 37, and no way to say so: the fix was another correction,
+    which needs the number the shelf had before — and the bot had just replaced it
+    with the new one on screen."""
+    _, _, worker, item_id, _ = await _on_shift()
+    await stock_service.adjust_by_worker(
+        worker, [{"item_id": item_id, "delta": 2}], "idem-adj-01"
+    )
+
+    await stock_service.undo_by_worker(worker, "idem-adj-01", "idem-undo-01")
+
+    assert await _count(item_id) == 10, "back where the shelf started"
+
+
+async def test_taking_one_back_keeps_the_mistake_on_the_record(client):
+    """A worker undoing their own slip must not be able to hide it — the same rule
+    a voided sale follows, where the receipt stays and is struck through."""
+    _, _, worker, item_id, _ = await _on_shift()
+    await stock_service.adjust_by_worker(
+        worker, [{"item_id": item_id, "delta": 2}], "idem-adj-01"
+    )
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+
+    await stock_service.undo_by_worker(worker, "idem-adj-01", "idem-undo-01")
+    rows = await adjustments_repo.for_session(session_id)
+
+    assert [row["delta"] for row in rows] == [-2, 2], "both, newest first"
+    assert rows[0]["note"] == stock_service.UNDO_NOTE
+
+
+async def test_the_whole_batch_comes_back_together(client):
+    """One tap of confirm corrected four products; undoing it undoes the tap."""
+    owner_id, store_id, worker, first, _ = await _on_shift()
+    second = await make_item(owner_id, store_id, "Elf Bar", count=4, sell_price="3000.00")
+    await stock_service.adjust_by_worker(
+        worker,
+        [{"item_id": first, "delta": 5}, {"item_id": second, "delta": -2}],
+        "idem-adj-01",
+    )
+
+    await stock_service.undo_by_worker(worker, "idem-adj-01", "idem-undo-01")
+
+    assert await _count(first) == 10
+    assert await _count(second) == 4
+
+
+async def test_undoing_twice_does_not_double_it(client):
+    """A retried tap is the same tap. Its own key, checked under the shift lock."""
+    _, _, worker, item_id, _ = await _on_shift()
+    await stock_service.adjust_by_worker(
+        worker, [{"item_id": item_id, "delta": 3}], "idem-adj-01"
+    )
+
+    await stock_service.undo_by_worker(worker, "idem-adj-01", "idem-undo-01")
+    await stock_service.undo_by_worker(worker, "idem-adj-01", "idem-undo-01")
+
+    assert await _count(item_id) == 10
+
+
+async def test_stock_already_sold_cannot_be_taken_back(client):
+    """A correction that added ten cannot be reversed once eight have been sold —
+    saying so beats letting a count go negative."""
+    _, _, worker, item_id, _ = await _on_shift(count=0)
+    await stock_service.adjust_by_worker(
+        worker, [{"item_id": item_id, "delta": 10}], "idem-adj-01"
+    )
+    await db.execute("UPDATE items SET count = 2 WHERE id = $1", item_id)
+
+    with pytest.raises(BotError):
+        await stock_service.undo_by_worker(worker, "idem-adj-01", "idem-undo-01")
+
+    assert await _count(item_id) == 2, "nothing moved"
+
+
+async def test_one_cashier_cannot_undo_anothers_correction(client):
+    owner_id, store_id, worker, item_id, _ = await _on_shift()
+    await stock_service.adjust_by_worker(
+        worker, [{"item_id": item_id, "delta": 4}], "idem-adj-01"
+    )
+    other_id, _ = await make_worker(owner_id, "Բաբկեն", salary_amount="0.00")
+    other = shifts_service.Worker(
+        id=other_id, owner_id=owner_id, name="Բաբկեն", salary_amount=Decimal("0.00")
+    )
+    await shifts_service.open_store(other, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-2", 900)
+
+    with pytest.raises(BotError):
+        await stock_service.undo_by_worker(other, "idem-adj-01", "idem-undo-01")
+
+    assert await _count(item_id) == 14
+
+
+async def test_the_bot_endpoint_takes_it_back(client, bot_headers):
+    _, _, worker, item_id, telegram_id = await _on_shift()
+    await stock_service.adjust_by_worker(
+        worker, [{"item_id": item_id, "delta": 7}], "idem-adj-01"
+    )
+
+    response = await client.post(
+        f"{BASE}/items/adjust/undo",
+        json={"telegram_id": telegram_id, "external_id": "idem-adj-01",
+              "idempotency_key": "idem-undo-01"},
+        headers=bot_headers,
+    )
+
+    assert response.status_code == 201, response.text
+    assert await _count(item_id) == 10
+
+
+# -- the owner removing one --------------------------------------------------
+
+async def test_the_owner_can_delete_a_correction_and_the_count_returns(client):
+    """The report has always shown these and never let the owner do anything about
+    them, so a cashier's mistake could only be answered with a second correction."""
+    owner_id, _, worker, item_id, _ = await _on_shift()
+    await stock_service.adjust_by_worker(
+        worker, [{"item_id": item_id, "delta": 6}], "idem-adj-01"
+    )
+    row_id = await db.fetchval("SELECT id FROM stock_adjustments")
+
+    await corrections.delete_adjustment(owner_id, owner_id, row_id)
+
+    assert await _count(item_id) == 10
+    assert await db.fetchval("SELECT count(*) FROM stock_adjustments") == 0
+
+
+async def test_deleting_a_correction_is_undoable(client):
+    owner_id, _, worker, item_id, _ = await _on_shift()
+    await stock_service.adjust_by_worker(
+        worker, [{"item_id": item_id, "delta": 6}], "idem-adj-01"
+    )
+    row_id = await db.fetchval("SELECT id FROM stock_adjustments")
+    await corrections.delete_adjustment(owner_id, owner_id, row_id)
+
+    event = await db.fetchrow(
+        "SELECT id FROM audit_events WHERE action = 'delete_adjustment'"
+    )
+    await corrections.revert(owner_id, owner_id, event["id"])
+
+    assert await _count(item_id) == 16, "the correction is back"
+    assert await db.fetchval("SELECT count(*) FROM stock_adjustments") == 1
+
+
+async def test_a_correction_whose_goods_have_sold_cannot_be_deleted(client):
+    """Removing it would leave a count below zero, which no shelf can hold."""
+    owner_id, _, worker, item_id, _ = await _on_shift(count=0)
+    await stock_service.adjust_by_worker(
+        worker, [{"item_id": item_id, "delta": 10}], "idem-adj-01"
+    )
+    row_id = await db.fetchval("SELECT id FROM stock_adjustments")
+    await db.execute("UPDATE items SET count = 2 WHERE id = $1", item_id)
+
+    with pytest.raises(AppError):
+        await corrections.delete_adjustment(owner_id, owner_id, row_id)
+
+    assert await db.fetchval("SELECT count(*) FROM stock_adjustments") == 1
+
+
+async def test_the_report_offers_the_delete(client):
+    _, _, worker, item_id, _ = await _on_shift()
+    await stock_service.adjust_by_worker(
+        worker, [{"item_id": item_id, "delta": 6}], "idem-adj-01"
+    )
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "/adjustments/" in page.text

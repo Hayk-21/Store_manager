@@ -1458,6 +1458,25 @@ async def delete_write_off(
     )
 
 
+@router.post("/adjustments/{adjustment_id}/delete")
+async def delete_adjustment(
+    adjustment_id: int, back: str | None = None,
+    user: CurrentUser = Depends(require_csrf),
+):
+    """Remove a stock correction a cashier made, and put the count back.
+
+    The report has always shown these and never let the owner do anything about
+    them, so a cashier's mistake could only be answered with a second correction —
+    which reads as the shelf having changed twice when it never changed at all.
+    """
+    session_id = await db.fetchval(
+        "SELECT store_session_id FROM stock_adjustments WHERE id = $1 AND owner_id = $2",
+        adjustment_id, user.id,
+    )
+    await corrections.delete_adjustment(user.id, user.id, adjustment_id)
+    return _back_to(back, f"/reports?store_session_id={session_id}")
+
+
 @router.post("/workers/{worker_id}")
 async def edit_worker(
     worker_id: int,

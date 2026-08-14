@@ -318,7 +318,64 @@ async def submit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await query.message.reply_text(
         body, parse_mode=ParseMode.HTML, reply_markup=keyboards.on_shift()
     )
+    # The way back, on the confirmation itself. A cashier who typed 39 where they
+    # meant 37 could not fix it: making a second correction needs the number the
+    # shelf had before, and the message above has just replaced it with the new one.
+    # The button carries this batch's own key, so tapping it after another
+    # correction still reverses the right one.
+    await query.message.reply_text(
+        texts.UNDO_STOCK_HINT, reply_markup=keyboards.undo_stock(key)
+    )
     return ConversationHandler.END
+
+
+async def undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Take back the batch of corrections this button belongs to.
+
+    Registered outside the conversation, like the sell flow's undo: the correction
+    is finished, so this is not a step in making one.
+
+    The original rows are kept and the opposite correction is written beside them.
+    A worker undoing their own slip must not be able to make it disappear — the
+    same rule a voided sale follows, where the receipt stays and is struck through.
+    """
+    query = update.callback_query
+    await query.answer()
+    external_id = query.data.split(":", 1)[1]
+    key = f"undo-{external_id}"
+
+    try:
+        result = await api.undo_adjust_stock(
+            update.effective_user.id, external_id=external_id, key=key
+        )
+    except (ApiError, ApiUnavailable) as exc:
+        await query.message.reply_text(exc.human())
+        return
+    except Exception:  # noqa: BLE001
+        log.exception("could not undo stock correction %s", external_id)
+        await query.message.reply_text(texts.UNEXPECTED)
+        return
+
+    # Reversed as far as the books are concerned. Nothing below may report failure.
+    await query.edit_message_reply_markup(reply_markup=None)
+    try:
+        body = texts.RESTOCK_UNDONE.format(
+            rows="\n".join(
+                texts.RESTOCK_DONE_ROW.format(
+                    name=format.esc(row["name"]),
+                    delta=_signed(row["delta"]),
+                    count=row["count_after"],
+                )
+                for row in result["adjusted"]
+            )
+        )
+    except (KeyError, TypeError):
+        log.exception("could not render an undo confirmation from %r", result)
+        body = texts.RESTOCK_UNDONE_PLAINLY
+
+    await query.message.reply_text(
+        body, parse_mode=ParseMode.HTML, reply_markup=keyboards.on_shift()
+    )
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

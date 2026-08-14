@@ -350,6 +350,23 @@ class Api:
             payload["note"] = note
         return await self._call("POST", "/items/adjust", json=payload)
 
+    async def undo_adjust_stock(self, telegram_id: int, external_id: str, key: str) -> dict:
+        """Take back the batch of corrections ``external_id`` identifies.
+
+        The batch, because the cashier counted the shelf once and confirmed once —
+        that tap is the thing being undone. Its own key on top, because the undo is
+        an action in its own right and a retry must not reverse twice.
+        """
+        return await self._call(
+            "POST",
+            "/items/adjust/undo",
+            json={
+                "telegram_id": telegram_id,
+                "external_id": external_id,
+                "idempotency_key": key,
+            },
+        )
+
     async def withdraw(
         self, telegram_id: int, amount: str, purpose: str, key: str
     ) -> dict:

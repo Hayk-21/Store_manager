@@ -23,6 +23,7 @@ truth; the snapshot is a convenience.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from decimal import Decimal
 
 from app.db import db
@@ -54,6 +55,7 @@ ACTION_LABELS = {
     "delete_till_count": "Դրամարկղի հաշվարկի ջնջում",
     "set_movement_amount": "Գրառման գումարի փոփոխում",
     "add_write_off": "Գրանցված խոտան",
+    "delete_adjustment": "Պահեստի ուղղման ջնջում",
 }
 
 
@@ -634,6 +636,115 @@ async def delete_movement(owner_id: int, user_id: int, movement_id: int) -> None
     log.info("owner %s deleted movement %s", owner_id, movement_id)
 
 
+async def delete_adjustment(owner_id: int, user_id: int, adjustment_id: int) -> None:
+    """Remove a stock correction a cashier made, and put the count back.
+
+    A correction is a claim about the shelf — «there are ten more of these than the
+    screen says» — and a cashier can be wrong about it: the wrong product, the wrong
+    number, a delivery counted twice. Until now the owner could read the claim on the
+    report and do nothing about it, so the only way to fix a bad correction was to
+    make another one, which left the log saying the shelf had changed twice when it
+    had not changed at all.
+
+    Removing it undoes what it did. The row said the count went up by ten; taking it
+    out takes those ten back off, so the shelf number returns to what it would have
+    been if nobody had touched it.
+
+    **Except when the goods have since been sold.** If the correction added ten and
+    eight of them have left the shop, removing it would leave a count of minus two —
+    a number no shelf can hold. That is refused rather than clamped, because a
+    clamped count is a wrong count that nobody will ever notice.
+    """
+    async with db.transaction() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT sa.id, sa.store_id, sa.item_id, sa.worker_id, sa.work_session_id,
+                   sa.store_session_id, sa.delta, sa.count_after, sa.note,
+                   sa.external_id, sa.created_at, i.name
+              FROM stock_adjustments sa
+              JOIN items i ON i.id = sa.item_id
+             WHERE sa.id = $1 AND sa.owner_id = $2
+               FOR UPDATE OF sa
+            """,
+            adjustment_id, owner_id,
+        )
+        if row is None:
+            raise AppError("not_found", "Ուղղումը չի գտնվել։")
+
+        # The guard is in the WHERE clause rather than in a read followed by a
+        # write, so nothing can sell the last two between the check and the update.
+        put_back = await conn.fetchrow(
+            """
+            UPDATE items SET count = count - $3, updated_at = now()
+             WHERE id = $1 AND owner_id = $2 AND count - $3 >= 0
+            RETURNING count
+            """,
+            row["item_id"], owner_id, row["delta"],
+        )
+        if put_back is None:
+            current = await conn.fetchval(
+                "SELECT count FROM items WHERE id = $1", row["item_id"]
+            )
+            raise AppError(
+                "validation_error",
+                f"«{row['name']}»-ից պահեստում մնացել է {current} հատ։ Այս ուղղումը "
+                f"հանելու համար պետք է հանվի {row['delta']}, ինչը կստացվի բացասական։ "
+                f"Ամենայն հավանականությամբ ապրանքն արդեն վաճառվել է։",
+            )
+
+        await conn.execute("DELETE FROM stock_adjustments WHERE id = $1", adjustment_id)
+        await audit_repo.record(
+            conn, owner_id, user_id, "delete_adjustment",
+            f"Ջնջվեց պահեստի ուղղում՝ {row['name']} {row['delta']:+d}",
+            store_session_id=row["store_session_id"],
+            # The whole row, because nothing else holds it once it is gone — down to
+            # created_at, so a restored correction lands back in its own place in the
+            # evening rather than at the top of the list.
+            payload={
+                "store_id": row["store_id"],
+                "item_id": row["item_id"],
+                "worker_id": row["worker_id"],
+                "work_session_id": row["work_session_id"],
+                "store_session_id": row["store_session_id"],
+                "delta": row["delta"],
+                "count_after": row["count_after"],
+                "note": row["note"],
+                "external_id": row["external_id"],
+                "created_at": row["created_at"].isoformat(),
+            },
+        )
+    log.info("owner %s deleted stock adjustment %s", owner_id, adjustment_id)
+
+
+async def _revert_delete_adjustment(conn, owner_id: int, payload: dict) -> None:
+    """Put the correction back, and the count with it."""
+    row = await conn.fetchrow(
+        """
+        UPDATE items SET count = count + $3, updated_at = now()
+         WHERE id = $1 AND owner_id = $2 AND count + $3 >= 0
+        RETURNING count
+        """,
+        payload["item_id"], owner_id, payload["delta"],
+    )
+    if row is None:
+        raise AppError(
+            "validation_error",
+            "Ապրանքի քանակը թույլ չի տալիս վերականգնել այս ուղղումը։",
+        )
+    await conn.execute(
+        """
+        INSERT INTO stock_adjustments
+            (owner_id, store_id, item_id, worker_id, work_session_id,
+             store_session_id, delta, count_after, note, external_id, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        """,
+        owner_id, payload["store_id"], payload["item_id"], payload["worker_id"],
+        payload["work_session_id"], payload["store_session_id"], payload["delta"],
+        payload["count_after"], payload["note"], payload["external_id"],
+        datetime.fromisoformat(payload["created_at"]),
+    )
+
+
 # -- the shift itself --------------------------------------------------------
 
 async def set_salary(
@@ -1020,4 +1131,5 @@ _REVERTERS = {
     "delete_till_count": _revert_delete_till_count,
     "set_movement_amount": _revert_set_movement_amount,
     "add_write_off": _revert_add_write_off,
+    "delete_adjustment": _revert_delete_adjustment,
 }

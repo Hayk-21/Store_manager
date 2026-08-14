@@ -175,6 +175,17 @@ class AdjustStockRequest(IdempotentRequest):
     note: str | None = Field(default=None, max_length=300)
 
 
+class UndoAdjustRequest(IdempotentRequest):
+    """Take back the batch of corrections identified by ``external_id``.
+
+    The batch, not one product: the cashier counted the shelf once and confirmed
+    once, so that tap is the thing being undone. Its own idempotency key on top,
+    because the undo is itself an action a retry must not apply twice.
+    """
+
+    external_id: str = Field(min_length=8, max_length=128)
+
+
 class TillCountRequest(IdempotentRequest):
     """What the worker is leaving in the drawer at the end of their shift.
 

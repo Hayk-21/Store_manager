@@ -388,6 +388,12 @@ def build() -> Application:
     application.add_handler(
         CallbackQueryHandler(sell.undo, pattern=f"^{keyboards.CB_UNDO}:")
     )
+    # And undoing a stock correction, for the same reason. Registered after the one
+    # above and matching a prefix of its own: «^u:» cannot match «us:», so the two
+    # never compete for a tap.
+    application.add_handler(
+        CallbackQueryHandler(restock.undo, pattern=f"^{keyboards.CB_UNDO_STOCK}:")
+    )
     application.add_handler(MessageHandler(_exact(texts.BTN_DEFECT), defect.begin))
     application.add_handler(MessageHandler(_exact(texts.BTN_TAKE_CASH), cash.begin))
     application.add_handler(MessageHandler(_exact(texts.BTN_ADD_ITEM), restock.begin))

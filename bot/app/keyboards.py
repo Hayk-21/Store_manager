@@ -55,6 +55,11 @@ CB_CANCEL = "x"
 # Undoing one specific sale, so a button tapped three sales later still reverses
 # the receipt it was attached to rather than whatever happens to be last.
 CB_UNDO = "u"
+# Undoing one batch of stock corrections, carrying the key of the tap that made
+# them — so the button still reverses its own batch after another one has been
+# made. A separate prefix from CB_UNDO rather than a shared one: «^u:» does not
+# match «us:», and the two undo entirely different kinds of thing.
+CB_UNDO_STOCK = "us"
 # Dismissing a confirmation, which happens outside any conversation. Nothing
 # builds one any more, but a keyboard already sitting in somebody's chat still
 # can, and a tap that spins forever is worse than one that says "cancelled".
@@ -267,6 +272,18 @@ def undo_sale(sale_id: int) -> InlineKeyboardMarkup:
     """One tap to reverse the sale just recorded."""
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton(texts.BTN_UNDO_SALE, callback_data=f"{CB_UNDO}:{sale_id}")]]
+    )
+
+
+def undo_stock(key: str) -> InlineKeyboardMarkup:
+    """One tap to take back the corrections just made.
+
+    Carries the key of the tap that made them, which is 32 hex characters — well
+    inside Telegram's 64-byte limit on callback data, and the thing that makes a
+    button tapped after a second correction still reverse its own batch.
+    """
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(texts.BTN_UNDO_STOCK, callback_data=f"{CB_UNDO_STOCK}:{key}")]]
     )
 
 

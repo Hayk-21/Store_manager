@@ -32,6 +32,7 @@ BTN_TRANSFER_ASK = "📥 Խնդրել ապրանք այլ խանութից"
 BTN_TRANSFER_APPROVE = "✅ Հաստատել"
 BTN_TRANSFER_REJECT = "❌ Մերժել"
 BTN_UNDO_SALE = "↩️ Չեղարկել վաճառքը"
+BTN_UNDO_STOCK = "↩️ Չեղարկել ուղղումը"
 BTN_OTHER_PRICE = "✏️ Այլ գին"
 BTN_STATUS = "📊 Վիճակ"
 BTN_STOCK = "📦 Պահեստ"
@@ -461,6 +462,13 @@ RESTOCK_NOTHING_YET = (
 RESTOCK_DONE = "✅ <b>Պահեստը թարմացվեց</b>\n\n{rows}"
 RESTOCK_DONE_ROW = "• {name}՝ {delta} → {count} հատ"
 RESTOCK_DONE_PLAINLY = "✅ Պահեստը թարմացվեց։"
+
+# Offered on the confirmation itself. A cashier who typed 39 where they meant 37
+# had no way back: the only fix was another correction, which needs the number the
+# shelf had *before* — and the bot had just replaced it with the new one on screen.
+UNDO_STOCK_HINT = "Սխա՞լ ուղղեցիք։"
+RESTOCK_UNDONE = "↩️ <b>Ուղղումը չեղարկվեց</b>\n\n{rows}"
+RESTOCK_UNDONE_PLAINLY = "↩️ Ուղղումը չեղարկվեց։"
 
 # -- a new product, added at the counter -------------------------------------
 

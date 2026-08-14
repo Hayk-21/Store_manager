@@ -448,7 +448,10 @@ async def test_an_applied_correction_is_never_reported_as_a_failure():
         state = await restock.submit(_tap(keyboards.CB_APPLY), context)
 
     assert state == ConversationHandler.END
-    assert replies == [texts.RESTOCK_DONE_PLAINLY]
+    # The confirmation, then the way back out of it. The second one is the undo
+    # offer, which is sent whether or not the confirmation could be rendered in
+    # full: the correction landed either way, and that is when it can be taken back.
+    assert replies == [texts.RESTOCK_DONE_PLAINLY, texts.UNDO_STOCK_HINT]
     assert "սխալ" not in replies[0].lower()
 
 
@@ -476,3 +479,86 @@ async def test_a_retry_reuses_the_key():
         await restock.submit(_tap(keyboards.CB_APPLY), context)
 
     assert keys[0] == keys[1]
+
+
+# -- taking a correction back ------------------------------------------------
+
+async def test_the_confirmation_offers_the_way_back():
+    """A cashier who typed 39 where they meant 37 had no way to say so: fixing it
+    needed the number the shelf had before, and the confirmation has just replaced
+    it with the new one."""
+    markups = []
+
+    async def fake_adjust(**kwargs):
+        return {"adjusted": [{"name": "HQD Cuvie", "delta": 4, "count_after": 14}]}
+
+    async def noop(*args, **kwargs):
+        return None
+
+    async def fake_reply(self, text, *args, **kwargs):
+        markups.append(kwargs.get("reply_markup"))
+
+    context = _loaded(rs_deltas={"3": 4}, rs_key="abcdef0123456789abcdef0123456789")
+    with (
+        mock.patch.object(restock.api, "adjust_stock", fake_adjust),
+        mock.patch.object(CallbackQuery, "answer", noop),
+        mock.patch.object(CallbackQuery, "edit_message_reply_markup", noop),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await restock.submit(_tap(keyboards.CB_APPLY), context)
+
+    button = markups[-1].inline_keyboard[0][0]
+    assert button.text == texts.BTN_UNDO_STOCK
+    # It carries its own batch, so tapping it after a second correction still
+    # reverses the one it was attached to.
+    assert button.callback_data == f"{keyboards.CB_UNDO_STOCK}:abcdef0123456789abcdef0123456789"
+
+
+async def test_tapping_it_asks_the_server_to_reverse_that_batch():
+    asked = {}
+    replies = []
+
+    async def fake_undo(telegram_id, external_id, key):
+        asked.update(telegram_id=telegram_id, external_id=external_id, key=key)
+        return {"adjusted": [{"name": "HQD Cuvie", "delta": -4, "count_after": 10}]}
+
+    async def noop(*args, **kwargs):
+        return None
+
+    async def fake_reply(self, text, *args, **kwargs):
+        replies.append(text)
+
+    with (
+        mock.patch.object(restock.api, "undo_adjust_stock", fake_undo),
+        mock.patch.object(CallbackQuery, "answer", noop),
+        mock.patch.object(CallbackQuery, "edit_message_reply_markup", noop),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await restock.undo(_tap(f"{keyboards.CB_UNDO_STOCK}:batch-key-01234567"), _loaded())
+
+    assert asked["external_id"] == "batch-key-01234567"
+    assert "HQD Cuvie" in replies[0]
+
+
+async def test_a_refused_undo_says_why_and_changes_nothing():
+    """The stock may have sold since. Saying so beats a count below zero."""
+    replies = []
+
+    async def fake_undo(*args, **kwargs):
+        raise ApiError("validation_error", "Պահեստում կա 2 հատ։")
+
+    async def noop(*args, **kwargs):
+        return None
+
+    async def fake_reply(self, text, *args, **kwargs):
+        replies.append(text)
+
+    with (
+        mock.patch.object(restock.api, "undo_adjust_stock", fake_undo),
+        mock.patch.object(CallbackQuery, "answer", noop),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await restock.undo(_tap(f"{keyboards.CB_UNDO_STOCK}:batch-key-01234567"), _loaded())
+
+    assert len(replies) == 1
+    assert "2" in replies[0]

@@ -681,7 +681,7 @@
     <table class="cards">
       <thead>
         <tr><th>Ժամ</th><th>Ապրանք</th><th class="num">Փոփոխություն</th>
-            <th class="num">Մնացորդ</th><th>Աշխատող</th></tr>
+            <th class="num">Մնացորդ</th><th>Աշխատող</th><th class="num"></th></tr>
       </thead>
       <tbody>
         {% for a in d.adjustments %}
@@ -692,14 +692,32 @@
               data-label="Փոփոխություն">{{ '+' if a.delta > 0 }}{{ a.delta }}</td>
           <td class="num" data-label="Մնացորդ">{{ a.count_after }}</td>
           <td data-label="Աշխատող">{{ a.worker_name or 'ղեկավար' }}</td>
+          {# A correction is a claim about the shelf, and a cashier can be wrong
+             about it. Until this button the owner could read the claim and do
+             nothing — the only answer to a bad correction was another correction,
+             which reads as the shelf having changed twice when it never changed. #}
+          <td class="num cell-actions" data-label="">
+            <button form="adj-drop-{{ a.id }}" type="submit" class="danger tiny"
+                    title="Ջնջել">✕</button>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {# Outside the table: a <form> cannot straddle <td>s. #}
+  {% for a in d.adjustments %}
+    <form id="adj-drop-{{ a.id }}" method="post"
+          action="/adjustments/{{ a.id }}/delete?back={{ d.here | urlencode }}"
+          onsubmit="return confirm('Ջնջե՞լ այս ուղղումը։ Պահեստի քանակը կվերադառնա նախկինին։');">
+      <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+    </form>
+  {% endfor %}
   <p class="muted small">
     Ուղղումը վաճառք չէ և խոտան չէ՝ դրամարկղին չի ազդում։ Այն միայն ուղղում է
     պահեստի թիվը, երբ դարակի վրայի քանակը չի համապատասխանում էկրանին։
+    Ջնջելը հետ է բերում պահեստի քանակը և երևում է
+    <a href="/history">պատմության</a> մեջ՝ կարելի է հետ շրջել։
   </p>
   {% endif %}
 

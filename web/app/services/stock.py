@@ -26,6 +26,12 @@ log = logging.getLogger("storemanager.stock")
 # database to lock every item in the shop.
 MAX_LINES = 100
 
+# What a reversing correction says it is, on the owner's report and in the log.
+# Written rather than inferred: the row is an ordinary correction in the other
+# direction, and without this the report shows «+10» and «−10» minutes apart with
+# nothing to say they are the same event twice.
+UNDO_NOTE = "չեղարկված ուղղում"
+
 
 async def adjust_by_worker(
     worker, lines: list[dict], idem_key: str, note: str | None = None
@@ -113,6 +119,109 @@ async def adjust_by_worker(
 
     log.info(
         "worker %s corrected %d product(s) in store %s",
+        worker.id, len(written), shift["store_id"],
+    )
+    return {"ok": True, "duplicate": False, "adjusted": written}
+
+
+async def undo_by_worker(worker, external_id: str, idem_key: str) -> dict:
+    """Take back a batch of corrections the cashier has just made.
+
+    A cashier who typed 39 where they meant 37 had no way to say so. The only fix
+    was another correction in the other direction, which meant knowing what the
+    number had been before they broke it — and the bot had just told them the new
+    one.
+
+    The original rows stay. A correction that is taken back is not a correction
+    that never happened, and this is the same rule the till follows: a voided sale
+    keeps its receipt and shows it struck through, because a worker undoing their
+    own slip must not be able to make it disappear. So this writes the opposite
+    correction beside the original, and the owner's report reads «+10, then −10» —
+    which is what the shelf actually did.
+
+    An open shift is required, exactly as making the correction was. A cashier who
+    has gone home is not standing in front of the shelf, and the next person may
+    have counted it since.
+    """
+    replay = await adjustments_repo.by_external_id(worker.owner_id, idem_key)
+    if replay:
+        return _payload(replay, duplicate=True)
+
+    async with db.transaction() as conn:
+        shift = await sessions_repo.lock_open_for_worker(conn, worker.id)
+        if shift is None:
+            raise BotError("no_open_session")
+
+        # Re-read under the lock, for the reason the batch itself is re-read there:
+        # one tap wrote several rows under one key, and no unique index can say
+        # "these rows together have already been reversed".
+        replay = await conn.fetch(
+            """
+            SELECT sa.id, sa.item_id, sa.delta, sa.count_after, i.name
+              FROM stock_adjustments sa
+              JOIN items i ON i.id = sa.item_id
+             WHERE sa.owner_id = $1 AND sa.external_id = $2
+             ORDER BY sa.id
+            """,
+            worker.owner_id, idem_key,
+        )
+        if replay:
+            return _payload(replay, duplicate=True)
+
+        original = await conn.fetch(
+            """
+            SELECT sa.id, sa.item_id, sa.delta, i.name
+              FROM stock_adjustments sa
+              JOIN items i ON i.id = sa.item_id
+             WHERE sa.owner_id = $1 AND sa.external_id = $2 AND sa.worker_id = $3
+             ORDER BY sa.item_id
+            """,
+            worker.owner_id, external_id, worker.id,
+        )
+        if not original:
+            raise BotError(
+                "validation_error",
+                "Այս ուղղումը չի գտնվել կամ ձերը չէ։",
+            )
+
+        written = []
+        for row in original:
+            delta = -row["delta"]
+            # The guard is in the WHERE clause: a correction that added ten cannot
+            # be taken back once eight of them have been sold, and saying so is
+            # better than letting a count go negative.
+            applied = await conn.fetchrow(
+                """
+                UPDATE items SET count = count + $4, updated_at = now()
+                 WHERE id = $1 AND owner_id = $2 AND store_id = $3
+                   AND is_active AND count + $4 >= 0
+                RETURNING name, count
+                """,
+                row["item_id"], worker.owner_id, shift["store_id"], delta,
+            )
+            if applied is None:
+                await _explain_refusal(conn, worker.owner_id, row["item_id"], delta)
+
+            row_id = await adjustments_repo.insert(
+                conn,
+                owner_id=worker.owner_id,
+                store_id=shift["store_id"],
+                item_id=row["item_id"],
+                worker_id=worker.id,
+                work_session_id=shift["id"],
+                store_session_id=shift["store_session_id"],
+                delta=delta,
+                count_after=applied["count"],
+                note=UNDO_NOTE,
+                external_id=idem_key,
+            )
+            written.append(
+                {"id": row_id, "item_id": row["item_id"], "name": applied["name"],
+                 "delta": delta, "count_after": applied["count"]}
+            )
+
+    log.info(
+        "worker %s took back %d correction(s) in store %s",
         worker.id, len(written), shift["store_id"],
     )
     return {"ok": True, "duplicate": False, "adjusted": written}
