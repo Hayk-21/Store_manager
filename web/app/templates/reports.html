@@ -175,13 +175,36 @@
        «Դրամարկղում կանխիկ» is bigger than the day's cash sales by exactly this much.
        It is inside «Ղեկավարին» too — the owner is owed the till less what stays —
        and the sentence under these figures does the subtraction in full. #}
+    {# Both editable, and both for the same reason: they are readings of a drawer,
+       taken by somebody who may have been wrong or who may not have looked at all.
+       The first was written by the system out of a balance that could itself be
+       wrong; the second is missing altogether on every evening nobody counted, which
+       is exactly the evening an owner wants to correct. Everything downstream — the
+       cash, «Ղեկավարին», the sentence that explains it — follows from these two, so
+       they are edited here rather than restated somewhere else. #}
     <div class="total">
       <span class="total-label">Նախորդից մնացած</span>
-      <span class="total-value">{{ d.totals.carried_in | money }}</span>
+      <form method="post" class="total-edit"
+            action="/store-sessions/{{ d.session.id }}/carried-in">
+        <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+        <input name="amount" inputmode="decimal" class="money-input"
+               value="{{ d.totals.carried_in | plain_money }}"
+               aria-label="Նախորդից մնացած">
+        <button type="submit" class="secondary tiny" title="Պահել">✓</button>
+      </form>
     </div>
     <div class="total">
       <span class="total-label">Մնաց խանութում</span>
-      <span class="total-value">{{ d.left_in_store | money }}</span>
+      <form method="post" class="total-edit"
+            action="/store-sessions/{{ d.session.id }}/left-in-store">
+        <input type="hidden" name="csrf_token" value="{{ user.csrf_token }}">
+        <input name="counted" inputmode="decimal" class="money-input"
+               value="{{ d.left_in_store | plain_money }}" aria-label="Մնաց խանութում">
+        <button type="submit" class="secondary tiny" title="Պահել">✓</button>
+      </form>
+      {%- if d.nobody_counted %}
+      <span class="muted small">հաշվարկով — ոչ ոք չի հաշվել</span>
+      {% endif %}
     </div>
     {# What the drawer paid, because these sit beside «Ղեկավարին» and «Մնաց խանութում»
        and those are drawer questions. What the shift cost but the till could not cover
@@ -281,7 +304,7 @@
       Դրամարկղը հաշվված չէ։ Ցուցադրվածը հաշվարկով է՝ խանութում մնում է առավոտյան
       բերված մնացորդը՝ <b>{{ d.left_in_store | money }}</b>, իսկ
       <b>{{ d.owed_to_owner | money }}</b>-ը՝ ղեկավարին։
-      Եթե իրականում այլ գումար է մնացել, գրեք այն «Խանութի դրամարկղը» բաժնում։
+      Եթե իրականում այլ գումար է մնացել, ուղղեք «Մնաց խանութում» դաշտը վերևում։
     {% elif d.left_in_store > d.till_now %}
       Աշխատողը գրել է, որ խանութում մնում է <b>{{ d.left_in_store | money }}</b>՝
       դրամարկղում եղածից ավելի, ուստի ղեկավարին հանձնելու գումար չկա։

@@ -8,6 +8,7 @@ from decimal import Decimal
 import asyncpg
 
 from app.db import db
+from app.repo import money as money_repo
 from app.repo.workers import DISPLAY_NAME
 
 # -- store sessions ---------------------------------------------------------
@@ -172,11 +173,13 @@ async def recent_store_sessions(
                          AS bonuses,
                      coalesce(-sum(m.amount) FILTER (WHERE m.kind = 'withdrawal'), 0)
                          AS withdrawn,
-                     -- The float the shop carried in this morning: the one deposit
-                     -- nobody typed. It is what stays on the premises when a session
-                     -- ends without anybody counting the drawer.
+                     -- The float the shop carried in this morning. It is what stays on
+                     -- the premises when a session ends without anybody counting the
+                     -- drawer. Picked out by its note, like the same figure in
+                     -- ``money.totals_for_session``, so an owner correcting a float the
+                     -- system never recorded gets a row that counts as one.
                      coalesce(sum(m.amount) FILTER (
-                         WHERE m.kind = 'deposit' AND m.created_by = 'system'), 0)
+                         WHERE m.kind = 'deposit' AND m.note = $5), 0)
                          AS carried_in
                 FROM cash_movements m WHERE m.store_session_id = ss.id
           ) till ON true
@@ -200,6 +203,7 @@ async def recent_store_sessions(
         tz,
         limit,
         offset,
+        money_repo.CARRIED_OVER_NOTE,
     )
 
 

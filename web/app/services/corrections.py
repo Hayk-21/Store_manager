@@ -636,6 +636,61 @@ async def delete_movement(owner_id: int, user_id: int, movement_id: int) -> None
     log.info("owner %s deleted movement %s", owner_id, movement_id)
 
 
+async def set_carried_in(
+    owner_id: int, user_id: int, store_session_id: int, amount: Decimal
+) -> None:
+    """Change what a session opened its drawer with.
+
+    The float is an ordinary ledger row — the deposit written when the shop was
+    unlocked — so correcting it is correcting that row, and everything that follows
+    from it follows on its own: the cash in the till, the owner's share, the sentence
+    that explains the subtraction. Nothing is stored twice, so nothing can disagree.
+
+    Three cases, and they are the three states a row can be in rather than three
+    features:
+
+    * **there is a row** — the ordinary correction. A shop whose float was recorded
+      as 30,000 when the drawer held 3,000.
+    * **there is none, and the owner is typing one** — a morning the system had
+      nothing to carry over, because nobody counted the night before or because the
+      shop predates the system. The row is written now, and it counts as the float
+      because of what it says it is, not because of who wrote it.
+    * **the owner is setting it to nothing** — the row goes. A float of zero and no
+      float are the same fact, and keeping a «0 ֏» line in the ledger to represent it
+      would be a row that never means anything.
+
+    Each of the three goes through the existing correction it already is, so each is
+    written to the history and each is undoable, with no new kind of event to teach
+    the undo about.
+    """
+    if amount < ZERO:
+        raise AppError("validation_error", "Գումարը չի կարող բացասական լինել։")
+
+    row = await db.fetchrow(
+        """
+        SELECT id FROM cash_movements
+         WHERE store_session_id = $1 AND owner_id = $2
+           AND kind = 'deposit' AND note = $3
+         ORDER BY id LIMIT 1
+        """,
+        store_session_id,
+        owner_id,
+        money_repo.CARRIED_OVER_NOTE,
+    )
+
+    if row is None:
+        if amount <= ZERO:
+            return  # nothing to nothing
+        await add_movement(
+            owner_id, user_id, store_session_id,
+            "deposit", "cash", amount, money_repo.CARRIED_OVER_NOTE,
+        )
+    elif amount <= ZERO:
+        await delete_movement(owner_id, user_id, row["id"])
+    else:
+        await set_movement_amount(owner_id, user_id, row["id"], amount)
+
+
 async def delete_adjustment(owner_id: int, user_id: int, adjustment_id: int) -> None:
     """Remove a stock correction a cashier made, and put the count back.
 

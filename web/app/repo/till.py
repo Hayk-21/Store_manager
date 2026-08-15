@@ -141,6 +141,22 @@ async def latest_for_store(conn, owner_id: int, store_id: int) -> asyncpg.Record
     )
 
 
+async def latest_for_session(store_session_id: int) -> asyncpg.Record | None:
+    """The evening's last word on the drawer, or nothing when nobody looked.
+
+    The same row the report header reads, asked for on its own so a correction can
+    find out whether it is amending a reading or making the first one.
+    """
+    return await db.fetchrow(
+        """
+        SELECT id, counted, expected FROM till_counts
+         WHERE store_session_id = $1
+         ORDER BY created_at DESC, id DESC LIMIT 1
+        """,
+        store_session_id,
+    )
+
+
 async def delete(conn, owner_id: int, count_id: int) -> None:
     await conn.execute(
         "DELETE FROM till_counts WHERE id = $1 AND owner_id = $2", count_id, owner_id

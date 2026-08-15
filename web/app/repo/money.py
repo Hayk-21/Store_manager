@@ -20,6 +20,15 @@ from app.config import settings
 from app.db import db
 from app.repo.workers import DISPLAY_NAME
 
+# What the opening float's ledger row says it is. Here rather than in the service
+# that writes it, because two queries in this module and one in ``sessions`` pick the
+# row out by this note, and a repo may not import a service.
+#
+# Never shown to anybody as a label — the report calls the figure «Նախորդից մնացած»
+# and the ledger table renders the note as the row's own description — so it is free
+# to be the full sentence it is.
+CARRIED_OVER_NOTE = "Նախորդ հերթափոխից մնացած կանխիկ"
+
 
 def _day_start(tz_param: str) -> str:
     """SQL for the moment store ``s``'s trading day began, as a local timestamp.
@@ -161,12 +170,19 @@ _TOTALS_SQL = """
                coalesce(-sum(m.amount) FILTER (WHERE m.kind = 'bonus'), 0)  AS bonuses,
                coalesce(-sum(m.amount) FILTER (WHERE m.kind = 'withdrawal'), 0) AS withdrawn,
                coalesce(sum(m.amount) FILTER (WHERE m.kind = 'deposit'), 0) AS deposited,
-               -- The float the shop carried in this morning: the one deposit nobody
-               -- typed. It is what stays on the premises when a session ends without
-               -- anybody counting the drawer, because nothing then changes the shop's
-               -- balance — so it is also what tomorrow will open with.
+               -- The float the shop carried in this morning. It is what stays on the
+               -- premises when a session ends without anybody counting the drawer,
+               -- because nothing then changes the shop's balance — so it is also what
+               -- tomorrow will open with.
+               --
+               -- Identified by its note rather than by ``created_by = 'system'``, which
+               -- is what it used to be. The two agreed until the owner could correct
+               -- this figure: a morning the system never recorded a float for has no
+               -- row to edit, so the owner writes one, and a row they typed is not the
+               -- system's. What makes it the float is what it *is* — the opening
+               -- balance of this session's drawer — not who entered it.
                coalesce(sum(m.amount) FILTER (
-                   WHERE m.kind = 'deposit' AND m.created_by = 'system'), 0) AS carried_in,
+                   WHERE m.kind = 'deposit' AND m.note = $2), 0) AS carried_in,
                -- Signed, unlike the two above: an owner's correction can go either
                -- way, and forcing it positive would make «+5,000» and «−5,000» look
                -- like the same entry in the one line that explains the till.
@@ -216,7 +232,7 @@ async def totals_on(conn, store_session_id: int) -> asyncpg.Record:
     ``totals_for_session``: a pooled read would run on a different connection and
     would not see the salary rows the transaction has just written.
     """
-    return await conn.fetchrow(_TOTALS_SQL, store_session_id)
+    return await conn.fetchrow(_TOTALS_SQL, store_session_id, CARRIED_OVER_NOTE)
 
 
 async def totals_for_session(store_session_id: int) -> asyncpg.Record:
@@ -226,7 +242,7 @@ async def totals_for_session(store_session_id: int) -> asyncpg.Record:
     copy of the SQL, which is how one of them can grow a column the other has not
     got — and both of them answer «what is in this till».
     """
-    return await db.fetchrow(_TOTALS_SQL, store_session_id)
+    return await db.fetchrow(_TOTALS_SQL, store_session_id, CARRIED_OVER_NOTE)
 
 
 async def insert_movement(

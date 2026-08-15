@@ -886,7 +886,7 @@ async def test_an_uncounted_session_still_says_what_the_owner_is_owed(client):
     page = await client.get(f"/reports?store_session_id={session_id}")
 
     tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
-    assert "40,000.00" in tiles, "the float stays in the shop"
+    assert 'value="40000.00"' in tiles, "the float stays in the shop"
     assert "7,000.00" in tiles, "and the day's cash goes to the owner"
     assert "Դրամարկղը հաշվված չէ" in page.text, "said to be worked out, not declared"
 
@@ -932,7 +932,7 @@ async def test_an_owners_own_deposit_is_not_mistaken_for_the_float(client):
     page = await client.get(f"/reports?store_session_id={session_id}")
 
     tiles = page.text.split('class="totals"')[1].split("</div>\n  </div>")[0]
-    assert "40,000.00" in tiles, "the float, not the 45,000 of deposits"
+    assert 'value="40000.00"' in tiles, "the float, not the 45,000 of deposits"
     assert "12,000.00" in tiles, "7,000 sold plus the 5,000 the owner put in"
 
 
@@ -1428,3 +1428,303 @@ async def test_the_session_rows_carry_the_handover(client):
     assert rows[0]["handed_over"] == Decimal("17000.00")
     assert rows[0]["counted"] == Decimal("30000.00")
     assert rows[0]["worker_name"] == "Անի"
+
+
+# -- correcting either end of the drawer --------------------------------------
+
+async def _csrf() -> str:
+    return await db.fetchval(
+        "SELECT csrf_token FROM auth_sessions ORDER BY created_at DESC LIMIT 1"
+    )
+
+
+async def test_the_owner_can_correct_what_the_shop_opened_with(client):
+    """The float was the one drawer figure that could not be touched.
+
+    It is written by the system out of a balance that may itself be wrong — a count
+    typed with an extra nought last week propagates into every morning after it — and
+    the owner had no way to say what was actually in the drawer that day.
+    """
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    await client.post(
+        f"/store-sessions/{session_id}/carried-in",
+        data={"amount": "4000", "csrf_token": await _csrf()},
+    )
+
+    totals = await money_repo.totals_for_session(session_id)
+    assert Decimal(totals["carried_in"]) == Decimal("4000.00")
+    assert Decimal(totals["cash"]) == Decimal("11000.00"), "4,000 carried + 7,000 sold"
+
+
+async def test_correcting_the_float_moves_everything_that_follows_from_it(client):
+    """Nothing has to be recomputed by hand, which is the whole reason the figure is a
+    ledger row and not a column: the cash, the owner's share and the sentence that
+    explains the subtraction are all sums over the same table."""
+    owner_id, _, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    await client.post(
+        f"/store-sessions/{session_id}/carried-in",
+        data={"amount": "4000", "csrf_token": await _csrf()},
+    )
+    page = (await client.get(f"/reports?store_session_id={session_id}")).text
+
+    assert 'value="4000.00"' in page, "the morning now reads 4,000"
+    # Nobody counted, so the shop keeps what it opened with and the owner gets the rest.
+    assert "7,000.00" in page, "the day's cash is still the owner's"
+
+
+async def test_a_float_the_system_never_recorded_can_be_typed_in(client):
+    """The case with no row to edit: a shop whose balance was zero because nobody had
+    ever counted it, which is every shop's first week. The row is written now, and it
+    counts as the float because of what it is — the opening balance of that drawer —
+    not because of who entered it."""
+    owner_id, _, item_id = await _a_shop()
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    await client.post(
+        f"/store-sessions/{session_id}/carried-in",
+        data={"amount": "30000", "csrf_token": await _csrf()},
+    )
+
+    totals = await money_repo.totals_for_session(session_id)
+    assert Decimal(totals["carried_in"]) == Decimal("30000.00")
+    assert Decimal(totals["cash"]) == Decimal("37000.00")
+
+
+async def test_a_float_set_to_nothing_leaves_no_row_behind(client):
+    """Zero and no float are the same fact. A «0 ֏» line in the ledger would be a row
+    that never means anything, sitting among rows that all do."""
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    await client.post(
+        f"/store-sessions/{session_id}/carried-in",
+        data={"amount": "0", "csrf_token": await _csrf()},
+    )
+
+    assert await db.fetchval(
+        "SELECT count(*) FROM cash_movements WHERE store_session_id = $1", session_id
+    ) == 0
+    assert await _till(session_id) == Decimal("0.00")
+
+
+async def test_every_correction_to_the_float_is_undoable(client):
+    """It goes through the ledger correction it already is, so the history records it
+    and the undo already knows how to reverse it. No new kind of event."""
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    await client.post(
+        f"/store-sessions/{session_id}/carried-in",
+        data={"amount": "4000", "csrf_token": await _csrf()},
+    )
+    event = await db.fetchrow("SELECT id, action FROM audit_events ORDER BY id DESC LIMIT 1")
+    assert event["action"] == "set_movement_amount"
+
+    await corrections_service.revert(owner_id, owner_id, event["id"])
+
+    totals = await money_repo.totals_for_session(session_id)
+    assert Decimal(totals["carried_in"]) == Decimal("40000.00")
+
+
+async def test_the_owner_can_say_what_was_left_when_nobody_counted(client):
+    """The evening that most needed this.
+
+    The report can only *infer* that drawer — the shop keeps whatever it opened with —
+    and an owner who knows the real figure had nowhere to put it. «Ուղղել մնացորդը» on
+    the store page sets today's drawer, not that evening's.
+    """
+    owner_id, store_id, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await _lock_up(worker)  # goes home without counting
+    await login(client, "@ownerhandle")
+
+    await client.post(
+        f"/store-sessions/{session_id}/left-in-store",
+        data={"counted": "45000", "csrf_token": await _csrf()},
+    )
+
+    count = await till_repo.latest_for_session(session_id)
+    assert Decimal(count["counted"]) == Decimal("45000.00")
+    assert Decimal(count["expected"]) == Decimal("47000.00"), "the books, frozen beside it"
+    assert await _balance(store_id) == Decimal("45000.00"), "and tomorrow opens on it"
+
+
+async def test_the_first_reading_records_who_actually_made_it(client):
+    """The owner, not the worker who went home. A count says somebody stood at a drawer
+    and looked, and the report says which of them it was."""
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    await client.post(
+        f"/store-sessions/{session_id}/left-in-store",
+        data={"counted": "35000", "csrf_token": await _csrf()},
+    )
+
+    row = await db.fetchrow(
+        "SELECT kind, worker_id FROM till_counts WHERE store_session_id = $1", session_id
+    )
+    assert row["kind"] == "owner"
+    assert row["worker_id"] is None
+
+
+async def test_correcting_an_existing_count_goes_through_the_same_door(client):
+    """The header box and the row in the table below it edit one figure. Two paths that
+    could disagree about the shop's float is the bug this shape avoids."""
+    owner_id, store_id, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    session_id = await _session()
+    await _lock_up(worker)
+    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await login(client, "@ownerhandle")
+
+    await client.post(
+        f"/store-sessions/{session_id}/left-in-store",
+        data={"counted": "25000", "csrf_token": await _csrf()},
+    )
+
+    assert await db.fetchval(
+        "SELECT count(*) FROM till_counts WHERE store_session_id = $1", session_id
+    ) == 1, "corrected in place, not stacked"
+    count = await till_repo.latest_for_session(session_id)
+    assert Decimal(count["counted"]) == Decimal("25000.00")
+    assert await _balance(store_id) == Decimal("25000.00")
+
+
+async def test_a_reading_filled_in_for_an_old_evening_leaves_todays_drawer_alone(client):
+    """A correction to last Tuesday is a correction to the record. The money in the
+    drawer today is whatever the evenings since then made it, and letting a back-filled
+    reading overwrite it would be the report editing the present."""
+    owner_id, store_id, item_id = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+    tuesday = await _session()
+    await _lock_up(worker, "idem-lockup-1")  # nobody counted
+
+    await _open(worker, "idem-open-2")
+    await _lock_up(worker, "idem-lockup-2")
+    await till_service.declare_close(worker, Decimal("12000"), "idem-till-2")
+    await login(client, "@ownerhandle")
+
+    await client.post(
+        f"/store-sessions/{tuesday}/left-in-store",
+        data={"counted": "45000", "csrf_token": await _csrf()},
+    )
+
+    count = await till_repo.latest_for_session(tuesday)
+    assert Decimal(count["counted"]) == Decimal("45000.00"), "the record is fixed"
+    assert await _balance(store_id) == Decimal("12000.00"), "and today's drawer is not"
+
+
+async def test_both_boxes_are_on_the_report(client):
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+
+    page = (await client.get(f"/reports?store_session_id={session_id}")).text
+
+    assert f"/store-sessions/{session_id}/carried-in" in page
+    assert f"/store-sessions/{session_id}/left-in-store" in page
+
+
+async def test_neither_box_takes_a_negative(client):
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+    await _lock_up(worker)
+    await login(client, "@ownerhandle")
+    token = await _csrf()
+
+    for path, field in (("carried-in", "amount"), ("left-in-store", "counted")):
+        response = await client.post(
+            f"/store-sessions/{session_id}/{path}",
+            data={field: "-100", "csrf_token": token},
+        )
+        assert response.status_code < 500
+
+    totals = await money_repo.totals_for_session(session_id)
+    assert Decimal(totals["carried_in"]) == Decimal("40000.00")
+    assert await db.fetchval(
+        "SELECT count(*) FROM till_counts WHERE store_session_id = $1", session_id
+    ) == 0
+
+
+async def test_another_owners_session_cannot_be_touched(client):
+    """The session id is in the URL, so the scoping is the only thing standing between
+    one shop's books and another's."""
+    owner_id, _, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+    await _lock_up(worker)
+
+    stranger = await make_owner("@stranger")
+    await make_store(stranger, "Ուրիշ", lat=YEREVAN_LAT, lng=YEREVAN_LNG)
+    await login(client, "@stranger")
+    token = await _csrf()
+
+    for path, field in (("carried-in", "amount"), ("left-in-store", "counted")):
+        response = await client.post(
+            f"/store-sessions/{session_id}/{path}",
+            data={field: "1", "csrf_token": token},
+        )
+        assert response.status_code < 500
+
+    assert await db.fetchval(
+        "SELECT count(*) FROM till_counts WHERE store_session_id = $1", session_id
+    ) == 0
+    totals = await money_repo.totals_for_session(session_id)
+    assert Decimal(totals["carried_in"]) == Decimal("40000.00")

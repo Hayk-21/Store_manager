@@ -1349,6 +1349,47 @@ async def set_till_balance(
     )
 
 
+@router.post("/store-sessions/{store_session_id}/carried-in")
+async def set_carried_in(
+    store_session_id: int,
+    amount: str = Form(""),
+    back: str | None = Form(None),
+    user: CurrentUser = Depends(require_csrf),
+):
+    """Correct what a session opened its drawer with.
+
+    The float is a real quantity somebody can be wrong about, and it was the one
+    drawer figure on the report that could not be touched: written by the system when
+    the shop was unlocked, from a balance that may itself have been wrong or never
+    recorded at all. Everything downstream — the cash in the till, «Ղեկավարին», the
+    sentence explaining the subtraction — follows the ledger row, so correcting the
+    row corrects all of them at once.
+    """
+    await corrections.set_carried_in(
+        user.id, user.id, store_session_id, forms.money(amount, "Նախորդից մնացած")
+    )
+    return _back_to_report(store_session_id, back)
+
+
+@router.post("/store-sessions/{store_session_id}/left-in-store")
+async def set_left_in_store(
+    store_session_id: int,
+    counted: str = Form(""),
+    back: str | None = Form(None),
+    user: CurrentUser = Depends(require_csrf),
+):
+    """Correct what stayed in the shop at the end of a session.
+
+    Corrects the evening's count where there is one, and makes the reading where
+    nobody counted — which is the case that most needed this, because the report can
+    only infer that drawer and the owner had nowhere to say otherwise.
+    """
+    await till_service.set_left_in_store(
+        user.id, store_session_id, forms.money(counted, "Մնաց խանութում")
+    )
+    return _back_to_report(store_session_id, back)
+
+
 @router.post("/till-counts/{count_id}/counted")
 async def correct_a_till_count(
     count_id: int,

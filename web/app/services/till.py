@@ -53,7 +53,10 @@ MAX_COUNT = Decimal("10000000.00")
 
 # The one movement this module still writes, plus the note an owner's correction
 # carries. Constants so what the owner reads and what the tests assert cannot drift.
-NOTE_CARRIED_OVER = "Նախորդ հերթափոխից մնացած կանխիկ"
+# The ledger picks the float out of a session's deposits by this note, so it lives
+# beside the queries that do the picking and is re-exported here for the callers that
+# already knew it by this name.
+NOTE_CARRIED_OVER = money_repo.CARRIED_OVER_NOTE
 NOTE_OWNER_SET = "Դրամարկղի մնացորդը ուղղվեց ղեկավարի կողմից"
 
 
@@ -225,6 +228,86 @@ async def set_by_owner(
 
     log.info("owner %s set the float of store %s to %s", owner_id, store_id, amount)
     return amount
+
+
+async def set_left_in_store(owner_id: int, store_session_id: int, counted: Decimal):
+    """What stayed in the shop at the end of one session, set by the owner.
+
+    The figure was only editable where a count already existed, which left the case
+    that most needs editing unreachable: a shift that ended without anybody counting.
+    The report then *infers* the drawer — the shop keeps whatever it opened with,
+    because nothing else changes the balance — and says so, and an owner who knows
+    the real figure had nowhere to put it. «Ուղղել մնացորդը» on the store page sets
+    today's drawer, not that evening's.
+
+    So this makes the reading either way. An existing count is corrected exactly as
+    the row on the page corrects it — the same call, so the header and the table can
+    never disagree — and a session with none gets its first, recorded as the owner's
+    rather than as a worker's, because that is who was standing there.
+
+    **The shop's float only follows when this is the shop's latest session.** A
+    correction to last Tuesday is a correction to the record; the money in the drawer
+    today is whatever the evenings since then made it, and letting a back-filled
+    reading overwrite it would be the report editing the present.
+    """
+    if counted < ZERO or counted > MAX_COUNT:
+        raise AppError("validation_error", "Սխալ գումար։")
+
+    existing = await till_repo.latest_for_session(store_session_id)
+    if existing is not None:
+        await correct_a_count(owner_id, existing["id"], counted)
+        return
+
+    async with db.transaction() as conn:
+        session = await conn.fetchrow(
+            """
+            SELECT id, store_id FROM store_sessions
+             WHERE id = $1 AND owner_id = $2 FOR UPDATE
+            """,
+            store_session_id,
+            owner_id,
+        )
+        if session is None:
+            raise AppError("not_found", "Հերթափոխը չի գտնվել։")
+
+        # The books as they stand, frozen beside the reading like any other count.
+        expected = Decimal((await money_repo.totals_on(conn, store_session_id))["cash"])
+        await till_repo.insert(
+            conn,
+            owner_id=owner_id,
+            store_id=session["store_id"],
+            store_session_id=store_session_id,
+            work_session_id=None,
+            worker_id=None,
+            kind="owner",
+            counted=counted,
+            expected=expected,
+            handed_over=_owners_share(expected, counted),
+            note=NOTE_OWNER_SET,
+            external_id=None,
+        )
+        # By id rather than by ``opened_at``. The id is a sequence, so it settles the
+        # order even when two rows carry the same instant — which happens whenever a
+        # shop is opened twice inside one transaction, and would leave a back-filled
+        # reading looking like the newest word on the drawer.
+        newer = await conn.fetchval(
+            """
+            SELECT 1 FROM store_sessions
+             WHERE store_id = $1 AND owner_id = $2 AND id > $3 LIMIT 1
+            """,
+            session["store_id"],
+            owner_id,
+            store_session_id,
+        )
+        if newer is None:
+            await stores_repo.set_till_balance(
+                conn, owner_id, session["store_id"], counted
+            )
+
+    log.info(
+        "owner %s set what session %s left in the shop to %s",
+        owner_id, store_session_id, counted,
+    )
 
 
 async def correct_a_count(

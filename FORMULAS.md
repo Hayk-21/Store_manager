@@ -262,6 +262,36 @@ takings. It is money the business already had.
 | what the last worker left | `Նախորդից մնացած` — report header and list column; `Խանութի դրամարկղը` on the store page; the bot's greeting when the shop is opened; a line under `Դրամարկղում կանխիկ` in «Վիճակ» |
 | what this worker left | `Մնաց խանութում` — report header and list column, and the count's own row in «Դրամարկղի հաշվարկ» |
 
+### Correcting either one
+
+Both are readings of a drawer taken by somebody who could be wrong — or who did not
+look at all — so both are boxes on the report header rather than figures.
+
+**`Նախորդից մնացած`** edits the ledger row itself, through the corrections that
+already exist, so each change is in the history and each is undoable:
+
+| the row | what happens | history |
+|---|---|---|
+| exists, new amount > 0 | its amount changes | `set_movement_amount` |
+| exists, new amount = 0 | it goes — zero float and no float are one fact | `delete_movement` |
+| none, new amount > 0 | it is written now | `add_movement` |
+
+Which is why the float is picked out of the ledger **by its note** and not by
+`created_by = 'system'`: a morning the system never recorded has no row, so the owner
+writes one, and a row they typed is not the system's. What makes it the float is what
+it is, not who entered it.
+
+**`Մնաց խանութում`** corrects the evening's count where there is one — the same call
+the row in «Դրամարկղի հաշվարկ» makes, so the header and the table cannot disagree —
+and makes the first reading where nobody counted, recorded as `kind = 'owner'`.
+
+```
+stores.till_balance follows the reading  ⟺  no later session exists for that store
+```
+
+A correction to last Tuesday is a correction to the record. Today's drawer is whatever
+the evenings since then made it, and a back-filled reading must not overwrite it.
+
 ```sql
 -- every drawer figure for one session, from the one table
 SELECT kind, created_by, method, sum(amount)

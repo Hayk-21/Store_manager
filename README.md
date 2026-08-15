@@ -103,6 +103,16 @@ arithmetic changed; it was already right, and `test_the_float_carries_over.py` h
 been asserting so all along. What changed is that it is now checkable by the people
 holding the cash.
 
+**And correctable.** Both figures are boxes on the report header, because both are
+readings of a drawer taken by somebody who could be wrong. `Նախորդից մնացած` edits the
+ledger row it is — written, amended or removed through the corrections that already
+exist, so every change is in the history and every one is undoable. `Մնաց խանութում`
+corrects the evening's count through the same call the row below it uses, and *makes*
+the reading on the evening nobody counted, which was the case that most needed it: the
+report could only infer that drawer and the owner had nowhere to say otherwise. The
+shop's own balance follows only when the session is its latest — a correction to last
+Tuesday is a correction to the record, not to the money in the till today.
+
 The report's per-session header answers eleven different questions and says so:
 **Վաճառք · Կանխիկ վաճառք · Քարտով վաճառք · Առաքումով վաճառք · Ղեկավարին ·
 Շրջանառություն · Շահույթ · Նախորդից մնացած · Մնաց խանութում · Աշխատավարձ · Բոնուս**,

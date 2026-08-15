@@ -414,6 +414,19 @@ details[open] > *:not(summary) {
 .total-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
 .total-value { font-size: 26px; font-variant-numeric: tabular-nums; font-weight: 600; }
 
+/* A tile whose figure is a reading somebody took rather than a sum of anything —
+   the drawer at either end of a session. It has to keep reading as a tile: the box
+   sits where the value was, at the value's own size, so the row of figures stays a
+   row of figures rather than turning into a form. */
+.total-edit { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.total-edit .money-input {
+  width: 116px;
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 6px;
+}
+
 .shift-list { list-style: none; padding: 0; margin: 0; }
 .shift-list li { padding: 6px 0; border-bottom: 1px solid var(--line); }
 .shift-list li:last-child { border-bottom: 0; }
