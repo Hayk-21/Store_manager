@@ -128,7 +128,7 @@ async def open_store(
     """Requirement 8: located, matched to a store, attached to it."""
     replay = await sessions_repo.by_start_idem(worker.owner_id, idempotency_key)
     if replay is not None:
-        return _open_payload(worker, replay, duplicate=True)
+        return await _open_payload(worker, replay, duplicate=True)
 
     require_live(live_period)
     match = await require_store(worker.owner_id, lat, lng, accuracy_m)
@@ -197,7 +197,7 @@ async def open_store(
         "joined" if joined_existing else "new session",
     )
     row = await sessions_repo.by_start_idem(worker.owner_id, idempotency_key)
-    return _open_payload(worker, row, duplicate=False)
+    return await _open_payload(worker, row, duplicate=False)
 
 
 async def _resolve_open_conflict(
@@ -214,7 +214,7 @@ async def _resolve_open_conflict(
     """
     replay = await sessions_repo.by_start_idem(worker.owner_id, idempotency_key)
     if replay is not None:
-        return _open_payload(worker, replay, duplicate=True)
+        return await _open_payload(worker, replay, duplicate=True)
 
     constraint = getattr(exc, "constraint_name", "") or ""
     if constraint == "one_open_session_per_worker":
@@ -237,7 +237,21 @@ async def _resolve_open_conflict(
     raise  # pragma: no cover - an unexpected constraint is a bug, not a user error
 
 
-def _open_payload(worker: Worker, row, *, duplicate: bool) -> dict:
+async def _open_payload(worker: Worker, row, *, duplicate: bool) -> dict:
+    """What the bot needs to greet a worker who has just opened up.
+
+    The drawer comes with it, and that is the point of the extra read. A shop keeps
+    a float overnight — whatever the last person to leave said they were leaving —
+    and until now the arriving worker was never told about it. They opened up, sold
+    5,000 in cash, asked what was in the till and were shown 6,000 with no way to
+    tell that 1,000 of it was not theirs. Both figures go over, so the sentence can
+    say the whole thing: what is in there, and how much of it was already.
+
+    ``carried_in`` rather than the store's balance, because a worker joining a
+    session somebody else opened is looking at a drawer that has been trading for
+    six hours — the float is still the float, but the cash is not.
+    """
+    totals = await money_repo.totals_for_session(row["store_session_id"])
     return {
         "ok": True,
         "duplicate": duplicate,
@@ -248,6 +262,10 @@ def _open_payload(worker: Worker, row, *, duplicate: bool) -> dict:
             "store_session_id": row["store_session_id"],
             "started_at": row["started_at"].isoformat(),
             "distance_m": row["start_distance_m"],
+            "till": {
+                "cash": f"{Decimal(totals['cash']):.2f}",
+                "carried_in": f"{Decimal(totals['carried_in']):.2f}",
+            },
         },
         "worker": {
             "id": worker.id,

@@ -183,9 +183,15 @@ async def me(
                 "card_total": f"{sold['delivery_card']:.2f}",
                 "total": f"{sold['delivery_total']:.2f}",
             },
+            # The drawer, plus how much of it was already there when the shop
+            # opened. A worker who finds 6,000 in the till after selling 5,000 in
+            # cash should be able to see where the other 1,000 came from — it is
+            # the float the last person to lock up left behind, not takings, and
+            # not theirs.
             "store_totals": {
                 "cash": f"{totals['cash']:.2f}",
                 "card": f"{totals['card']:.2f}",
+                "carried_in": f"{totals['carried_in']:.2f}",
             },
         }
 

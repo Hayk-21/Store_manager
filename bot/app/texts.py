@@ -104,12 +104,26 @@ SHIFT_OPENED = (
     "✅ Դուք հերթափոխի մեջ եք։\n"
     "Խանութ՝ <b>{store}</b>\n"
     "Հեռավորությունը՝ {distance} մ\n\n"
+    "{drawer}"
     "📍 Կենդանի տեղորոշումը միացված է {minutes} րոպե։ Կարող եք թողնել այնպես՝ "
     "ձեզ ոչինչ պետք չէ անել։\n\n"
     "Աշխատեք հանգիստ։ Օրվա վերջում սեղմեք «🚪 Ավարտել իմ հերթափոխը» "
     "և գրեք, թե ինչ եք վաճառել։"
 )
 SHIFT_ALREADY_OPEN = "Դուք արդեն աշխատում եք «{store}»-ում {since}-ից։"
+# What is in the drawer at the moment of opening up, said once, at the moment it
+# matters. The float is the money the previous worker counted and left behind, and
+# the arriving worker is answerable for it from now on — being told at closing time
+# that the till was 1,000 heavier all along is too late to check anything.
+#
+# Two shapes, because joining a session somebody else opened is a different
+# sentence: the drawer has been trading for six hours by then, so the float is only
+# part of what is in it.
+SHIFT_OPENED_DRAWER = "💰 Դրամարկղում՝ <b>{cash}</b>՝ նախորդ հերթափոխից մնացած։\n\n"
+SHIFT_OPENED_DRAWER_PART = (
+    "💰 Դրամարկղում՝ <b>{cash}</b>, որից <b>{carried}</b>՝ նախորդ հերթափոխից "
+    "մնացած։\n\n"
+)
 
 # -- selling ----------------------------------------------------------------
 
@@ -273,8 +287,15 @@ STATUS = (
     "Հերթափոխը՝ {since}-ից ({duration})\n\n"
     "Ձեր վաճառքը՝ {receipts} չեկ, {sold}\n"
     "{deliveries}\n"
-    "Դրամարկղում կանխիկ՝ {cash}"
+    "Դրամարկղում կանխիկ՝ {cash}{carried}"
 )
+# Slotted under the drawer, and empty when the shop opened on an empty one. The
+# drawer is not all takings: a shop keeps a float overnight — whatever the last
+# person to lock up said they were leaving — and it is in there from the first
+# minute of the shift. A worker who sold 5,000 in cash and is shown 6,000 has no
+# way to tell where the other 1,000 came from, and every one of them assumes the
+# difference is theirs until it is not.
+STATUS_CARRIED = "\n<i>Որից {amount}՝ նախորդ հերթափոխից մնացած։</i>"
 # Slotted into STATUS, and empty on a shift that has taken none. «Ձեր վաճառքը»
 # above is this worker's own selling, and the figure their bonus is measured
 # against; this is the shop's takings through the other door.

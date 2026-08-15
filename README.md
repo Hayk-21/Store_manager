@@ -88,10 +88,25 @@ report. Neither touches the ledger — the balance is what stays on the premises
 the till is what the shop took, and since the handover stopped being booked those are
 no longer the same quantity.
 
-The report's per-session header answers eight different questions and says so:
-**Վաճառք · Կանխիկ վաճառք · Քարտով վաճառք · Ղեկավարին · Շրջանառություն · Շահույթ ·
-Մնաց խանութում · Աշխատավարձ · Բոնուս**, with lines beneath breaking each subtraction
-back down into its parts.
+**The float is now said out loud, on both sides.** It was in every cash figure and
+named in none of them, which is a strange thing to do with money somebody else is
+answerable for. A cashier who sold 5,000 in cash and found 6,000 in the drawer had no
+way to tell where the other 1,000 came from, and the natural reading of a difference
+you cannot explain is that you miscounted your own day.
+
+So the bot says it twice — in the greeting when the shop is opened, which is the
+moment the worker takes charge of that money and the last moment they can still count
+it, and as a line under «Դրամարկղում կանխիկ» in «Վիճակ» — and the report carries
+**Նախորդից մնացած** beside **Մնաց խանութում**, in the header and in the list, so the
+two ends of the drawer's day can be read as the handover they are. Nothing about the
+arithmetic changed; it was already right, and `test_the_float_carries_over.py` had
+been asserting so all along. What changed is that it is now checkable by the people
+holding the cash.
+
+The report's per-session header answers eleven different questions and says so:
+**Վաճառք · Կանխիկ վաճառք · Քարտով վաճառք · Առաքումով վաճառք · Ղեկավարին ·
+Շրջանառություն · Շահույթ · Նախորդից մնացած · Մնաց խանութում · Աշխատավարձ · Բոնուս**,
+with lines beneath breaking each subtraction back down into its parts.
 
 **Two bottom lines, because there are two questions**, and one figure was answering
 both under the name of the other:

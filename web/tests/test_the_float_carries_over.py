@@ -275,3 +275,144 @@ async def test_two_shops_do_not_share_a_float(client):
 
     assert await _float(store_id) == Decimal("30000.00")
     assert await _float(other) == Decimal("0.00"), "the other shop is untouched"
+
+
+# -- and what it looks like from either side ----------------------------------
+
+async def test_the_arriving_worker_is_told_what_is_in_the_drawer(client, bot_headers):
+    """Opening up says how much was left behind.
+
+    The moment the float becomes this worker's responsibility is the moment they
+    unlock the door, and it is the only moment at which they can still check it. Told
+    at closing time that the till had been 1,000 heavier all along, there is nothing
+    left to count.
+    """
+    owner_id, store_id, item_id = await _a_shop()
+    anahit, _ = await _worker(owner_id, "Անի")
+    gor, _ = await _worker(owner_id, "Գոռ")
+
+    await _a_days_work(anahit, item_id, 2, "mon")
+    await till_service.declare_close(anahit, Decimal("1000"), "idem-till-mon")
+
+    opened = await shifts_service.open_store(
+        gor, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-tue", 900
+    )
+
+    assert opened["session"]["till"] == {"cash": "1000.00", "carried_in": "1000.00"}
+
+
+async def test_a_retried_opening_says_the_same_thing(client):
+    """The idempotent replay answers from a different branch, and a payload that grew a
+    field on one path only is how a worker gets told about the drawer once in three
+    tries on a bad connection."""
+    owner_id, store_id, item_id = await _a_shop()
+    anahit, _ = await _worker(owner_id, "Անի")
+    gor, _ = await _worker(owner_id, "Գոռ")
+
+    await _a_days_work(anahit, item_id, 2, "mon")
+    await till_service.declare_close(anahit, Decimal("1000"), "idem-till-mon")
+
+    first = await shifts_service.open_store(
+        gor, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-tue", 900
+    )
+    again = await shifts_service.open_store(
+        gor, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-tue", 900
+    )
+
+    assert again["duplicate"] is True
+    assert again["session"]["till"] == first["session"]["till"]
+
+
+async def test_the_drawer_is_the_float_plus_what_this_worker_sold(client, bot_headers):
+    """The owner's own example, end to end.
+
+    Anahit leaves 1,000. Gor opens up, sells one 5,000 vape for cash, and asks what is
+    in the drawer: 6,000 — of which 1,000 is not his. Both figures go to the bot, so
+    «Վիճակ» can say which is which instead of leaving him to assume the difference is
+    his own miscount.
+    """
+    owner_id, store_id, _ = await _a_shop()
+    vape = await make_item(
+        owner_id, store_id, "Vanter", count=10,
+        self_price="2000.00", sell_price="5000.00",
+    )
+    anahit, _ = await _worker(owner_id, "Անի")
+    gor, gor_tg = await _worker(owner_id, "Գոռ")
+
+    await _a_days_work(anahit, None, 0, "mon")
+    await till_service.declare_close(anahit, Decimal("1000"), "idem-till-mon")
+    await shifts_service.open_store(gor, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-tue", 900)
+    await sales_service.record_sale(
+        gor, [{"item_id": vape, "quantity": 1}], "cash", "idem-sale-tue"
+    )
+
+    me = (await client.get(
+        f"{BASE}/me", params={"telegram_id": gor_tg}, headers=bot_headers
+    )).json()
+
+    assert me["session"]["store_totals"]["cash"] == "6000.00"
+    assert me["session"]["store_totals"]["carried_in"] == "1000.00"
+    # And his own selling stays his own: the float is the shop's, not a sale.
+    assert me["session"]["sales"]["total"] == "5000.00"
+
+
+async def test_the_report_shows_both_ends_of_the_drawer(client):
+    """What the shop opened on and what it closed on, as two figures the owner can
+    subtract. One of them was invisible: «Մնաց խանութում» said what this worker left,
+    and nothing on the page said what they had found."""
+    owner_id, store_id, item_id = await _a_shop()
+    anahit, _ = await _worker(owner_id, "Անի")
+    gor, _ = await _worker(owner_id, "Գոռ")
+
+    await _a_days_work(anahit, item_id, 2, "mon")
+    await till_service.declare_close(anahit, Decimal("30000"), "idem-till-mon")
+    tuesday = await _a_days_work(gor, item_id, 1, "tue")
+    await till_service.declare_close(gor, Decimal("25000"), "idem-till-tue")
+    await login(client, "@ownerhandle")
+
+    page = (await client.get(f"/reports?store_session_id={tuesday}")).text
+
+    assert "Նախորդից մնացած" in page
+    assert "30,000.00" in page, "what Anahit left"
+    assert "25,000.00" in page, "what Gor left"
+    # 30,000 carried + 3,500 sold − 25,000 left behind.
+    assert "8,500.00" in page, "and what the owner is owed"
+
+
+async def test_the_list_carries_the_same_pair(client):
+    """The row and the report it opens answer the drawer question the same way."""
+    owner_id, store_id, item_id = await _a_shop()
+    anahit, _ = await _worker(owner_id, "Անի")
+    gor, _ = await _worker(owner_id, "Գոռ")
+
+    await _a_days_work(anahit, item_id, 2, "mon")
+    await till_service.declare_close(anahit, Decimal("30000"), "idem-till-mon")
+    await _a_days_work(gor, item_id, 1, "tue")
+    await till_service.declare_close(gor, Decimal("25000"), "idem-till-tue")
+    await login(client, "@ownerhandle")
+
+    page = (await client.get("/reports")).text
+
+    assert "Նախորդից մնացած" in page
+    assert page.count("30,000.00") >= 1
+    assert page.count("25,000.00") >= 1
+
+
+async def test_the_float_is_inside_what_the_owner_is_owed(client):
+    """The requirement stated plainly: the money left behind is part of the till, and
+    the owner's share is the till less what stays. A float excluded from it would have
+    the shop hand over the same 30,000 every single morning."""
+    owner_id, store_id, item_id = await _a_shop()
+    anahit, _ = await _worker(owner_id, "Անի")
+    gor, _ = await _worker(owner_id, "Գոռ")
+
+    await _a_days_work(anahit, item_id, 2, "mon")
+    await till_service.declare_close(anahit, Decimal("30000"), "idem-till-mon")
+    await _a_days_work(gor, item_id, 1, "tue")
+
+    # 30,000 carried in + 3,500 sold, and Gor takes nothing home in the drawer.
+    result = await till_service.declare_close(gor, Decimal("0"), "idem-till-tue")
+
+    assert result["count"]["expected"] == "33500.00"
+    assert result["count"]["handed_over"] == "33500.00"
+    assert await _float(store_id) == Decimal("0.00")

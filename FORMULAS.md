@@ -207,3 +207,71 @@ SELECT sa.is_delivery, m.method, sum(m.amount)
 
 The two must agree. The tests in `web/tests/test_delivery.py` assert exactly that,
 including that a voided delivery leaves the delivery half rather than the counter.
+
+---
+
+## 6. The drawer between shifts
+
+Each shop keeps a float — `stores.till_balance` — and it is the one money figure
+that outlives a session, because the cash does: it sits in the drawer overnight.
+
+**Set in exactly two places.** A worker's closing count, and the owner correcting it
+from the store page or a report. Nothing else moves it; a shift that ends without
+anybody counting leaves it exactly where it was.
+
+```
+closing count:  stores.till_balance ← counted
+                Ղեկավարին           = max(0, till cash − counted)
+```
+
+**Carried in.** When a session is opened, that balance is deposited into the new
+session's till as one `deposit` movement with `created_by = 'system'` — which is
+what `Նախորդից մնացած` reads:
+
+```
+Նախորդից մնացած = Σ ledger amount where kind = 'deposit' and created_by = 'system'
+```
+
+A deposit rather than a column, so "what is in the till" stays a single sum over
+`cash_movements` and every figure built on it carries the float without knowing it
+exists. Only a session actually being *opened* gets one: a second worker joining a
+running session must not add it again.
+
+So the whole chain, for the shop that left 1,000 and then sold 5,000 in cash:
+
+```
+Դրամարկղում կանխիկ = 1,000 (նախորդից) + 5,000 (կանխիկ վաճառք)
+                     − աշխատավարձ − բոնուս − դրամարկղից վերցված
+                   = 6,000
+
+Ղեկավարին          = 6,000 − Մնաց խանութում
+Մնաց խանութում     = the count, and tomorrow's Նախորդից մնացած
+```
+
+**Both halves are in the cash and in the owner's share, by construction** — the
+float is an ordinary ledger row, and the share is the till less what stays. Leaving
+it out would have the shop hand over the same 1,000 every single morning.
+
+It is in neither `Շրջանառություն` nor `Շահույթ`, and should not be: a float is not
+takings. It is money the business already had.
+
+### Where each figure is shown
+
+| | Where |
+|---|---|
+| what the last worker left | `Նախորդից մնացած` — report header and list column; `Խանութի դրամարկղը` on the store page; the bot's greeting when the shop is opened; a line under `Դրամարկղում կանխիկ` in «Վիճակ» |
+| what this worker left | `Մնաց խանութում` — report header and list column, and the count's own row in «Դրամարկղի հաշվարկ» |
+
+```sql
+-- every drawer figure for one session, from the one table
+SELECT kind, created_by, method, sum(amount)
+  FROM cash_movements
+ WHERE store_session_id = <session>
+ GROUP BY kind, created_by, method
+ ORDER BY kind;
+-- the deposit row with created_by = 'system' is the float carried in
+```
+
+`web/tests/test_the_float_carries_over.py` walks the whole chain: the balance, the
+till the next session opens with, what the bot reads back, the owner's share, and
+the next morning's float again.

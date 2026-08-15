@@ -178,6 +178,11 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             store=format.esc(session["store_name"]),
             distance=session["distance_m"],
             minutes=round((location.live_period or 0) / 60),
+            # What the last person to lock up left in the drawer. Said here because
+            # this is the moment the worker becomes answerable for it, and because
+            # by closing time «the till was 1,000 heavier all along» is no longer
+            # something anybody can check.
+            drawer=format.drawer_line(session.get("till")),
         ),
         parse_mode=ParseMode.HTML,
         reply_markup=keyboards.on_shift(),
@@ -252,6 +257,10 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             # gone: card money is not in the drawer, it is the shop's income, and a
             # cashier's own card sales are already in «Ձեր վաճառքը» above.
             cash=format.money(session["store_totals"]["cash"]),
+            # How much of that drawer is the float somebody else left. Without it
+            # the cashier reads the whole figure as the day's cash and counts on
+            # handing all of it over.
+            carried=format.carried_line(session["store_totals"]),
         ),
         parse_mode=ParseMode.HTML,
         reply_markup=keyboards.on_shift(),

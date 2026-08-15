@@ -22,6 +22,7 @@
           <th class="num">Վաճառք</th>
           <th class="num">Կանխիկ վաճառք</th>
           <th class="num">Քարտով վաճառք</th>
+          <th class="num">Նախորդից մնացած</th>
           <th class="num">Մնաց խանութում</th>
           <th class="num">Աշխատավարձ</th>
           <th></th>
@@ -66,6 +67,12 @@
           <td class="num" data-label="Վաճառք">{{ s.income | money }}</td>
           <td class="num" data-label="Կանխիկ վաճառք">{{ s.net_sale_cash | money }}</td>
           <td class="num" data-label="Քարտով վաճառք">{{ s.net_sale_card | money }}</td>
+          {# The float this session opened on: what the *previous* worker counted and
+             left in the drawer. It is not takings and it is not this shift's — it was
+             in the till from the first minute — so it stands beside what this shift
+             left rather than inside any of the figures before it. The pair reads as
+             the handover it is: X came in, Y went out. #}
+          <td class="num" data-label="Նախորդից մնացած">{{ s.carried_in | money }}</td>
           {# The evening's last count of the drawer. When nobody counted it is the
              float the shop opened with — not zero, because a worker going home
              without counting has not emptied the shop — and the row says which of
@@ -162,6 +169,16 @@
       <span class="total-value {{ 'accent-profit' if d.day_profit >= 0 else 'negative' }}">
         {{ d.day_profit | money }}</span>
     </div>
+    {# The two ends of the drawer's day, side by side: what the shop opened on and
+       what it closed on. The first is the float the previous worker counted and left
+       behind, deposited into this session's till the moment it opened, which is why
+       «Դրամարկղում կանխիկ» is bigger than the day's cash sales by exactly this much.
+       It is inside «Ղեկավարին» too — the owner is owed the till less what stays —
+       and the sentence under these figures does the subtraction in full. #}
+    <div class="total">
+      <span class="total-label">Նախորդից մնացած</span>
+      <span class="total-value">{{ d.totals.carried_in | money }}</span>
+    </div>
     <div class="total">
       <span class="total-label">Մնաց խանութում</span>
       <span class="total-value">{{ d.left_in_store | money }}</span>
@@ -230,11 +247,21 @@
   {# What came out of the cash between the takings and the handover. Without it
      «Ղեկավարին 31,600» is a number to take on faith. #}
   <p class="muted small">
+    {# The opening balance first, because it came before any of it and because it is
+       the one figure in this line that nobody typed: the float carried in from the
+       previous shift, deposited automatically when the shop opened. It used to sit in
+       the middle of the subtractions below labelled the same way as an owner's own
+       deposit, which made two quite different things read as one. #}
+    {%- if d.totals.carried_in %}
+    Առավոտյան դրամարկղում եղել է <b>{{ d.totals.carried_in | money }}</b>՝ նախորդ
+    հերթափոխից մնացած։
+    {% endif %}
     Կանխիկից հանվել է՝ աշխատավարձ {{ d.totals.salaries | money }}
     {%- if d.totals.bonuses %} · բոնուս {{ d.totals.bonuses | money }}{% endif %}
     {%- if d.totals.withdrawn %} · վերցված {{ d.totals.withdrawn | money }}{% endif %}
     {%- if d.totals.voided %} · չեղարկված {{ d.totals.voided | money }}{% endif %}
-    {%- if d.totals.deposited %} · նախորդից մնացած {{ d.totals.deposited | money }}{% endif %}
+    {%- if d.totals.deposited > d.totals.carried_in %} · ավելացված
+      {{ (d.totals.deposited - d.totals.carried_in) | money }}{% endif %}
     {# «Ճշգրտում» rows are added by the owner from this very page, and they move the
        till like everything else in this line — leaving them out made the subtraction
        fail to add up by exactly the amount that had just been typed in. #}

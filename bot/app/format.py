@@ -119,3 +119,56 @@ def delivery_line(deliveries: dict | None) -> str:
     if not deliveries or not deliveries.get("receipts"):
         return ""
     return texts.STATUS_DELIVERIES.format(receipts=deliveries["receipts"])
+
+
+def _amount(value) -> Decimal:
+    """A money field off the API as a number, and zero when it is missing or junk.
+
+    Every one of these arrives as a string, and a bot deployed ahead of its server
+    will not find the newer fields at all. Neither is worth an exception on a screen
+    whose job is to show what is in a drawer.
+    """
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal(0)
+
+
+def carried_line(totals: dict | None) -> str:
+    """How much of the drawer was already there when the shop opened.
+
+    Nothing when the float is nothing — «որից 0» is a line that says only that the
+    shop opened on an empty till, which the figure above it already said. Nothing
+    either when it is somehow the whole drawer or more: the sentence reads «of
+    which», and a part that is not smaller than the whole is not a part.
+    """
+    if not totals:
+        return ""
+    carried = _amount(totals.get("carried_in"))
+    if carried <= 0 or carried >= _amount(totals.get("cash")):
+        return ""
+    return texts.STATUS_CARRIED.format(amount=money(carried))
+
+
+def drawer_line(till: dict | None) -> str:
+    """What the arriving worker is taking charge of.
+
+    Three cases and only two sentences. An empty drawer gets no line at all — there
+    is nothing to be answerable for, and «Դրամարկղում՝ 0 ֏» on every opening is
+    noise. A drawer that is *only* the float, which is every shop that opens in the
+    morning, gets the short sentence. One that has been trading since somebody else
+    opened up gets the long one, because there the float is only part of what is in
+    it.
+    """
+    if not till:
+        return ""
+    cash, carried = _amount(till.get("cash")), _amount(till.get("carried_in"))
+    if cash <= 0:
+        return ""
+    if carried >= cash:
+        return texts.SHIFT_OPENED_DRAWER.format(cash=money(cash))
+    if carried <= 0:
+        return ""
+    return texts.SHIFT_OPENED_DRAWER_PART.format(
+        cash=money(cash), carried=money(carried)
+    )
