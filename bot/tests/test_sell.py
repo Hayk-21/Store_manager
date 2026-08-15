@@ -49,7 +49,12 @@ def _server_answer(duplicate: bool = False) -> dict:
                 }
             ],
         },
+        # The drawer and the shop's card income. Sent, and never shown to a worker:
+        # a delivery paid by card is in here and is not their sale.
         "store_totals": {"cash": "27000.00", "card": "4000.00"},
+        # What this worker has sold across the counter, which is the only pair of
+        # figures the confirmation may print.
+        "sold_totals": {"cash": "7000.00", "card": "0.00"},
     }
 
 
@@ -457,13 +462,19 @@ def test_the_confirmation_shows_the_counter_and_not_the_drawer():
     assert "4,000" not in body, "and neither is the shop's card income"
 
 
-def test_an_older_service_still_renders_the_confirmation():
-    """The bot and the web service deploy separately and either can be ahead. A
-    sale is already in the books by this point, so nothing here may fail."""
+def test_a_service_that_sends_no_counter_figures_shows_none_at_all():
+    """There used to be a fallback here to the drawer, for a server older than the
+    bot. What it actually did was bring the wrong figure back under the right label —
+    «Ձեր վաճառքը՝ քարտ 4,000» over a card sale the worker never made.
+
+    The sale is in the books either way, so the honest answer when the figures cannot
+    be trusted is to print none of them.
+    """
     result = _server_answer()
     result.pop("sold_totals", None)
 
     body = sell._confirmation(result, "cash")
 
-    assert "HQD Cuvie" in body
-    assert "27,000" in body, "falls back to what the older service does send"
+    assert body == texts.SALE_RECORDED_PLAINLY
+    assert "27,000" not in body, "no falling back to the drawer"
+    assert "4,000" not in body, "nor to the shop's card income"

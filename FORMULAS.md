@@ -68,6 +68,38 @@ This line used to be the **drawer** and the shop's card income — which is how 
 cashier who had taken one card payment of their own came to read «Քարտ՝ 16,000»
 with 3,000 of somebody else's delivery inside it.
 
+### The write-up the worker types
+
+The three totals under «Ցուցակ» are the counter alone. A line marked «առաքում» keeps
+its own amount on its own row — a list you cannot check is not a list you can be
+asked to confirm — but it is in none of the three, and a note under them says so:
+
+```
+Կանխիկ / Քարտ / Ընդամենը = Σ over the typed lines where NOT is_delivery
+```
+
+### No card figure the worker did not earn
+
+**Every card total on a worker's screen is their own counter selling.** There is no
+longer a screen that shows them the shop's card income:
+
+| screen | was | now |
+|---|---|---|
+| «Վիճակ» | (already dropped) | cash drawer only |
+| shift-end, «Խանութը փակված է» | `Դրամարկղում կանխիկ · Քարտով մուտք` | cash drawer only |
+| write-up, «Դրամարկղը հիմա» | `Կանխիկ · Քարտ` | cash drawer only |
+| after each sale / undo | drawer + shop card | `sold_totals`, counter only |
+
+Card money is never in a drawer, so a card figure under a heading about the drawer
+was describing the shop's whole session — deliveries and colleagues' sales included —
+to whoever happened to be reading. What a cashier sold on card is stated under their
+own name, and that is the only card figure they have any use for.
+
+The confirmation after a sale takes `sold_totals` with **no fallback** to the drawer.
+The fallback existed for a server older than the bot and what it did was reinstate the
+wrong figure under the right label; the sale is in the books either way, so a screen
+with no numbers beats one with wrong ones.
+
 ### The one figure that keeps its deliveries
 
 ```
@@ -76,14 +108,14 @@ with 3,000 of somebody else's delivery inside it.
 
 **A delivery paid in cash at the door is physically in the drawer.** This is the
 number the worker counts against when they close up, so taking anything out of it
-would make their count come out over. It is labelled as the drawer and it is the
-only worker-facing figure that still contains delivery money.
+would make their count come out over. It is labelled as the drawer, it is the only
+worker-facing figure that still contains delivery money, and it is the deliberate
+exception to everything above.
 
-The card line that used to sit beside it on the status screen is gone: card money
-is not in the drawer, and the worker's own card sales are already in «Ձեր վաճառքը».
-
-The delivery money still exists, is still in every owner-facing figure below, and
-is still sent to the bot by the API; the bot simply never puts it on the screen.
+The delivery money still exists, is still in every owner-facing figure below, and is
+still sent to the bot by the API — `till.card`, `store_totals_after.card`,
+`delivery_totals` — with the API marking each as not for a worker's screen. The bot
+never puts any of them on one.
 
 ---
 

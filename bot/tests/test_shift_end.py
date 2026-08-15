@@ -152,8 +152,7 @@ async def test_a_fully_paid_wage_says_nothing_about_a_debt():
 async def test_a_negative_closing_cash_is_not_shown_at_all():
     """«Կանխիկ՝ -4,500 ֏» is what a worker saw and reported. A drawer cannot hold less
     than nothing, so that figure is a bookkeeping artefact rather than anything they can
-    act on, and the honest answer is not a smaller negative number. The card takings are
-    still true and still said."""
+    act on, and the honest answer is not a smaller negative number."""
     summary = _summary()
     summary["store_totals_after"] = {"cash": "-4500.00", "card": "16000.00"}
 
@@ -161,7 +160,25 @@ async def test_a_negative_closing_cash_is_not_shown_at_all():
 
     assert "-4,500" not in sent[0][0]
     assert "4,500" not in sent[0][0], "not without its sign either"
-    assert "16,000" in sent[0][0]
+
+
+async def test_the_shops_card_income_is_never_reported_to_the_worker():
+    """«Քարտով մուտք» used to close this message.
+
+    It is the whole session's card income — every delivery, and every colleague's
+    sales — printed under the name of whoever happened to be last out of the door, at
+    the moment they are reading their own day back. What this worker sold on card is
+    stated above, under their own name, and that is the only card figure a cashier
+    has any use for.
+    """
+    summary = _summary()
+    summary["store_totals_after"] = {"cash": "492000.00", "card": "16000.00"}
+
+    sent = await _sent(summary)
+
+    assert "16,000" not in sent[0][0], "the shop's card takings are not theirs"
+    assert "Քարտով մուտք" not in sent[0][0]
+    assert "492,000" in sent[0][0], "the drawer still is"
 
 
 async def test_a_positive_closing_cash_is_still_shown():

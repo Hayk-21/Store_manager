@@ -358,3 +358,120 @@ def test_an_older_server_that_does_not_send_the_field_still_renders():
     body = closeout._shift_so_far(shift)
 
     assert texts.REVIEW_SOLD_NOTHING.strip() in body
+
+
+# -- what the till section may and may not say --------------------------------
+
+def test_the_till_section_never_reports_the_shops_card_income():
+    """«Դրամարկղը հիմա — Կանխիկ՝ X · Քարտ՝ Y» had Y as the whole session's card
+    takings: every delivery, and every colleague's sales, printed under this worker's
+    own review of their own day. The drawer is the drawer; card money was never in
+    it, and what this worker sold on card is in «Գրանցված վաճառք» a few lines up."""
+    body = closeout._shift_so_far(
+        _shift(till={"cash": "47000.00", "card": "88000.00"})
+    )
+
+    assert "47,000" in body, "the drawer"
+    assert "88,000" not in body, "not the shop's card income"
+
+
+def test_the_worker_still_sees_their_own_card_sales():
+    """Removing the shop's figure must not remove theirs. It is the number their day
+    is measured on, and it is the one they check against their receipts."""
+    body = closeout._shift_so_far(
+        _shift(
+            totals={"receipts": 1, "cash": "0.00", "card": "6552.00", "total": "6552.00"},
+            till={"cash": "47000.00", "card": "88000.00"},
+        )
+    )
+
+    assert "6,552" in body
+
+
+def test_a_delivery_paid_by_card_reaches_neither_figure():
+    """The whole complaint, in one shift. A 3,000 card delivery is the shop's takings
+    and not this cashier's selling — so it is in neither «Գրանցված վաճառք» nor the
+    drawer line, and the only trace of it is the product and the count."""
+    body = closeout._shift_so_far(
+        _shift(
+            totals={"receipts": 1, "cash": "0.00", "card": "6552.00", "total": "6552.00"},
+            delivered=[{"name": "Vanter 30000", "quantity": 1, "total": "3000.00"}],
+            delivery_totals={"receipts": 1, "cash": "0.00", "card": "3000.00",
+                             "total": "3000.00"},
+            till={"cash": "1000.00", "card": "9552.00"},
+        )
+    )
+
+    assert "3,000" not in body, "the delivery's money is nowhere on the screen"
+    assert "9,552" not in body, "nor the total it is part of"
+    assert "6,552" in body, "their own card sales are"
+    assert "Vanter 30000" in body, "and the stock that left is"
+
+
+# -- the write-up the worker types --------------------------------------------
+
+def _line(name: str, price: str, quantity: int, method: str, **extra) -> dict:
+    line = {"name": name, "unit_price": price, "quantity": quantity,
+            "payment_method": method}
+    line.update(extra)
+    return line
+
+
+def test_the_write_up_totals_are_the_counter_alone():
+    """A worker typing up four phone orders was shown a day they did not have. The
+    three totals under the list are what they sold across the counter; the delivery
+    lines are in the list, because the stock left and the books need them, but they
+    are not this worker's selling and were never their bonus."""
+    summary = closeout._summary([
+        _line("HQD Cuvie", "3500.00", 2, "cash"),
+        _line("Vanter 30000", "3000.00", 1, "card", is_delivery=True),
+    ])
+
+    assert "7,000" in summary, "the counter sale"
+    assert "Ընդամենը՝ <b>7,000 ֏</b>" in summary, "and it is the whole total"
+    assert "10,000" not in summary, "not the two added together"
+
+
+def test_a_delivery_line_still_shows_what_was_typed():
+    """The row keeps its own amount. This is the screen where a worker checks what
+    they just entered before confirming it, and a line whose figure is hidden is a
+    line they cannot check."""
+    summary = closeout._summary([
+        _line("Vanter 30000", "3000.00", 1, "card", is_delivery=True),
+    ])
+
+    assert "3,000" in summary, "the line they typed"
+    assert "առաքում" in summary, "labelled as what it is"
+    assert "Ընդամենը՝ <b>0 ֏</b>" in summary, "and none of it is their sale"
+
+
+def test_a_list_with_a_delivery_in_it_says_why_the_totals_are_smaller():
+    """Otherwise the arithmetic looks broken: four lines above, and a total that does
+    not add up to them."""
+    summary = closeout._summary([
+        _line("HQD Cuvie", "3500.00", 2, "cash"),
+        _line("Vanter 30000", "3000.00", 1, "card", is_delivery=True),
+    ])
+
+    assert texts.CLOSEOUT_SUMMARY_DELIVERY.strip() in summary
+
+
+def test_an_ordinary_list_says_nothing_about_delivery():
+    """A note about deliveries on a list with none is a sentence about nothing."""
+    summary = closeout._summary([_line("HQD Cuvie", "3500.00", 2, "cash")])
+
+    assert "առաքում" not in summary
+    assert texts.CLOSEOUT_SUMMARY_DELIVERY.strip() not in summary
+
+
+def test_the_split_by_payment_ignores_deliveries_too():
+    """Both halves, not just the total. A card delivery landing in «Քարտ» is exactly
+    the figure that was reported: the worker sold nothing on card and was shown
+    3,000."""
+    summary = closeout._summary([
+        _line("HQD Cuvie", "3500.00", 1, "cash"),
+        _line("Vanter 30000", "3000.00", 1, "card", is_delivery=True),
+    ])
+
+    assert "Քարտ՝ <b>0 ֏</b>" in summary
+    assert "Կանխիկ՝ <b>3,500 ֏</b>" in summary

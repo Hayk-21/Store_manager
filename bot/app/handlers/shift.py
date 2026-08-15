@@ -336,20 +336,25 @@ async def report_end(update: Update, summary: dict) -> None:
 
 
 def _the_closing_figures(totals: dict) -> str:
-    """What the shop closed with — leaving the cash out if it came to less than nothing.
+    """What is in the drawer as the shop shuts — and nothing else.
 
-    A drawer cannot hold negative money, so that figure is a bookkeeping artefact
-    rather than something a cashier can act on. «Կանխիկ՝ -4,500 ֏» is the one a worker
-    saw and reported, and the honest answer to "how much cash is there" in that state
-    is not a smaller negative number — it is nothing, and the line is better unsaid
-    than said wrongly. Anything the till could not pay is named a few lines above.
+    The cash is left out when it came to less than nothing. A drawer cannot hold
+    negative money, so that figure is a bookkeeping artefact rather than something a
+    cashier can act on. «Կանխիկ՝ -4,500 ֏» is the one a worker saw and reported, and
+    the honest answer to "how much cash is there" in that state is not a smaller
+    negative number — it is nothing, and the line is better unsaid than said wrongly.
+    Anything the till could not pay is named a few lines above.
+
+    «Քարտով մուտք» used to stand beside it and no longer does. It was the shop's card
+    income for the whole session — every delivery in it — reported to whoever happened
+    to be last out of the door, at the moment they are reading their own day back.
+    What they sold on card is stated above under their own name, and that is the only
+    card figure a cashier has any use for.
     """
     cash = Decimal(str(totals.get("cash") or "0"))
     if cash < 0:
-        return texts.STORE_CLOSED_NO_CASH.format(card=format.money(totals["card"]))
-    return texts.STORE_CLOSED.format(
-        cash=format.money(cash), card=format.money(totals["card"])
-    )
+        return texts.STORE_CLOSED_NO_CASH
+    return texts.STORE_CLOSED.format(cash=format.money(cash))
 
 
 def _what_the_till_could_not_pay(summary: dict) -> str:

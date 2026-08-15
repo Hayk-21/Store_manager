@@ -305,18 +305,23 @@ async def undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await query.edit_message_reply_markup(reply_markup=None)
-    # The counter's own takings, not the drawer: a delivery paid by card is in
-    # the drawer figure and is not this worker's sale.
-    voided = result["voided"]
-    totals = result.get("sold_totals") or result["store_totals"]
+    # The counter's own takings, and no fallback to the drawer. A delivery paid by
+    # card is in the drawer figure and is not this worker's sale, and falling back
+    # to it when the field is missing would quietly reinstate the very figure this
+    # line exists to avoid. If the server did not send it, the sale is still undone
+    # and the plain sentence says so — a screen with no number beats a wrong one.
+    try:
+        body = texts.VOID_DONE.format(
+            total=format.money(result["voided"]["total"]),
+            cash=format.money(result["sold_totals"]["cash"]),
+            card=format.money(result["sold_totals"]["card"]),
+        )
+    except (KeyError, TypeError):
+        log.exception("could not render an undo confirmation from %r", result)
+        body = texts.VOID_DONE_PLAINLY
+
     await query.message.reply_text(
-        texts.VOID_DONE.format(
-            total=format.money(voided["total"]),
-            cash=format.money(totals["cash"]),
-            card=format.money(totals["card"]),
-        ),
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboards.on_shift(),
+        body, parse_mode=ParseMode.HTML, reply_markup=keyboards.on_shift()
     )
 
 
@@ -332,9 +337,13 @@ def _confirmation(result: dict, method: str) -> str:
         # What this worker has sold across the counter. It used to be the drawer
         # and the shop's card income, so a cashier who had sold nothing on a card
         # was shown «Քարտ՝ 16,000» — somebody else's delivery, paid in advance.
-        # `.get` with the old key behind it: the bot and the service deploy
-        # separately and either can be the one that is ahead.
-        totals = result.get("sold_totals") or result["store_totals"]
+        #
+        # No fallback to the drawer if the field is missing. That was here for a
+        # server older than the bot, and what it actually does is bring the wrong
+        # figure back under the right label. The except below is the fallback: the
+        # sale is recorded either way, and «✅ Վաճառքը գրանցվեց» is the honest thing
+        # to say when the figures cannot be trusted.
+        totals = result["sold_totals"]
         body = texts.SALE_DONE.format(
             item=format.esc(line["name"]),
             quantity=line["quantity"],

@@ -158,6 +158,10 @@ SALE_ALREADY_RECORDED = "Այս վաճառքն արդեն գրանցված էր�
 # books, so this has to read as success -- the alternative is a cashier entering
 # the same sale a second time.
 SALE_RECORDED_PLAINLY = "✅ Վաճառքը գրանցվեց։"
+# The same, for an undo whose figures could not be rendered. The receipt is already
+# reversed and the stock already back on the shelf, so the only question is what to
+# say about it — and saying it plainly beats printing a number that may be wrong.
+VOID_DONE_PLAINLY = "↩️ Վաճառքը չեղարկվեց։ Ապրանքը վերադարձվեց պահեստ։"
 SELL_INTERRUPTED = (
     "Սկսած վաճառքը չեղարկվեց՝ ոչինչ չի գրանցվել։\n"
     "Սեղմեք կոճակը կրկին։"
@@ -228,9 +232,15 @@ REVIEW_NO_REASON = "առանց նշման"
 # Said when a section was too long to print in full. Never left silent: a list that
 # quietly stops looks like a complete list.
 REVIEW_AND_MORE = "<i>… և ևս {more} տող։ Ամբողջը տեսանելի է ղեկավարի էջում։</i>"
+# The drawer, and only the drawer. The card figure that used to sit beside it was
+# the whole shop's card income for the session, deliveries included — money this
+# worker did not take and is not measured on, printed under their own name at the
+# one moment they are reading their day back. Nothing is lost by dropping it: card
+# money is not in any drawer, and the worker's own card sales are in «Գրանցված
+# վաճառք» a few lines above.
 REVIEW_TILL = (
     "💰 <b>Դրամարկղը հիմա</b>\n"
-    "Կանխիկ՝ <b>{cash}</b> · Քարտ՝ {card}\n"
+    "Կանխիկ՝ <b>{cash}</b>\n"
     "Խանութի մնացորդը վերջին հաշվարկով՝ {float_}\n"
 )
 REVIEW_SALARY = "👤 <b>Ձեր աշխատավարձը</b>՝ {salary}\n"
@@ -249,7 +259,14 @@ KIND_CUSTOM = ", փոփոխված գին"
 KIND_DELIVERY = ", առաքում"
 CLOSEOUT_SUMMARY = (
     "🧾 <b>Ցուցակ</b>\n\n{rows}\n\n"
-    "Կանխիկ՝ <b>{cash}</b>\nՔարտ՝ <b>{card}</b>\nԸնդամենը՝ <b>{total}</b>"
+    "Կանխիկ՝ <b>{cash}</b>\nՔարտ՝ <b>{card}</b>\nԸնդամենը՝ <b>{total}</b>{delivery}"
+)
+# Appended when the list has an «առաքում» line in it. The three totals above are the
+# counter alone, so a worker who types four phone orders is not shown a day they did
+# not have; the rows themselves still carry their own amounts, because a list you
+# cannot check is not a list you can be asked to confirm.
+CLOSEOUT_SUMMARY_DELIVERY = (
+    "\n<i>Առաքումով տողերը այս հաշվարկի մեջ չեն՝ դրանք ձեր վաճառքը չեն։</i>"
 )
 CLOSEOUT_EMPTY_BASKET = "Ցուցակը դատարկ է։ Այսօր վաճառք չի՞ եղել։"
 # The same empty list, when the day is already in the books. Asking "was there no
@@ -329,18 +346,19 @@ WAGE_STILL_OWED = (
     "մնացած <b>{owed}</b>-ը ղեկավարը կվճարի։\n"
 )
 STORE_STILL_OPEN = "\nԽանութը մնում է բաց՝ գործընկերները դեռ աշխատում են։"
+# «Քարտով մուտք» is gone from both of these. It was the shop's card income for the
+# whole session — every delivery in it — shown to the one worker who happened to be
+# last out of the door, as though it were the takings of their day. What they sold on
+# card is stated above, under their own name, and it is the only card figure a
+# cashier has any use for.
 STORE_CLOSED = (
     "\n🔴 Խանութը փակված է։\n"
-    "Դրամարկղում կանխիկ՝ {cash} · Քարտով մուտք՝ {card}"
+    "Դրամարկղում կանխիկ՝ {cash}"
 )
-# The same line with the cash left out. A drawer cannot hold less than nothing, so a
-# negative figure there is a bookkeeping artefact and not something a cashier can act
-# on — «Կանխիկ՝ -4,500 ֏» is the one a worker saw and reported. The card figure is
-# still true and still worth saying.
-STORE_CLOSED_NO_CASH = (
-    "\n🔴 Խանութը փակված է։\n"
-    "Քարտով մուտք՝ {card}"
-)
+# The same line with the cash left out too. A drawer cannot hold less than nothing, so
+# a negative figure there is a bookkeeping artefact and not something a cashier can act
+# on — «Կանխիկ՝ -4,500 ֏» is the one a worker saw and reported.
+STORE_CLOSED_NO_CASH = "\n🔴 Խանութը փակված է։"
 
 # -- failures ---------------------------------------------------------------
 

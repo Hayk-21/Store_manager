@@ -748,6 +748,11 @@ async def _end_payload(row, *, duplicate: bool) -> dict:
             ),
             "full_shift_hours": FULL_SHIFT_HOURS,
             "store_closed": row["store_closed"],
+            # The shop's till after this shift came off it. ``card`` is the whole
+            # session's card income — deliveries and colleagues' sales included — and
+            # **is not shown to the worker**: the bot prints the cash in the drawer
+            # and nothing else, because what this worker sold on card is in ``sales``
+            # above, under their own name.
             "store_totals_after": {
                 "cash": f"{totals['cash']:.2f}",
                 "card": f"{totals['card']:.2f}",

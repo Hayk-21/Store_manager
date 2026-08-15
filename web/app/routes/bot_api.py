@@ -594,6 +594,12 @@ async def review_this_shift(telegram_id: int = Query(gt=0)) -> dict:
         # The drawer as it stands: the whole store session's cash, not this
         # worker's share of it. That is the money they are about to count, and
         # splitting it per person would describe a drawer that does not exist.
+        #
+        # ``card`` is the shop's card income for the session, deliveries and other
+        # workers' sales included. **It must not be shown to a worker** — the bot
+        # renders the cash only, and what this worker sold on card is in ``totals``
+        # above, under their own name. It stays here because the field is the shop's
+        # real figure and a caller that is not a cashier's phone may want it.
         "till": {
             "cash": f"{Decimal(till['cash']):.2f}",
             "card": f"{Decimal(till['card']):.2f}",

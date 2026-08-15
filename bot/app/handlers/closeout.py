@@ -69,10 +69,16 @@ def _summary(basket: list[dict], recorded: dict | None = None) -> str:
             )
         return texts.CLOSEOUT_EMPTY_BASKET
 
+    # The counter alone. A delivery is an order the shop took — the worker typed it
+    # in, but nobody sold it across the counter — and adding it to these three
+    # figures told a cashier they had sold 22,000 on a day they served two people.
+    # The rows below still show what each line came to, because a list you cannot
+    # check is not a list you can be asked to confirm.
+    counter = [line for line in basket if not line.get("is_delivery")]
     cash = sum(Decimal(line["unit_price"]) * line["quantity"]
-               for line in basket if line["payment_method"] == "cash")
+               for line in counter if line["payment_method"] == "cash")
     card = sum(Decimal(line["unit_price"]) * line["quantity"]
-               for line in basket if line["payment_method"] == "card")
+               for line in counter if line["payment_method"] == "card")
 
     rows = [
         texts.CLOSEOUT_ROW.format(
@@ -92,6 +98,9 @@ def _summary(basket: list[dict], recorded: dict | None = None) -> str:
         cash=format.money(cash),
         card=format.money(card),
         total=format.money(cash + card),
+        # Said only when there is something to say it about. On the ordinary list
+        # with no delivery in it the note would be a sentence about nothing.
+        delivery=texts.CLOSEOUT_SUMMARY_DELIVERY if len(counter) != len(basket) else "",
     )
 
 
@@ -280,8 +289,10 @@ def _shift_so_far(shift: dict) -> str:
     till = shift.get("till") or {}
     parts.append(
         texts.REVIEW_TILL.format(
+            # Cash only. The card figure the server also sends is the shop's whole
+            # card income for the session, deliveries included, and it is not this
+            # worker's to be shown — their own card sales are in «Գրանցված վաճառք».
             cash=format.money(till.get("cash", 0)),
-            card=format.money(till.get("card", 0)),
             float_=format.money(shift.get("store_float", 0)),
         )
     )
