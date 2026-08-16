@@ -60,6 +60,9 @@ CB_UNDO = "u"
 # made. A separate prefix from CB_UNDO rather than a shared one: «^u:» does not
 # match «us:», and the two undo entirely different kinds of thing.
 CB_UNDO_STOCK = "us"
+# Why cash is being taken out of the till. A tap rather than typed text, because
+# the answer decides the ceiling and a ceiling cannot hang off free spelling.
+CB_REASON = "cr"
 # Dismissing a confirmation, which happens outside any conversation. Nothing
 # builds one any more, but a keyboard already sitting in somebody's chat still
 # can, and a tap that spins forever is worse than one that says "cancelled".
@@ -381,6 +384,27 @@ def restock_empty() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(texts.BTN_BRAND_NEW_ITEM, callback_data=CB_NEW_ITEM)],
+            [InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)],
+        ]
+    )
+
+
+def cash_reasons() -> InlineKeyboardMarkup:
+    """The two things a cashier takes money out for, as buttons.
+
+    Inline rather than on the reply keyboard: this question belongs to the
+    message that asked it, and the codes travel with the tap, so a stray answer
+    an hour later cannot be mistaken for the reason of a different withdrawal.
+
+    Its own «Չեղարկել» because the reply keyboard is still the main menu at this
+    step — nothing has been half-entered yet, so there is nothing to hide.
+    """
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(texts.BTN_CASH_LUNCH, callback_data=f"{CB_REASON}:lunch")],
+            [InlineKeyboardButton(
+                texts.BTN_CASH_DELIVERY, callback_data=f"{CB_REASON}:delivery"
+            )],
             [InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)],
         ]
     )

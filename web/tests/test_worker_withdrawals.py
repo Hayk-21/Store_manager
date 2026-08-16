@@ -295,6 +295,132 @@ async def test_it_does_not_look_like_a_sale(client):
     assert await db.fetchval("SELECT count(*) FROM sales") == 1
 
 
+# -- what it was taken for ----------------------------------------------------
+
+async def test_the_chosen_reason_is_what_gets_written_down(client):
+    """The bot sends a code, not a spelling. «ճաշ», «Ճաշի համար» and «ճաշ 🙂» are
+    one thing to a person and three to a report, so the wording is decided here.
+    """
+    _, _, worker, _, _ = await _till_with()
+
+    await money_service.withdraw_by_worker(
+        worker, Decimal("800"), "whatever the bot typed", "idem-key-cash-01",
+        money_service.REASON_LUNCH,
+    )
+
+    assert await db.fetchval(
+        "SELECT note FROM cash_movements WHERE kind = 'withdrawal'"
+    ) == "Ճաշ"
+
+
+async def test_the_delivery_fee_has_no_ceiling(client):
+    """A parcel costs what the post office charges. It is the shop settling a
+    bill, not a cashier dipping into the drawer for a sandwich."""
+    _, _, worker, _, session_id = await _till_with("20000.00")
+
+    await money_service.withdraw_by_worker(
+        worker, Decimal("6000"), "Հայփոստ", "idem-key-cash-01",
+        money_service.REASON_DELIVERY,
+    )
+
+    assert (await money_repo.totals_for_session(session_id))["cash"] == Decimal("14000.00")
+    assert await db.fetchval(
+        "SELECT note FROM cash_movements WHERE kind = 'withdrawal'"
+    ) == "Հայփոստ (առաքման վճար)"
+
+
+async def test_lunch_still_answers_to_the_allowance(client):
+    _, _, worker, _, _ = await _till_with("20000.00")
+
+    with pytest.raises(BotError) as caught:
+        await money_service.withdraw_by_worker(
+            worker, Decimal("5000"), "Ճաշ", "idem-key-cash-01",
+            money_service.REASON_LUNCH,
+        )
+
+    assert "1,000" in caught.value.message
+
+
+async def test_a_parcel_paid_for_does_not_eat_the_lunch_money(client):
+    """Otherwise 6,000 to the courier at noon leaves the cashier unable to buy
+    lunch, and the reason they cannot is invisible to them."""
+    _, _, worker, _, session_id = await _till_with("20000.00")
+    await money_service.withdraw_by_worker(
+        worker, Decimal("6000"), "Հայփոստ", "idem-key-cash-01",
+        money_service.REASON_DELIVERY,
+    )
+
+    await money_service.withdraw_by_worker(
+        worker, Decimal("1000"), "Ճաշ", "idem-key-cash-02", money_service.REASON_LUNCH
+    )
+
+    assert (await money_repo.totals_for_session(session_id))["cash"] == Decimal("13000.00")
+
+
+async def test_the_delivery_fee_is_still_bounded_by_the_drawer(client):
+    """No allowance is not no rule. You cannot hand the courier notes that are
+    not there."""
+    _, _, worker, _, _ = await _till_with("500.00")
+
+    with pytest.raises(BotError) as caught:
+        await money_service.withdraw_by_worker(
+            worker, Decimal("6000"), "Հայփոստ", "idem-key-cash-01",
+            money_service.REASON_DELIVERY,
+        )
+
+    assert "500" in caught.value.message
+    assert await db.fetchval(
+        "SELECT count(*) FROM cash_movements WHERE kind = 'withdrawal'"
+    ) == 0
+
+
+async def test_lunch_taken_twice_still_stops_at_the_allowance(client):
+    _, _, worker, _, _ = await _till_with("20000.00")
+    await money_service.withdraw_by_worker(
+        worker, Decimal("800"), "Ճաշ", "idem-key-cash-01", money_service.REASON_LUNCH
+    )
+
+    with pytest.raises(BotError) as caught:
+        await money_service.withdraw_by_worker(
+            worker, Decimal("800"), "Ճաշ", "idem-key-cash-02", money_service.REASON_LUNCH
+        )
+
+    assert "200" in caught.value.message, "what is left of the allowance"
+
+
+async def test_an_older_bot_that_sends_no_reason_keeps_the_old_rules(client):
+    """The two services deploy separately. A bot that has not been updated sends
+    typed text and no code, and the safe direction to err in is the one with a
+    limit — its text is kept and the allowance still applies."""
+    _, _, worker, _, _ = await _till_with("20000.00")
+
+    await money_service.withdraw_by_worker(
+        worker, Decimal("800"), "առաքիչին", "idem-key-cash-01"
+    )
+    with pytest.raises(BotError):
+        await money_service.withdraw_by_worker(
+            worker, Decimal("800"), "տոպրակներ", "idem-key-cash-02"
+        )
+
+    assert await db.fetchval(
+        "SELECT note FROM cash_movements WHERE kind = 'withdrawal'"
+    ) == "առաքիչին"
+
+
+async def test_a_reason_this_service_has_never_heard_of_is_treated_as_typed(client):
+    """The other side of the same deploy window: a newer bot offering a third
+    reason must not be a 500 at the counter, and must not slip past the ceiling
+    by naming a category this service cannot check."""
+    _, _, worker, _, _ = await _till_with("20000.00")
+
+    with pytest.raises(BotError) as caught:
+        await money_service.withdraw_by_worker(
+            worker, Decimal("5000"), "տաքսի", "idem-key-cash-01", "taxi"
+        )
+
+    assert "1,000" in caught.value.message
+
+
 # -- through the bot API ------------------------------------------------------
 
 async def test_the_endpoint_records_a_withdrawal(client, bot_headers):
@@ -368,3 +494,38 @@ async def test_it_shows_on_the_report_with_who_took_it_and_why(client):
     assert "առաքիչին վճարված" in page.text
     assert "Անի" in page.text
     assert "-800.00" in page.text
+
+
+async def test_the_report_says_which_of_the_two_reasons_it_was(client):
+    """The owner is the only one who sees both kinds side by side, and lunch
+    against a courier's fee is the distinction they are actually looking for."""
+    _, _, worker, _, session_id = await _till_with("20000.00")
+    await money_service.withdraw_by_worker(
+        worker, Decimal("800"), "Ճաշ", "idem-key-cash-01", money_service.REASON_LUNCH
+    )
+    await money_service.withdraw_by_worker(
+        worker, Decimal("2500"), "Հայփոստ", "idem-key-cash-02",
+        money_service.REASON_DELIVERY,
+    )
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/reports?store_session_id={session_id}")
+
+    assert "Ճաշ" in page.text
+    assert "Հայփոստ (առաքման վճար)" in page.text
+    assert "-2,500.00" in page.text or "-2500.00" in page.text
+
+
+async def test_the_endpoint_carries_the_reason_through(client, bot_headers):
+    _, _, _, telegram_id, _ = await _till_with("20000.00")
+
+    response = await client.post(
+        f"{BASE}/cash/withdraw",
+        json={"telegram_id": telegram_id, "amount": "6000.00",
+              "purpose": "Հայփոստ (առաքման վճար)", "reason": "delivery",
+              "idempotency_key": "idem-key-cash-01"},
+        headers=bot_headers,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["store_totals"]["cash"] == "14000.00"

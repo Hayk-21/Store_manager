@@ -229,6 +229,12 @@ class WithdrawRequest(IdempotentRequest):
 
     amount: Decimal = Field(gt=0)
     purpose: str = Field(min_length=1, max_length=300)
+    # Which of the offered reasons was picked. Optional and unvalidated on
+    # purpose: an older bot sends none, a newer one could send a code this
+    # service has not heard of, and neither should be a 422 at the counter. The
+    # service treats anything it does not recognise as typed text under the
+    # ordinary allowance — see ``money._reason``.
+    reason: str | None = Field(default=None, max_length=32)
 
     @field_validator("amount", mode="before")
     @classmethod

@@ -12,6 +12,7 @@ questions without either one needing a job to run:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from decimal import Decimal
 
 import asyncpg
@@ -324,18 +325,27 @@ async def taken_out_during_shift(work_session_id: int) -> list[asyncpg.Record]:
     )
 
 
-async def withdrawn_by_worker_on(conn, work_session_id: int) -> Decimal:
+async def withdrawn_by_worker_on(
+    conn, work_session_id: int, uncapped_notes: Sequence[str] = ()
+) -> Decimal:
     """What this worker has already taken out during this shift, as a positive
     number. Read on the caller's connection because it decides whether the write
     about to happen is allowed, and the shift row is locked around both.
+
+    ``uncapped_notes`` are the reasons that answer to no allowance — a courier's
+    fee is not spent lunch money, so it must not count against the lunch money.
+    Anything else does, including the free text older bots sent: a row nobody can
+    classify is safer inside the limit than outside it.
     """
     return await conn.fetchval(
         """
         SELECT coalesce(-sum(amount), 0)
           FROM cash_movements
          WHERE work_session_id = $1 AND kind = 'withdrawal' AND created_by = 'worker'
+           AND coalesce(note, '') <> ALL($2::text[])
         """,
         work_session_id,
+        list(uncapped_notes),
     )
 
 

@@ -241,16 +241,25 @@ def build() -> Application:
         per_message=False,
     )
 
-    # Taking cash out. Two steps, both free text, so it needs the same escapes
-    # as the others: a button pressed mid-way must not be read as an amount.
+    # Taking cash out. The reason is a tap and the amount is free text, so it
+    # needs the same escapes as the others: a button pressed mid-way must not be
+    # read as an amount. The reason buttons are also live on the amount step —
+    # picking the other one there is how you change your mind about the ceiling
+    # without starting again.
     cash_flow = ConversationHandler(
         entry_points=[MessageHandler(_exact(texts.BTN_TAKE_CASH), cash.begin)],
         states={
-            cash.ASK_AMOUNT: [MessageHandler(_free_text, cash.type_amount)],
-            cash.ASK_PURPOSE: [MessageHandler(_free_text, cash.type_purpose)],
+            cash.ASK_REASON: [
+                CallbackQueryHandler(cash.choose_reason, pattern=f"^{keyboards.CB_REASON}:"),
+            ],
+            cash.ASK_AMOUNT: [
+                CallbackQueryHandler(cash.choose_reason, pattern=f"^{keyboards.CB_REASON}:"),
+                MessageHandler(_free_text, cash.type_amount),
+            ],
         },
         fallbacks=[
             MessageHandler(_exact(texts.BTN_CANCEL), cash.cancel),
+            CallbackQueryHandler(cash.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
             CommandHandler("cancel", cash.cancel),
             CommandHandler("start", cash.escape(shift.start)),
             *_escapes(cash, texts.BTN_TAKE_CASH),

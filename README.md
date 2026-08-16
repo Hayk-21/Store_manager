@@ -618,6 +618,24 @@ credited a second full bonus for one achievement. `bonus_paid` is set the moment
 is credited, whether or not the drawer could cover it, which is the fact the guard
 actually needs.
 
+**The reason a cashier takes cash is picked, not typed, and it sets the ceiling.**
+«Վերցնել դրամարկղից» offers two: «Ճաշ» and «Հայփոստ (առաքման վճար)». Lunch answers to the
+1,000 ֏ shift allowance; the courier's fee has none, because a parcel costs what the post
+office charges and paying it is the shop settling a bill rather than a cashier dipping
+into the drawer for a sandwich. What still bounds both is the drawer itself — you cannot
+hand over notes that are not in it.
+
+Two things follow from picking rather than typing. The ceiling is known *before* the
+amount is asked for, so the question states it instead of refusing a number afterwards;
+and «ճաշ», «Ճաշի համար» and «ճաշ 🙂» stop being three different things to a rule that has
+to add them up. The bot sends a code and `WITHDRAWAL_REASONS` in
+`web/app/services/money.py` decides both the note written on the row and the limit, so the
+report reads back one spelling and the owner can see at a glance which of the two it was.
+The shift allowance is summed over the rows that answer to it — a 6,000 parcel at noon
+does not leave the cashier unable to buy lunch. A withdrawal arriving with no code, or one
+this service has not heard of, keeps its typed text and the ordinary allowance: the two
+services deploy separately, and the safe direction to err in is the one with a limit.
+
 **A shared drawer is locked, not just a shared worker.** `withdraw_by_worker` locked the
 calling worker's own shift row, which serialises that worker's own double-taps but not
 two different cashiers on the same store session: both could read the same "1,500 in the
@@ -805,7 +823,7 @@ services cannot drift apart on what a failure means.
 | POST | `/sale` | the atomic sale → 201. `is_delivery` marks it as delivered |
 | POST | `/sale/void` | undo the worker's last receipt in this shift |
 | POST | `/write-off` | stock that broke or expired, off the shelf without a sale → 201 |
-| POST | `/cash/withdraw` | cash out of the till, with the reason → 201 |
+| POST | `/cash/withdraw` | cash out of the till, with the reason code that sets its ceiling → 201 |
 | GET | `/shift/review` | the whole open shift: sales, breakage, shelf corrections, cash out, the drawer, the wage due |
 | POST | `/shift/till` | what the worker leaves in the drawer; the rest is booked as handed over → 201 |
 | POST | `/shift/close-out` | declare the day's sales and end the shift, in one transaction |

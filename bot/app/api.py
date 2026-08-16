@@ -368,9 +368,14 @@ class Api:
         )
 
     async def withdraw(
-        self, telegram_id: int, amount: str, purpose: str, key: str
+        self, telegram_id: int, amount: str, purpose: str, reason: str, key: str
     ) -> dict:
-        """Cash out of the till. Amount as a decimal string, never a float."""
+        """Cash out of the till. Amount as a decimal string, never a float.
+
+        Both the code and the text: ``reason`` is what the server decides the
+        ceiling from, and ``purpose`` is what an older service — which knows
+        nothing about codes — would write on the row.
+        """
         return await self._call(
             "POST",
             "/cash/withdraw",
@@ -378,6 +383,7 @@ class Api:
                 "telegram_id": telegram_id,
                 "amount": amount,
                 "purpose": purpose,
+                "reason": reason,
                 "idempotency_key": key,
             },
         )

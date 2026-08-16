@@ -655,11 +655,13 @@ async def withdraw(body: WithdrawRequest) -> dict:
     """Money out of the till at the counter, with the reason written down.
 
     It leaves whether or not the system knows, so the choice is between an
-    unexplained shortfall at close and a row saying where it went.
+    unexplained shortfall at close and a row saying where it went. The reason is
+    also what decides the ceiling: lunch answers to the shift allowance, a
+    courier's fee does not.
     """
     worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
     return await money_service.withdraw_by_worker(
-        worker, body.amount, body.purpose, body.idempotency_key
+        worker, body.amount, body.purpose, body.idempotency_key, body.reason
     )
 
 

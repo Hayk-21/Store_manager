@@ -416,24 +416,39 @@ DEFECT_DONE_PLAINLY = "🗑 Խոտանը գրանցվեց և հանվեց պահ
 
 # -- taking money out of the till --------------------------------------------
 
+# The reason comes first, and it is picked rather than typed. Two things follow
+# from that: the ceiling is known before the number is asked for, so the question
+# can say what it is; and the report reads back one spelling of «Ճաշ» instead of
+# nine. What is written on the row is chosen by the server — these are the same
+# strings, and a test holds them to it.
+CASH_PURPOSE_LUNCH = "Ճաշ"
+CASH_PURPOSE_DELIVERY = "Հայփոստ (առաքման վճար)"
+BTN_CASH_LUNCH = f"🍽 {CASH_PURPOSE_LUNCH}"
+BTN_CASH_DELIVERY = f"📦 {CASH_PURPOSE_DELIVERY}"
+CASH_ASK_REASON = (
+    "💸 <b>Վերցնել դրամարկղից</b>\n\n"
+    "Ինչի՞ համար եք վերցնում։"
+)
 # The example is deliberately below the limit: an amount the server is about to
 # refuse is a bad thing to suggest.
-CASH_ASK_AMOUNT = (
-    "💸 <b>Վերցնել դրամարկղից</b>\n\n"
+CASH_ASK_AMOUNT_LUNCH = (
+    "🍽 <b>Ճաշ</b>\n\n"
     "Որքա՞ն եք վերցնում։ Գրեք գումարը թվով, օրինակ՝ 500։\n"
     "Մեկ հերթափոխի ընթացքում՝ առավելագույնը 1,000 ֏։"
 )
+# No ceiling named here, because there is none. The parcel costs what the post
+# office charges; the only thing that can refuse it is an empty drawer.
+CASH_ASK_AMOUNT_DELIVERY = (
+    "📦 <b>Հայփոստ (առաքման վճար)</b>\n\n"
+    "Որքա՞ն եք վերցնում։ Գրեք գումարը թվով, օրինակ՝ 2500։\n"
+    "Սահմանաչափ չկա՝ որքան որ վճարել եք։"
+)
 CASH_BAD_AMOUNT = "Գրեք գումարը թվով, օրինակ՝ 500։"
 CASH_OVER_LIMIT = (
-    "❌ Շատ է։ Մեկ հերթափոխի ընթացքում կարելի է վերցնել առավելագույնը "
+    "❌ Շատ է։ Ճաշի համար մեկ հերթափոխի ընթացքում կարելի է վերցնել առավելագույնը "
     "<b>{limit}</b>։\n\n"
     "Գրեք ավելի փոքր գումար, կամ ավելիի համար դիմեք ղեկավարին։"
 )
-CASH_ASK_PURPOSE = (
-    "{amount}\n\n"
-    "Ինչի՞ համար։ Գրեք կարճ՝ օրինակ «առաքիչին», «տոպրակներ», «մանրադրամ»։"
-)
-CASH_ASK_PURPOSE_AGAIN = "Գրեք, թե ինչի համար եք վերցնում։ Առանց դրա գրանցել չենք կարող։"
 CASH_DONE = (
     "💸 Գրանցվեց՝ <b>{amount}</b>\n"
     "Նպատակը՝ {purpose}\n\n"

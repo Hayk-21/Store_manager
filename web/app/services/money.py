@@ -27,6 +27,31 @@ KINDS = {"withdrawal", "deposit"}
 # rather than at a counter with a customer waiting.
 WORKER_WITHDRAWAL_LIMIT = Decimal("1000.00")
 
+# Why the money was taken, as a closed list rather than something typed.
+#
+# The reason now decides the ceiling, and a ceiling may not hang off free text:
+# «ճաշ», «Ճաշի համար» and «ճաշ 🙂» are one thing to a person and three different
+# things to a rule. So the bot sends a code and the note written on the row is
+# chosen here — one spelling, the same on the report, the same to the sum below.
+#
+# A limit of ``None`` means the shift allowance does not apply. Paying Haypost for
+# a parcel is not petty cash: the amount is whatever the courier charges, and it
+# is the shop settling a bill rather than a cashier dipping into the drawer. What
+# still applies to both is the drawer itself — you cannot take out notes that are
+# not in it.
+REASON_LUNCH = "lunch"
+REASON_DELIVERY = "delivery"
+WITHDRAWAL_REASONS: dict[str, tuple[str, Decimal | None]] = {
+    REASON_LUNCH: ("Ճաշ", WORKER_WITHDRAWAL_LIMIT),
+    REASON_DELIVERY: ("Հայփոստ (առաքման վճար)", None),
+}
+
+# The notes that do not eat the allowance, so that taking 6,000 for a parcel at
+# noon does not leave the cashier unable to buy lunch.
+UNCAPPED_NOTES = tuple(
+    note for note, limit in WITHDRAWAL_REASONS.values() if limit is None
+)
+
 
 async def record_movement(
     owner_id: int,
@@ -85,7 +110,22 @@ async def record_movement(
     log.info("owner %s recorded %s of %s (%s) at store %s", owner_id, kind, amount, method, store_id)
 
 
-async def withdraw_by_worker(worker, amount: Decimal, purpose: str, idem_key: str) -> dict:
+def _reason(reason: str | None, purpose: str) -> tuple[str, Decimal | None]:
+    """What to write on the row, and what ceiling it answers to.
+
+    An unrecognised code — or none at all — is an older bot, which asked the
+    cashier to type the reason and knew nothing about categories. It keeps the
+    typed text and the original allowance: when the two services deploy
+    separately, the safe direction to err in is the one with a limit.
+    """
+    if reason in WITHDRAWAL_REASONS:
+        return WITHDRAWAL_REASONS[reason]
+    return (purpose or "").strip()[:300], WORKER_WITHDRAWAL_LIMIT
+
+
+async def withdraw_by_worker(
+    worker, amount: Decimal, purpose: str, idem_key: str, reason: str | None = None
+) -> dict:
     """A cashier taking cash out of the till, from the bot.
 
     It happens whether or not the system knows — paying a delivery, buying bags,
@@ -94,18 +134,22 @@ async def withdraw_by_worker(worker, amount: Decimal, purpose: str, idem_key: st
     required for exactly that reason: an amount with no reason *is* the
     shortfall, just with a number attached.
 
+    ``reason`` is the category the cashier picked, and it is what decides whether
+    the shift allowance applies at all — see ``WITHDRAWAL_REASONS``.
+
     Cash only. A worker cannot take money off a card.
     """
+    note, limit = _reason(reason, purpose)
     if amount <= 0:
         raise BotError("validation_error", "Գումարը պետք է լինի զրոյից մեծ։")
-    if amount > WORKER_WITHDRAWAL_LIMIT:
+    if limit is not None and amount > limit:
         raise BotError(
             "validation_error",
             f"Հերթափոխի ընթացքում կարելի է վերցնել առավելագույնը "
-            f"{WORKER_WITHDRAWAL_LIMIT:,.0f} ֏։ Ավելիի համար դիմեք ղեկավարին։",
-            details={"limit": str(WORKER_WITHDRAWAL_LIMIT)},
+            f"{limit:,.0f} ֏։ Ավելիի համար դիմեք ղեկավարին։",
+            details={"limit": str(limit)},
         )
-    if not (purpose or "").strip():
+    if not note:
         raise BotError("validation_error", "Գրեք, թե ինչի համար եք վերցնում։")
 
     replay = await money_repo.by_external_id(worker.owner_id, idem_key)
@@ -132,16 +176,24 @@ async def withdraw_by_worker(worker, amount: Decimal, purpose: str, idem_key: st
             # not a limit at all — you take 1,000 four times. The shift row is
             # locked above, so this worker's withdrawals are serialised against
             # each other and two taps cannot both read the same remainder.
-            already = Decimal(await money_repo.withdrawn_by_worker_on(conn, shift["id"]))
-            remaining = WORKER_WITHDRAWAL_LIMIT - already
-            if amount > remaining:
-                raise BotError(
-                    "validation_error",
-                    f"Այս հերթափոխին արդեն վերցվել է {already:,.0f} ֏։ "
-                    f"Կարող եք վերցնել ևս {max(remaining, Decimal(0)):,.0f} ֏։",
-                    details={"limit": str(WORKER_WITHDRAWAL_LIMIT),
-                             "already": str(already)},
+            #
+            # Skipped entirely for a reason that has no ceiling, and the sum it
+            # compares against leaves those rows out too: a courier's fee is not
+            # spent lunch money.
+            if limit is not None:
+                already = Decimal(
+                    await money_repo.withdrawn_by_worker_on(
+                        conn, shift["id"], uncapped_notes=UNCAPPED_NOTES
+                    )
                 )
+                remaining = limit - already
+                if amount > remaining:
+                    raise BotError(
+                        "validation_error",
+                        f"Այս հերթափոխին արդեն վերցվել է {already:,.0f} ֏։ "
+                        f"Կարող եք վերցնել ևս {max(remaining, Decimal(0)):,.0f} ֏։",
+                        details={"limit": str(limit), "already": str(already)},
+                    )
 
             totals = await money_repo.totals_on(conn, shift["store_session_id"])
             available = Decimal(totals["cash"])
@@ -164,7 +216,7 @@ async def withdraw_by_worker(worker, amount: Decimal, purpose: str, idem_key: st
                 amount=-amount,
                 work_session_id=shift["id"],
                 worker_id=worker.id,
-                note=purpose.strip()[:300],
+                note=note,
                 created_by="worker",
                 external_id=idem_key,
             )
@@ -177,7 +229,7 @@ async def withdraw_by_worker(worker, amount: Decimal, purpose: str, idem_key: st
 
     log.info(
         "worker %s took %s from the till of store %s: %s",
-        worker.id, amount, shift["store_id"], purpose[:40],
+        worker.id, amount, shift["store_id"], note[:40],
     )
     return {
         "ok": True,
@@ -185,7 +237,7 @@ async def withdraw_by_worker(worker, amount: Decimal, purpose: str, idem_key: st
         "withdrawal": {
             "id": movement_id,
             "amount": f"{amount:.2f}",
-            "purpose": purpose.strip()[:300],
+            "purpose": note,
         },
         "store_totals": {"cash": f"{after['cash']:.2f}", "card": f"{after['card']:.2f}"},
     }
