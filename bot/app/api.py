@@ -200,7 +200,9 @@ class Api:
             },
         )
 
-    async def close_out(self, telegram_id: int, lines: list[dict], key: str) -> dict:
+    async def close_out(
+        self, telegram_id: int, lines: list[dict], key: str, counted: str | None = None
+    ) -> dict:
         """End the shift and declare the day's sales in one call.
 
         One call rather than a sale per line then an end: the server applies the
@@ -210,16 +212,20 @@ class Api:
         It never asks for the shop to be closed. Closing it is not a decision a
         cashier makes — the last one to leave closes it, which the server works
         out for itself.
+
+        ``counted`` is what is being left in the drawer, and it is left out of the
+        first attempt on purpose: only the server knows whether this close shuts the
+        shop, so it refuses with ``till_count_required`` when it does and the same
+        call is sent again with the figure. Sent as a decimal string, never a float.
         """
-        return await self._call(
-            "POST",
-            "/shift/close-out",
-            json={
-                "telegram_id": telegram_id,
-                "lines": lines,
-                "idempotency_key": key,
-            },
-        )
+        payload: dict[str, Any] = {
+            "telegram_id": telegram_id,
+            "lines": lines,
+            "idempotency_key": key,
+        }
+        if counted is not None:
+            payload["counted"] = counted
+        return await self._call("POST", "/shift/close-out", json=payload)
 
     async def void_last(
         self, telegram_id: int, reason: str | None = None, sale_id: int | None = None

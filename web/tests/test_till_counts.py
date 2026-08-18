@@ -1,14 +1,19 @@
 """The money that stays in the shop, and the money that goes to the owner.
 
-Each store keeps a float in its drawer. At the end of a shift the worker says how much
-they are leaving; that becomes the store's balance, and everything else in the till
-goes to the owner:
+Each store keeps a float in its drawer. Shutting the shop asks how much is being left
+behind and will not go through without an answer; that figure becomes the store's
+balance, and everything else in the till goes to the owner:
 
     handed over  =  what the till held  −  what was left behind
 
 Three things have to happen together for that to hold — the count is recorded, the
 balance is updated, the handover is booked — so most of these tests are about the
 three agreeing rather than about any one of them.
+
+Two ways a count is made, and both are here. Closing takes one, in the same
+transaction that shuts the shop, which is why «lock up» below says what it leaves. A
+second reading can be typed afterwards — a figure noticed to be wrong at the door —
+and the later one is the one that stands.
 
 Nobody is asked at the start of a shift. That asked a worker to answer for a drawer
 somebody else had filled.
@@ -69,21 +74,44 @@ async def _open(worker, key: str):
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, key, 900)
 
 
-async def _lock_up(worker, key: str = "idem-lockup-1"):
-    """End the shift, which shuts the shop when nobody else is on.
+async def _lock_up(worker, key: str = "idem-lockup-1", left: str = "0"):
+    """End the shift, saying what is left in the drawer, which shuts the shop.
 
-    Every count goes through this, because the drawer is only countable once the shop
-    is shut. That ordering is the point: the count hands the owner everything above the
-    float, so the wage has to come out of the till first — a worker who counted up
-    mid-shift handed over 82,000 and was then paid out of a drawer that no longer had
-    it.
+    ``left`` is part of closing now: the close-out is refused without it once this
+    shift is the one shutting the shop, so «lock up» and «count» are one act. The
+    ordering is the point — the count hands the owner everything above the float, so
+    the wage has to come out of the till first, and a worker who counted up mid-shift
+    handed over 82,000 and was then paid out of a drawer that no longer had it.
+
+    A second reading through :func:`till_service.declare_close` still replaces this
+    one, which is what most of the tests below are about: a figure typed wrong is
+    corrected rather than lived with.
     """
     await worked_a_full_shift(worker.id)
-    await shifts_service.close_out_shift(worker, [], key)
+    await shifts_service.close_out_shift(worker, [], key, counted=Decimal(left))
 
 
 async def _till(session_id: int) -> Decimal:
     return Decimal((await money_repo.totals_for_session(session_id))["cash"])
+
+
+async def _shut_without_counting(owner_id: int, session_id: int):
+    """Shut the shop with nobody having said what is in the drawer.
+
+    Not something a worker can do any more: closing asks for the figure and refuses
+    without it. The owner's force-close and the overnight sweep still shut a shop over
+    everybody's head, and an evening nobody counted is what the report then has to make
+    sense of.
+    """
+    await shifts_service.close_store_session_as_owner(owner_id, session_id)
+
+
+async def _reading() -> dict[str, Decimal]:
+    """The newest count, as closing wrote it down."""
+    row = await db.fetchrow(
+        "SELECT counted, expected, handed_over FROM till_counts ORDER BY id DESC LIMIT 1"
+    )
+    return {key: Decimal(value) for key, value in dict(row).items()}
 
 
 async def _session() -> int:
@@ -167,8 +195,7 @@ async def test_what_is_left_becomes_the_shops_balance(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
 
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
 
     assert await _balance(store_id) == Decimal("30000.00")
 
@@ -182,12 +209,12 @@ async def test_the_rest_goes_to_the_owner(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
 
-    await _lock_up(worker)
-    result = await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
 
-    assert result["count"]["expected"] == "47000.00", "what the till held"
-    assert result["count"]["counted"] == "30000.00", "what stays in the shop"
-    assert result["count"]["handed_over"] == "17000.00"
+    reading = await _reading()
+    assert reading["expected"] == Decimal("47000.00"), "what the till held"
+    assert reading["counted"] == Decimal("30000.00"), "what stays in the shop"
+    assert reading["handed_over"] == Decimal("17000.00")
 
 
 async def test_the_owners_share_is_reported_and_never_booked(client):
@@ -203,10 +230,9 @@ async def test_the_owners_share_is_reported_and_never_booked(client):
     )
     session_id = await _session()
 
-    await _lock_up(worker)
-    result = await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
 
-    assert result["count"]["handed_over"] == "17000.00"
+    assert (await _reading())["handed_over"] == Decimal("17000.00")
     assert await db.fetchval(
         "SELECT count(*) FROM cash_movements WHERE kind IN ('withdrawal', 'adjustment')"
     ) == 0, "no row for the handover, and none to correct one"
@@ -223,9 +249,8 @@ async def test_the_count_leaves_the_closing_snapshot_alone(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
 
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
 
     assert await db.fetchval(
         "SELECT cash_at_close FROM store_sessions WHERE id = $1", session_id
@@ -241,8 +266,7 @@ async def test_the_days_takings_are_untouched_by_the_handover(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
 
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
 
     day = await money_repo.day_totals_for_store(owner_id, store_id)
     assert day["day_cash"] == Decimal("7000.00")
@@ -253,10 +277,9 @@ async def test_leaving_everything_hands_over_nothing(client):
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
 
-    await _lock_up(worker)
-    result = await till_service.declare_close(worker, Decimal("40000"), "idem-till-1")
+    await _lock_up(worker, left="40000")
 
-    assert result["count"]["handed_over"] == "0.00"
+    assert (await _reading())["handed_over"] == Decimal("0.00")
     assert await db.fetchval(
         "SELECT count(*) FROM cash_movements WHERE kind = 'withdrawal'"
     ) == 0
@@ -269,11 +292,9 @@ async def test_leaving_more_than_the_till_held_owes_the_owner_nothing(client):
     owner_id, store_id, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker)
+    await _lock_up(worker, left="45000")
 
-    result = await till_service.declare_close(worker, Decimal("45000"), "idem-till-1")
-
-    assert result["count"]["handed_over"] == "0.00"
+    assert (await _reading())["handed_over"] == Decimal("0.00")
     assert await _balance(store_id) == Decimal("45000.00")
 
 
@@ -284,12 +305,11 @@ async def test_the_gap_is_still_visible_when_more_was_left_than_expected(client)
     owner_id, _, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker)
+    await _lock_up(worker, left="45000")
 
-    result = await till_service.declare_close(worker, Decimal("45000"), "idem-till-1")
-
-    assert result["count"]["expected"] == "40000.00", "what the books said"
-    assert result["count"]["counted"] == "45000.00", "what was found"
+    reading = await _reading()
+    assert reading["expected"] == Decimal("40000.00"), "what the books said"
+    assert reading["counted"] == Decimal("45000.00"), "what was found"
 
 
 async def test_tomorrow_opens_with_what_was_left(client):
@@ -300,8 +320,7 @@ async def test_tomorrow_opens_with_what_was_left(client):
     await sales_service.record_sale(
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
 
     await _open(worker, "idem-open-2")
 
@@ -314,8 +333,7 @@ async def test_a_later_count_replaces_an_earlier_one(client):
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
 
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     await till_service.declare_close(worker, Decimal("25000"), "idem-till-2")
 
     assert await _balance(store_id) == Decimal("25000.00")
@@ -345,13 +363,13 @@ async def test_an_absurd_count_is_refused(client):
         )
 
 
-async def test_it_can_be_counted_after_the_shift_has_ended(client):
-    """Which is when it is asked for. Requiring an open shift would refuse the question
-    at the moment it is being answered."""
+async def test_it_can_be_counted_again_after_the_shift_has_ended(client):
+    """A figure noticed to be wrong at the door. Requiring an open shift would refuse
+    the correction at the only moment anybody makes it."""
     owner_id, store_id, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker)
+    await _lock_up(worker, left="30000")
 
     await till_service.declare_close(worker, Decimal("35000"), "idem-till-1")
 
@@ -405,13 +423,15 @@ async def test_a_retry_hands_over_once(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
 
-    await _lock_up(worker)
-    first = await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
-    second = await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
+    first = await till_service.declare_close(worker, Decimal("25000"), "idem-till-1")
+    second = await till_service.declare_close(worker, Decimal("25000"), "idem-till-1")
 
     assert second["duplicate"] is True
     assert second["count"]["handed_over"] == first["count"]["handed_over"]
-    assert await db.fetchval("SELECT count(*) FROM till_counts") == 1
+    assert await db.fetchval(
+        "SELECT count(*) FROM till_counts WHERE external_id = $1", "idem-till-1"
+    ) == 1, "the correction landed once, beside the reading closing took"
 
 
 # -- the owner's correction ---------------------------------------------------
@@ -558,8 +578,7 @@ async def test_the_store_page_shows_the_float_and_who_set_it(client):
     await sales_service.record_sale(
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/stores/{store_id}")
@@ -593,8 +612,7 @@ async def test_the_handover_shows_on_the_report(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -617,8 +635,7 @@ async def test_the_header_no_longer_labels_the_drawer_as_cash_takings(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -650,7 +667,9 @@ async def test_the_header_shows_both_bottom_lines(client):
     )
     session_id = await _session()
     await worked_a_full_shift(worker.id)
-    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await shifts_service.close_out_shift(
+        worker, [], "idem-close-1", counted=Decimal("0")
+    )
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -673,7 +692,7 @@ async def test_the_profit_takes_off_what_the_stock_cost(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -749,7 +768,7 @@ async def test_breakage_comes_off_neither_figure(client):
     )
     await write_offs_service.record(worker, item_id, 1, "ընկավ", "idem-defect-1")
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -773,7 +792,7 @@ async def test_a_voided_sale_is_not_counted_at_all(client):
     sale_id = await db.fetchval("SELECT id FROM sales")
     await corrections_service.void_sale(owner_id, owner_id, sale_id)
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -789,7 +808,7 @@ async def test_the_two_figures_an_owner_looks_for_are_coloured(client):
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -812,7 +831,9 @@ async def test_a_day_that_lost_money_says_so_in_red(client):
     )
     session_id = await _session()
     await worked_a_full_shift(worker.id)
-    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await shifts_service.close_out_shift(
+        worker, [], "idem-close-1", counted=Decimal("0")
+    )
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -834,10 +855,9 @@ async def test_a_share_of_nothing_explains_itself(client):
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     session_id = await _session()
-    await _lock_up(worker)
     # Left more than the till ever held: an unrecorded sale, or a number typed
     # without counting.
-    await till_service.declare_close(worker, Decimal("45000"), "idem-till-1")
+    await _lock_up(worker, left="45000")
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -854,8 +874,7 @@ async def test_a_normal_evening_says_what_splits_where(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -880,7 +899,7 @@ async def test_an_uncounted_session_still_says_what_the_owner_is_owed(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -900,7 +919,7 @@ async def test_an_uncounted_session_with_no_float_owes_the_whole_till(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -926,7 +945,7 @@ async def test_an_owners_own_deposit_is_not_mistaken_for_the_float(client):
         owner_id, store_id, "cash", "deposit", Decimal("5000"), "մանրադրամ"
     )
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -947,7 +966,7 @@ async def test_the_takings_split_is_a_figure_not_a_footnote(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -965,7 +984,7 @@ async def test_the_header_answers_a_session_nobody_counted(client):
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -982,8 +1001,7 @@ async def test_the_owner_can_correct_what_the_till_held(client):
     owner_id, store_id, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
 
     await till_service.correct_a_count(
@@ -1005,8 +1023,7 @@ async def test_the_till_reading_may_be_negative(client):
     owner_id, _, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("2500"), "idem-till-1")
+    await _lock_up(worker, left="2500")
     count_id = await db.fetchval("SELECT id FROM till_counts")
 
     await till_service.correct_a_count(
@@ -1030,8 +1047,7 @@ async def test_a_count_that_has_drifted_from_the_books_is_named(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
     await login(client, "@ownerhandle")
 
@@ -1057,8 +1073,7 @@ async def test_the_header_follows_a_corrected_count(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
     await till_service.correct_a_count(
         owner_id, count_id, Decimal("20000"), Decimal("47000")
@@ -1080,8 +1095,7 @@ async def test_the_owner_can_correct_what_was_left_in_the_shop(client):
     await sales_service.record_sale(
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("300000"), "idem-till-1")
+    await _lock_up(worker, left="300000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
 
     await till_service.correct_a_count(owner_id, count_id, Decimal("30000"))
@@ -1100,12 +1114,10 @@ async def test_correcting_an_older_count_leaves_the_float_alone(client):
     owner_id, store_id, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker, "idem-lockup-1")
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, "idem-lockup-1", left="30000")
     older = await db.fetchval("SELECT id FROM till_counts")
     await _open(worker, "idem-open-2")
-    await _lock_up(worker, "idem-lockup-2")
-    await till_service.declare_close(worker, Decimal("25000"), "idem-till-2")
+    await _lock_up(worker, "idem-lockup-2", left="25000")
 
     await till_service.correct_a_count(owner_id, older, Decimal("31000"))
 
@@ -1119,8 +1131,7 @@ async def test_a_negative_correction_to_a_count_is_refused(client):
     owner_id, _, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
 
     with pytest.raises(AppError):
@@ -1131,8 +1142,7 @@ async def test_another_owners_count_cannot_be_corrected(client):
     owner_id, _, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
     stranger = await make_owner("@stranger")
 
@@ -1145,8 +1155,7 @@ async def test_the_report_offers_the_correction_box(client):
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     session_id = await _session()
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
     await login(client, "@ownerhandle")
 
@@ -1161,8 +1170,7 @@ async def test_correcting_a_count_from_the_report(client):
     owner_id, store_id, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("300000"), "idem-till-1")
+    await _lock_up(worker, left="300000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
     await login(client, "@ownerhandle")
     csrf = await db.fetchval(
@@ -1191,8 +1199,7 @@ async def test_the_owners_share_is_worked_out_rather_than_read_back(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     # A stale figure of the kind the old rules left behind.
     await db.execute("UPDATE till_counts SET handed_over = -7000")
     await login(client, "@ownerhandle")
@@ -1211,8 +1218,7 @@ async def test_the_drawer_table_has_no_column_for_the_owners_share(client):
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     session_id = await _session()
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -1231,8 +1237,7 @@ async def test_a_count_can_be_deleted(client):
     owner_id, _, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
 
     await till_service.delete_count(owner_id, owner_id, count_id)
@@ -1246,11 +1251,9 @@ async def test_deleting_the_latest_count_falls_back_to_the_one_before(client):
     owner_id, store_id, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker, "idem-lockup-1")
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, "idem-lockup-1", left="30000")
     await _open(worker, "idem-open-2")
-    await _lock_up(worker, "idem-lockup-2")
-    await till_service.declare_close(worker, Decimal("25000"), "idem-till-2")
+    await _lock_up(worker, "idem-lockup-2", left="25000")
     newest = await db.fetchval("SELECT id FROM till_counts ORDER BY id DESC LIMIT 1")
 
     await till_service.delete_count(owner_id, owner_id, newest)
@@ -1263,8 +1266,7 @@ async def test_deleting_the_only_count_leaves_the_shop_with_nothing_declared(cli
     owner_id, store_id, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
 
     await till_service.delete_count(owner_id, owner_id, count_id)
@@ -1276,12 +1278,10 @@ async def test_deleting_an_older_count_leaves_the_float_alone(client):
     owner_id, store_id, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker, "idem-lockup-1")
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, "idem-lockup-1", left="30000")
     older = await db.fetchval("SELECT id FROM till_counts ORDER BY id LIMIT 1")
     await _open(worker, "idem-open-2")
-    await _lock_up(worker, "idem-lockup-2")
-    await till_service.declare_close(worker, Decimal("25000"), "idem-till-2")
+    await _lock_up(worker, "idem-lockup-2", left="25000")
 
     await till_service.delete_count(owner_id, owner_id, older)
 
@@ -1292,8 +1292,7 @@ async def test_deleting_a_count_is_recorded_in_the_history(client):
     owner_id, _, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
 
     await till_service.delete_count(owner_id, owner_id, count_id)
@@ -1315,8 +1314,7 @@ async def test_a_deleted_count_can_be_undone(client):
     await sales_service.record_sale(
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
     await till_service.delete_count(owner_id, owner_id, count_id)
     event_id = await db.fetchval("SELECT id FROM audit_events ORDER BY id DESC LIMIT 1")
@@ -1330,7 +1328,7 @@ async def test_a_deleted_count_can_be_undone(client):
     assert row["expected"] == Decimal("47000.00")
     assert row["handed_over"] == Decimal("17000.00")
     assert row["worker_id"] == worker.id, "still theirs"
-    assert row["external_id"] == "idem-till-1", "and the bot's key still points at it"
+    assert row["external_id"] == "idem-lockup-1", "and the close-out's key still points at it"
     assert await _balance(store_id) == Decimal("30000.00"), "and the float came back"
 
 
@@ -1340,8 +1338,7 @@ async def test_the_restored_count_keeps_its_place_in_the_evening(client):
     owner_id, _, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
     was = await db.fetchval("SELECT created_at FROM till_counts WHERE id = $1", count_id)
     await till_service.delete_count(owner_id, owner_id, count_id)
@@ -1356,8 +1353,7 @@ async def test_another_owners_count_cannot_be_deleted(client):
     owner_id, store_id, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
     stranger = await make_owner("@stranger")
 
@@ -1373,8 +1369,7 @@ async def test_deleting_a_count_from_the_report(client):
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     session_id = await _session()
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
     await login(client, "@ownerhandle")
     csrf = await db.fetchval(
@@ -1400,7 +1395,7 @@ async def test_a_forgotten_sale_can_be_added_without_hunting_for_the_form(client
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -1419,8 +1414,7 @@ async def test_the_session_rows_carry_the_handover(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
 
     rows = await till_repo.for_session(session_id)
 
@@ -1452,7 +1446,7 @@ async def test_the_owner_can_correct_what_the_shop_opened_with(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     await client.post(
@@ -1476,7 +1470,7 @@ async def test_correcting_the_float_moves_everything_that_follows_from_it(client
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     await client.post(
@@ -1502,7 +1496,7 @@ async def test_a_float_the_system_never_recorded_can_be_typed_in(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     await client.post(
@@ -1522,7 +1516,7 @@ async def test_a_float_set_to_nothing_leaves_no_row_behind(client):
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     await client.post(
@@ -1543,7 +1537,7 @@ async def test_every_correction_to_the_float_is_undoable(client):
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     await client.post(
@@ -1594,7 +1588,7 @@ async def test_the_first_reading_records_who_actually_made_it(client):
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     await client.post(
@@ -1619,8 +1613,7 @@ async def test_correcting_an_existing_count_goes_through_the_same_door(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     session_id = await _session()
-    await _lock_up(worker)
-    await till_service.declare_close(worker, Decimal("30000"), "idem-till-1")
+    await _lock_up(worker, left="30000")
     await login(client, "@ownerhandle")
 
     await client.post(
@@ -1651,8 +1644,7 @@ async def test_a_reading_filled_in_for_an_old_evening_leaves_todays_drawer_alone
     await _lock_up(worker, "idem-lockup-1")  # nobody counted
 
     await _open(worker, "idem-open-2")
-    await _lock_up(worker, "idem-lockup-2")
-    await till_service.declare_close(worker, Decimal("12000"), "idem-till-2")
+    await _lock_up(worker, "idem-lockup-2", left="12000")
     await login(client, "@ownerhandle")
 
     await client.post(
@@ -1670,7 +1662,7 @@ async def test_both_boxes_are_on_the_report(client):
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
 
     page = (await client.get(f"/reports?store_session_id={session_id}")).text
@@ -1684,7 +1676,7 @@ async def test_neither_box_takes_a_negative(client):
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
     await login(client, "@ownerhandle")
     token = await _csrf()
 
@@ -1709,7 +1701,7 @@ async def test_another_owners_session_cannot_be_touched(client):
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     session_id = await _session()
-    await _lock_up(worker)
+    await _shut_without_counting(owner_id, session_id)
 
     stranger = await make_owner("@stranger")
     await make_store(stranger, "Ուրիշ", lat=YEREVAN_LAT, lng=YEREVAN_LNG)

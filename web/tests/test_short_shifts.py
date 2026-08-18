@@ -171,6 +171,7 @@ async def test_the_write_up_halves_it_too(client):
         [{"item_id": item_id, "quantity": 1, "unit_price": "3500.00",
           "payment_method": "cash"}],
         "idem-close-1",
+        counted=Decimal("0"),
     )
 
     assert await _paid() == Decimal("4000.00")

@@ -44,10 +44,25 @@ takings and it is not the owner's yet: it is the change the next person needs to
 open up with. A session seeds its till from that column as an ordinary `deposit`,
 which keeps "how much is in the till" a sum over one table.
 
-One person sets it, once, and it is **whoever locks up**. `💰 Դրամարկղի մնացորդ` is
-offered on the message that ends the last shift and on the off-shift keyboard, and
-the server refuses a count while the session is open (`store_still_open`). Both the
-button's position and the refusal are the same rule: the count is the closing act.
+One person sets it, once, and it is **whoever locks up**. It is not offered — it is
+asked. The last step of the write-up is «որքա՞ն եք թողնում դրամարկղում», and
+`/shift/close-out` refuses to shut the shop without it (`till_count_required`), inside
+the transaction, so a refused close writes nothing at all: the stock stays on the
+shelf, the wage unpaid, the shift open. The bot cannot know in advance whether this
+close shuts the shop — that depends on who else is still on — so it sends without a
+figure, is refused, asks, and sends the same call again under the same key.
+
+It used to be a button on the message saying the shift had ended. A button handed to
+somebody who has just been told they can go home is a button most people do not press,
+and the evenings with no reading were exactly the ones that needed one: the next shift
+opened against a float nobody had counted. The button is still there for a close that
+came back without a reading — an older service, mid-deploy — because no way to record
+the drawer is worse than being asked too late.
+
+Counting is still refused while the session is open (`store_still_open`), which is the
+same rule from the other side: the count is the closing act. A second reading through
+`💰 Դրամարկղի մնացորդ` on the off-shift keyboard replaces the first, for a figure
+noticed to be wrong at the door.
 
 That ordering is not decoration. The owner's share is the till less the float, so
 anything still to come out of the till — a wage above all — has to come out before it
@@ -825,14 +840,15 @@ services cannot drift apart on what a failure means.
 | POST | `/write-off` | stock that broke or expired, off the shelf without a sale → 201 |
 | POST | `/cash/withdraw` | cash out of the till, with the reason code that sets its ceiling → 201 |
 | GET | `/shift/review` | the whole open shift: sales, breakage, shelf corrections, cash out, the drawer, the wage due |
-| POST | `/shift/till` | what the worker leaves in the drawer; the rest is booked as handed over → 201 |
-| POST | `/shift/close-out` | declare the day's sales and end the shift, in one transaction |
-| POST | `/shift/end` | end the shift, pay the salary, close the store if last out |
+| POST | `/shift/till` | a second reading of the drawer, after closing took the first → 201 |
+| POST | `/shift/close-out` | declare the day's sales, count the drawer and end the shift, in one transaction |
+| POST | `/shift/end` | end the shift, pay the salary, close the store if last out. The bot never calls it |
 | POST | `/store/close` | close the store for everyone. Owner-side only — the bot never calls it |
 
 Error codes: `unauthorized` · `unknown_worker` · `worker_inactive` ·
 `no_store_in_range` · `no_stores_located` · `location_too_vague` ·
-`session_already_open` · `no_open_session` · `store_not_open` · `unknown_item` ·
+`session_already_open` · `no_open_session` · `store_not_open` · `till_count_required` ·
+`unknown_item` ·
 `insufficient_stock` · `nothing_to_void` · `empty_basket` · `validation_error`.
 
 **`idempotency_key` is required on every mutating endpoint** (8–128 chars). The

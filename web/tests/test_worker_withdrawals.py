@@ -205,7 +205,7 @@ async def test_the_allowance_starts_again_next_shift(client):
     await money_service.withdraw_by_worker(
         worker, Decimal("1000"), "առաքիչին", "idem-key-cash-01"
     )
-    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", counted=Decimal("0"))
 
     # A new session starts with an empty till — the old one was settled and
     # handed over — so there has to be a sale before there is anything to take.
@@ -253,7 +253,7 @@ async def test_a_negative_amount_is_refused(client):
 
 async def test_taking_cash_needs_an_open_shift(client):
     _, _, worker, _, _ = await _till_with("0.00")
-    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", counted=Decimal("0"))
 
     with pytest.raises(BotError) as caught:
         await money_service.withdraw_by_worker(

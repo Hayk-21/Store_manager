@@ -339,7 +339,7 @@ async def test_a_real_evening_end_to_end(client):
         worker, Decimal("1000"), "առաքիչին", "idem-cash-01"
     )
     await worked_a_full_shift(worker.id)
-    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", counted=Decimal("0"))
 
     # The drawer held 234 + 2,400 − 1,000 = 1,634 when the wage fell due.
     wages = await _wages(shift_id)
@@ -378,7 +378,7 @@ async def test_the_owners_share_follows_a_sale_added_after_the_count(client):
     await money_service.withdraw_by_worker(
         worker, Decimal("1000"), "առաքիչին", "idem-cash-01"
     )
-    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", counted=Decimal("0"))
     # Counted while the drawer held 2,400 + 234 − 1,000 − 1,634 = 0.
     await till_service.declare_close(worker, Decimal("1500"), "idem-till-01")
     assert await db.fetchval("SELECT expected FROM till_counts") == Decimal("0.00")
@@ -428,7 +428,7 @@ async def test_the_wage_tiles_show_what_the_drawer_paid(client):
     await money_service.withdraw_by_worker(
         worker, Decimal("1000"), "առաքիչին", "idem-cash-01"
     )
-    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", counted=Decimal("0"))
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -490,7 +490,7 @@ async def test_that_evenings_report_subtracts_what_the_shift_cost(client):
         worker, Decimal("1000"), "առաքիչին", "idem-cash-01"
     )
     await worked_a_full_shift(worker.id)
-    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", counted=Decimal("0"))
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")

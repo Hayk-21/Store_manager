@@ -7,9 +7,12 @@ and is what the next shift opens with — and everything above it goes to the ow
 Nobody is asked at the *start* of a shift. That asked a worker to answer for a
 drawer somebody else had filled, and the answer bound nobody to anything.
 
-Reachable two ways, both of them after the shift has ended: the button on the message
-that ends it, and «Դրամարկղի մնացորդ» on the off-shift keyboard for anyone who
-scrolled past that prompt.
+The question itself has moved into the write-up: shutting the shop asks for the
+figure and will not finish without it, so the ordinary evening never comes through
+here. What is left is the second reading — «Դրամարկղի մնացորդ» on the off-shift
+keyboard, for a number typed wrong and noticed at the door — and the button on the
+message that ends a shift, which is still sent when the close came back without a
+count of its own.
 
 Deliberately *not* on the working keyboard, where it used to be. A worker counted up
 at 21:07, which handed the owner everything above the float, and was paid at 21:10 out
@@ -119,7 +122,7 @@ async def type_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     keyboard = _keyboard_after(context)
     _clear(context)
     try:
-        body = _confirmation(result["count"])
+        body = confirmation(result["count"])
     except (KeyError, TypeError):
         log.exception("could not render a till count from %r", result)
         body = texts.TILL_DONE_PLAINLY
@@ -130,8 +133,12 @@ async def type_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     return ConversationHandler.END
 
 
-def _confirmation(count: dict) -> str:
+def confirmation(count: dict) -> str:
     """What stays in the shop, and what goes to the owner.
+
+    Shared with the write-up, which now takes the count as it closes the shift and
+    reports it in the same message. Two places saying what a reading came to must
+    say it the same way.
 
     The owner's share is the figure the worker is about to act on — they are holding
     that money — so it is stated outright rather than left as a subtraction they do in

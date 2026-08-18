@@ -77,7 +77,7 @@ async def _a_day(owner_id: int, store_id: int, item_id: int, salary: str = "8000
     )
     await write_offs_service.record(worker, item_id, 2, "ընկավ", "idem-defect-1")
     await worked_a_full_shift(worker_id)
-    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", counted=Decimal("0"))
     return worker
 
 
@@ -199,7 +199,7 @@ async def test_a_bonus_is_its_own_row(client):
         worker, [{"item_id": item_id, "quantity": 4}], "cash", "idem-sale-1"
     )
     await worked_a_full_shift(worker_id)
-    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", counted=Decimal("0"))
 
     rows = _by_kind(await _rows(owner_id))
 
@@ -231,7 +231,7 @@ async def test_a_shift_that_cost_nothing_is_not_a_row(client):
         worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-1", 900
     )
     await worked_a_full_shift(worker_id)
-    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", counted=Decimal("0"))
 
     assert not [row for row in await _rows(owner_id) if row["kind"] == "salary"]
 

@@ -100,7 +100,7 @@ async def test_it_does_not_count_towards_a_bonus(client):
     )
 
     await write_offs_service.record(worker, item_id, 50, "կոտրված", "idem-wo-1")
-    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", counted=Decimal("0"))
 
     assert await db.fetchval(
         "SELECT count(*) FROM cash_movements WHERE kind = 'bonus'"
@@ -122,7 +122,7 @@ async def test_writing_off_needs_an_open_shift(client):
     """The store comes from the shift, so a worker cannot write off stock in a
     shop they are not standing in."""
     _, _, item_id, worker, _ = await _on_shift()
-    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", counted=Decimal("0"))
 
     with pytest.raises(BotError) as caught:
         await write_offs_service.record(worker, item_id, 1, None, "idem-wo-1")
@@ -244,7 +244,7 @@ async def _a_shut_shop(count=20, self_price="1500.00"):
     """An evening that is over: the shift closed out and the store with it, which is
     when the owner finds the broken box and has nobody to attribute it to."""
     owner_id, _, item_id, worker, _ = await _on_shift(count=count, self_price=self_price)
-    await shifts_service.close_out_shift(worker, [], "idem-close-1", close_store_too=True)
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", close_store_too=True, counted=Decimal("0"))
     session_id = await db.fetchval("SELECT id FROM store_sessions")
     return owner_id, item_id, session_id
 

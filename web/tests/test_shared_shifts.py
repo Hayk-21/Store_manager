@@ -100,6 +100,7 @@ async def test_one_leaving_does_not_close_the_shop_on_the_other(client):
         [{"item_id": item_id, "quantity": 1, "unit_price": "3500.00",
           "payment_method": "cash"}],
         "idem-close-ani",
+        counted=Decimal("0"),
     )
 
     assert result["summary"]["store_closed"] is False
@@ -116,9 +117,9 @@ async def test_the_last_one_out_closes_the_shop(client):
     await shifts_service.open_store(ani, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-ani", 900)
     await shifts_service.open_store(gor, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-gor", 900)
     await worked_a_full_shift()
-    await shifts_service.close_out_shift(ani, [], "idem-close-ani")
+    await shifts_service.close_out_shift(ani, [], "idem-close-ani", counted=Decimal("0"))
 
-    result = await shifts_service.close_out_shift(gor, [], "idem-close-gor")
+    result = await shifts_service.close_out_shift(gor, [], "idem-close-gor", counted=Decimal("0"))
 
     assert result["summary"]["store_closed"] is True
     assert await db.fetchval("SELECT closed_at FROM store_sessions") is not None
@@ -138,12 +139,14 @@ async def test_each_ones_sales_stay_their_own(client):
         [{"item_id": item_id, "quantity": 2, "unit_price": "3500.00",
           "payment_method": "cash"}],
         "idem-close-ani",
+        counted=Decimal("0"),
     )
     await shifts_service.close_out_shift(
         gor,
         [{"item_id": item_id, "quantity": 1, "unit_price": "3500.00",
           "payment_method": "cash"}],
         "idem-close-gor",
+        counted=Decimal("0"),
     )
 
     by_worker = dict(
@@ -173,7 +176,8 @@ async def test_one_worker_cannot_close_the_shop_on_a_colleague(client):
 
     with pytest.raises(BotError) as caught:
         await shifts_service.close_out_shift(
-            ani, [], "idem-close-ani", close_store_too=True
+            ani, [], "idem-close-ani", close_store_too=True,
+            counted=Decimal("0"),
         )
 
     assert caught.value.code == "others_on_shift"
@@ -205,7 +209,8 @@ async def test_the_last_one_out_may_still_close_it_deliberately(client):
     await shifts_service.open_store(ani, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-ani", 900)
 
     result = await shifts_service.close_out_shift(
-        ani, [], "idem-close-ani", close_store_too=True
+        ani, [], "idem-close-ani", close_store_too=True,
+        counted=Decimal("0"),
     )
 
     assert result["summary"]["store_closed"] is True
@@ -244,8 +249,9 @@ async def test_both_salaries_come_out_when_the_shop_closes(client):
         [{"item_id": item_id, "quantity": 4, "unit_price": "3500.00",
           "payment_method": "cash"}],
         "idem-close-ani",
+        counted=Decimal("0"),
     )
-    await shifts_service.close_out_shift(gor, [], "idem-close-gor")
+    await shifts_service.close_out_shift(gor, [], "idem-close-gor", counted=Decimal("0"))
 
     assert await db.fetchval(
         "SELECT count(*) FROM cash_movements WHERE kind = 'salary'"

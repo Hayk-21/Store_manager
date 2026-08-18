@@ -49,7 +49,8 @@ async def _sold(
     # hours is paid half, and these numbers are not about that rule.
     await worked_a_full_shift(worker_id)
     await shifts_service.close_out_shift(
-        worker, lines, f"close-{key}", close_store_too=True
+        worker, lines, f"idem-close-{key}", close_store_too=True,
+        counted=Decimal("0"),
     )
     return worker_id
 

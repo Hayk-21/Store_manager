@@ -45,6 +45,14 @@ ERROR_MESSAGES: dict[str, str] = {
         "Խանութը դեռ բաց է։ Դրամարկղը հաշվում է վերջինը դուրս եկողը՝ "
         "հերթափոխն ավարտելուց հետո։"
     ),
+    # The refusal that makes the count part of closing rather than a favour asked
+    # afterwards. Written as an instruction, because the bot answering it is the one
+    # that asks for the figure — and a bot too old to know the code prints this
+    # sentence verbatim, so it has to make sense on its own.
+    "till_count_required": (
+        "Հերթափոխը դեռ չի փակվել։ Նախ հաշվեք դրամարկղը և գրեք, "
+        "թե որքան կանխիկ եք թողնում խանութում։"
+    ),
     # Always overridden with the names of whoever is still working, but a
     # sensible sentence has to exist for the code on its own.
     "others_on_shift": (

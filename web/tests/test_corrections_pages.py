@@ -34,6 +34,7 @@ async def _a_closed_session():
           "payment_method": "cash"}],
         "idem-close-1",
         close_store_too=True,
+        counted=Decimal("0"),
     )
     session_id = await db.fetchval("SELECT id FROM store_sessions")
     sale_id = await db.fetchval("SELECT id FROM sales")

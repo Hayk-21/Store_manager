@@ -301,3 +301,15 @@ class CloseoutRequest(IdempotentRequest):
     lat: float | None = Field(default=None, ge=-90, le=90)
     lng: float | None = Field(default=None, ge=-180, le=180)
     close_store: bool = False
+    # What is being left in the drawer. Optional here and required by the service,
+    # and only when this close actually shuts the shop — which is not something the
+    # bot can know in advance, so it asks, is refused, asks the worker, and sends
+    # the same call again with the figure.
+    counted: Decimal | None = Field(default=None, ge=0)
+
+    @field_validator("counted", mode="before")
+    @classmethod
+    def _string_money(cls, value):
+        if isinstance(value, float):
+            raise ValueError("send money as a decimal string, not a float")
+        return value

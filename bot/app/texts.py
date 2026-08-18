@@ -470,6 +470,16 @@ TILL_ASK_CLOSE = (
     "մնացածը հանձնվում է ղեկավարին։"
 )
 TILL_BAD_AMOUNT = "Գրեք գումարը թվով, օրինակ՝ 40000։"
+# The same question, asked as the last step of ending a shift rather than as a
+# button afterwards. It says why it is being asked, because the worker pressed
+# «Հաստատել» expecting to be done and the shift is not closed yet.
+TILL_ASK_BEFORE_CLOSE = (
+    "💰 <b>Դրամարկղի մնացորդը</b>\n\n"
+    "Մնաց վերջին քայլը՝ հաշվեք դրամարկղում մնացած կանխիկը և գրեք գումարը թվով։\n"
+    "Այդքանը մնում է խանութում՝ հաջորդ հերթափոխի համար, "
+    "մնացածը հանձնվում է ղեկավարին։\n\n"
+    "Առանց այս թվի հերթափոխը չի փակվի։"
+)
 TILL_DONE_CLOSE = "💰 Գրանցվեց՝ դրամարկղում մնում է <b>{counted}</b>։\n"
 # The figure the worker is about to act on — they are holding that money — so it is
 # stated rather than left to be worked out from the other two.

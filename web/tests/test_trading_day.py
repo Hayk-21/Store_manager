@@ -44,8 +44,9 @@ async def _trade(owner_id: int, store_id: int, item_id: int, *, quantity: int, k
         worker,
         [{"item_id": item_id, "quantity": quantity, "unit_price": "3500.00",
           "payment_method": "cash"}],
-        f"close-{key}",
+        f"idem-close-{key}",
         close_store_too=True,
+        counted=Decimal("0"),
     )
 
 
@@ -200,8 +201,9 @@ async def test_a_salary_is_not_deducted_from_what_the_shop_sold(client):
         worker,
         [{"item_id": item_id, "quantity": 3, "unit_price": "3500.00",
           "payment_method": "cash"}],
-        "close-s",
+        "idem-close-s",
         close_store_too=True,
+        counted=Decimal("0"),
     )
 
     row = (await money_repo.totals_by_store(owner_id))[0]

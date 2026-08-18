@@ -685,6 +685,10 @@ async def close_out(body: CloseoutRequest) -> dict:
 
     This is the normal way a sale reaches the system: the cashier serves
     customers without touching the bot and writes the day up once, at the end.
+
+    When it is this shift that shuts the shop, the drawer reading comes with it or
+    nothing is written at all: ``counted`` is what is being left behind, and a close
+    without it is refused with ``till_count_required`` so the bot can go and ask.
     """
     worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
     return await shifts_service.close_out_shift(
@@ -703,6 +707,7 @@ async def close_out(body: CloseoutRequest) -> dict:
         lat=body.lat,
         lng=body.lng,
         close_store_too=body.close_store,
+        counted=body.counted,
     )
 
 

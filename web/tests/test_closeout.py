@@ -58,12 +58,20 @@ async def _open(client, headers, telegram_id):
     return response
 
 
-async def _close_out(client, headers, telegram_id, lines, key="idem-key-close-01", **extra):
-    return await client.post(
-        f"{BASE}/shift/close-out",
-        json={"telegram_id": telegram_id, "lines": lines, "idempotency_key": key, **extra},
-        headers=headers,
-    )
+async def _close_out(
+    client, headers, telegram_id, lines, key="idem-key-close-01", counted="0", **extra
+):
+    """Write the day up. ``counted`` is what is being left in the drawer.
+
+    Closing is refused without it once this shift is the one shutting the shop, so
+    the default is there to keep every test that is about something else out of that
+    conversation. ``counted=None`` leaves the field off, which is what the bot's
+    first attempt does.
+    """
+    body = {"telegram_id": telegram_id, "lines": lines, "idempotency_key": key, **extra}
+    if counted is not None:
+        body["counted"] = counted
+    return await client.post(f"{BASE}/shift/close-out", json=body, headers=headers)
 
 
 # -- what the worker sees before they write anything up -----------------------
@@ -403,3 +411,148 @@ async def test_a_colleague_still_working_keeps_the_store_open(client, bot_header
 
     assert body["summary"]["store_closed"] is False
     assert await db.fetchval("SELECT count(*) FROM store_sessions WHERE closed_at IS NULL") == 1
+
+
+# -- the drawer, which is what shuts the shop ---------------------------------
+
+async def test_the_shop_does_not_shut_until_the_drawer_is_counted(client, bot_headers):
+    """The order the whole thing turns on.
+
+    Counting used to be offered afterwards, as a button on the message saying the
+    shift had ended — and a button handed to somebody who has just been told they can
+    go home is a button most people do not press. The reading went missing on the
+    evenings it mattered and the next shift opened against a float nobody had counted.
+    So the close-out is refused without it.
+    """
+    _, _, telegram_id, item_id, _ = await _on_shift()
+    await _open(client, bot_headers, telegram_id)
+
+    response = await _close_out(
+        client, bot_headers, telegram_id,
+        [{"item_id": item_id, "quantity": 1, "payment_method": "cash"}],
+        counted=None,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "till_count_required"
+
+
+async def test_the_refused_close_out_writes_nothing_at_all(client, bot_headers):
+    """The refusal comes from inside the transaction, after the sale has been applied
+    and the wage paid, so the whole thing has to come back out. A shift left open with
+    its stock already moved is the one state nothing downstream could make sense of."""
+    _, _, telegram_id, item_id, _ = await _on_shift(salary="8000.00", till="20000.00")
+    await _open(client, bot_headers, telegram_id)
+
+    await _close_out(
+        client, bot_headers, telegram_id,
+        [{"item_id": item_id, "quantity": 3, "payment_method": "cash"}],
+        counted=None,
+    )
+
+    assert await db.fetchval("SELECT count FROM items") == 20, "nothing came off the shelf"
+    assert await db.fetchval(
+        "SELECT count(*) FROM work_sessions WHERE ended_at IS NULL"
+    ) == 1, "and the shift is still open, to be closed properly"
+    assert await db.fetchval(
+        "SELECT count(*) FROM cash_movements WHERE kind = 'salary'"
+    ) == 0, "no wage paid out of a shift that did not end"
+    assert await db.fetchval("SELECT count(*) FROM till_counts") == 0
+
+
+async def test_the_same_call_again_with_the_figure_goes_through(client, bot_headers):
+    """What the bot does with the refusal: it asks the worker, and sends the same
+    close-out again under the same key."""
+    _, store_id, telegram_id, item_id, _ = await _on_shift(salary="0.00")
+    await _open(client, bot_headers, telegram_id)
+    lines = [{"item_id": item_id, "quantity": 2, "payment_method": "cash"}]
+    await _close_out(client, bot_headers, telegram_id, lines, counted=None)
+
+    body = (await _close_out(
+        client, bot_headers, telegram_id, lines, counted="3000"
+    )).json()
+
+    assert body["summary"]["store_closed"] is True
+    assert body["till_count"]["counted"] == "3000.00"
+    assert body["till_count"]["expected"] == "7000.00", "two sold at 3,500"
+    assert body["till_count"]["handed_over"] == "4000.00", "and the rest goes to the owner"
+    assert await db.fetchval(
+        "SELECT till_balance FROM stores WHERE id = $1", store_id
+    ) == Decimal("3000.00"), "which is what tomorrow opens with"
+
+
+async def test_the_reading_is_taken_after_the_wage_is_out_of_the_drawer(client, bot_headers):
+    """The ordering the counting rules were built for, now that both happen in one
+    transaction. A worker paid 8,000 as they close cannot also hand that 8,000 to the
+    owner — the till the reading is measured against is the one the wage has left."""
+    _, _, telegram_id, item_id, _ = await _on_shift(salary="8000.00", till="20000.00")
+    await _open(client, bot_headers, telegram_id)
+
+    body = (await _close_out(
+        client, bot_headers, telegram_id,
+        [{"item_id": item_id, "quantity": 2, "payment_method": "cash"}],
+        counted="5000",
+    )).json()
+
+    # 20,000 carried in + 7,000 sold − an 8,000 wage.
+    assert body["till_count"]["expected"] == "19000.00"
+    assert body["till_count"]["handed_over"] == "14000.00"
+
+
+async def test_a_colleague_still_working_is_never_asked_for_the_drawer(client, bot_headers):
+    """The drawer belongs to the shop, not to a shift. One of two cashiers going home
+    at six cannot settle the change the evening still needs, so nothing is asked of
+    them and nothing is written down."""
+    owner_id, _, tg, item_id, _ = await _on_shift()
+    _, second_tg = await make_worker(owner_id, "Բ", salary_amount="0.00")
+    await _open(client, bot_headers, tg)
+    await client.post(
+        f"{BASE}/store/open",
+        json={"telegram_id": second_tg, "lat": YEREVAN_LAT, "lng": YEREVAN_LNG,
+              "accuracy_m": 20, "idempotency_key": "idem-key-open-02", "live_period": 900},
+        headers=bot_headers,
+    )
+
+    body = (await _close_out(
+        client, bot_headers, tg,
+        [{"item_id": item_id, "quantity": 1, "payment_method": "cash"}],
+        counted=None,
+    )).json()
+
+    assert body["summary"]["store_closed"] is False
+    assert "till_count" not in body
+    assert await db.fetchval("SELECT count(*) FROM till_counts") == 0
+
+
+async def test_a_replayed_close_out_counts_the_drawer_once(client, bot_headers):
+    """A flaky connection at the very end must not write a second reading — and the
+    replay has to answer with the one it did write, or the bot reports the evening
+    without the figure the worker just gave it."""
+    _, _, telegram_id, item_id, _ = await _on_shift(salary="0.00")
+    await _open(client, bot_headers, telegram_id)
+    lines = [{"item_id": item_id, "quantity": 1, "payment_method": "cash"}]
+    first = (await _close_out(client, bot_headers, telegram_id, lines, counted="1000")).json()
+
+    again = (await _close_out(client, bot_headers, telegram_id, lines, counted="1000")).json()
+
+    assert again["duplicate"] is True
+    assert again["till_count"] == first["till_count"]
+    assert await db.fetchval("SELECT count(*) FROM till_counts") == 1
+
+
+async def test_a_figure_the_till_could_never_hold_is_refused(client, bot_headers):
+    """And the close-out with it: a mistyped nought must not shut the shop with a
+    float of ten million behind it."""
+    _, _, telegram_id, item_id, _ = await _on_shift()
+    await _open(client, bot_headers, telegram_id)
+
+    response = await _close_out(
+        client, bot_headers, telegram_id,
+        [{"item_id": item_id, "quantity": 1, "payment_method": "cash"}],
+        counted="99999999999",
+    )
+
+    assert response.status_code == 422
+    assert await db.fetchval(
+        "SELECT count(*) FROM work_sessions WHERE ended_at IS NULL"
+    ) == 1

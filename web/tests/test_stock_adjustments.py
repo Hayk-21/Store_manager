@@ -165,7 +165,7 @@ async def test_another_stores_product_cannot_be_corrected(client):
 
 async def test_correcting_needs_an_open_shift(client):
     _, _, worker, item_id, _ = await _on_shift()
-    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", counted=Decimal("0"))
 
     with pytest.raises(BotError) as caught:
         await stock_service.adjust_by_worker(

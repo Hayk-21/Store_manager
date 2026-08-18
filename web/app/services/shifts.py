@@ -29,6 +29,7 @@ from app.repo import money as money_repo
 from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
 from app.repo import stores as stores_repo
+from app.repo import till as till_repo
 from app.repo import tracking as tracking_repo
 from app.repo import workers as workers_repo
 from app.services import geofence
@@ -584,6 +585,7 @@ async def close_out_shift(
     lat: float | None = None,
     lng: float | None = None,
     close_store_too: bool = False,
+    counted: Decimal | None = None,
 ) -> dict:
     """End a shift and record everything sold during it, in one transaction.
 
@@ -592,10 +594,24 @@ async def close_out_shift(
     declaration lands with the shift closed and the salary paid, or none of it
     does — a half-applied close-out would leave stock moved against a shift that
     is still open, which nothing downstream could make sense of.
+
+    ``counted`` is what the worker is leaving in the drawer, and the shop does not
+    shut without it. It used to be asked *after* the shift ended, as a button on the
+    message that ended it, and a button offered to somebody who has just been told
+    they can go home is a button most people do not press: the reading went missing
+    on the evenings it was most needed, and the next shift opened against a float
+    nobody had counted. So the order is the other way round now — the figure is part
+    of closing rather than a favour asked afterwards.
+
+    Only when this close actually shuts the shop. A cashier going home at six while
+    a colleague serves until ten has no drawer to settle, and asking them for one
+    would hand the owner the change the evening still needs.
     """
     replay = await sessions_repo.by_end_idem(worker.owner_id, idempotency_key)
     if replay is not None:
-        return await _end_payload(replay, duplicate=True)
+        return await _with_the_count(
+            await _end_payload(replay, duplicate=True), worker.owner_id, idempotency_key
+        )
 
     # Import here: sales imports Worker from this module, so a module-level
     # import would be circular.
@@ -627,14 +643,40 @@ async def close_out_shift(
             await _refuse_to_strand(conn, worker, remaining)
         store_closed = close_store_too or not remaining
         if store_closed:
+            # Asked for before anything is written, and the whole close-out is
+            # rolled back without it. The worker is standing at the drawer; a
+            # minute later they are not, and nobody can count it for them.
+            if counted is None:
+                raise BotError("till_count_required")
             await _close_store_session(conn, shift["store_session_id"], "worker")
+            # After the shop is shut, so the reading is taken against a drawer with
+            # every wage already out of it — the two figures beside each other only
+            # mean anything at that moment.
+            await till_service.count_as_the_shop_shuts(
+                conn, worker, shift, counted, idempotency_key
+            )
 
     log.info(
         "worker %s closed out with %d line(s), salary %s, store %s",
         worker.id, len(lines), salary, "closed" if store_closed else "still open",
     )
     row = await sessions_repo.by_end_idem(worker.owner_id, idempotency_key)
-    return await _end_payload(row, duplicate=False)
+    return await _with_the_count(
+        await _end_payload(row, duplicate=False), worker.owner_id, idempotency_key
+    )
+
+
+async def _with_the_count(payload: dict, owner_id: int, idem_key: str) -> dict:
+    """Hang the drawer reading on the close-out that took it, if there was one.
+
+    Looked up rather than passed down so a retry answers the same as the first call:
+    the second attempt returns from the replay branch, which never reaches the code
+    that wrote the count.
+    """
+    row = await till_repo.by_external_id(owner_id, idem_key)
+    if row is not None:
+        payload["till_count"] = till_service.count_payload(row)
+    return payload
 
 
 async def _refuse_to_strand(conn, worker: Worker, remaining: list) -> None:

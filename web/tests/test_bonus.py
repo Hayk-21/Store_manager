@@ -61,8 +61,9 @@ async def _work(worker, item_id, *, sold: int, key: str, close_store=True):
         worker,
         [{"item_id": item_id, "quantity": sold, "unit_price": "5000.00",
           "payment_method": "cash"}] if sold else [],
-        f"close-{key}",
+        f"idem-close-{key}",
         close_store_too=close_store,
+        counted=Decimal("0"),
     )
 
 
@@ -169,8 +170,9 @@ async def test_an_empty_till_does_not_let_the_bonus_be_earned_twice(client):
         worker,
         [{"item_id": item_id, "quantity": 5, "unit_price": "5000.00",
           "payment_method": "card"}],
-        "close-1",
+        "idem-close-1",
         close_store_too=True,
+        counted=Decimal("0"),
     )
 
     assert await _bonus_rows() == 0, "nothing in the till to pay it with"
@@ -182,7 +184,7 @@ async def test_an_empty_till_does_not_let_the_bonus_be_earned_twice(client):
     # the target for the period — but the shift still has to close.
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "open-2", 900)
     await worked_a_full_shift(worker.id)
-    await shifts_service.close_out_shift(worker, [], "close-2", close_store_too=True)
+    await shifts_service.close_out_shift(worker, [], "idem-close-2", close_store_too=True, counted=Decimal("0"))
 
     assert await _bonus_rows() == 0, "still nothing paid — and still not owed twice"
     assert await db.fetchval(

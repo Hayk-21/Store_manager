@@ -254,7 +254,7 @@ async def test_the_trail_survives_the_shift_ending(client):
     await shifts_service.record_position(worker, AWAY_LAT, YEREVAN_LNG)
     shift_id = await db.fetchval("SELECT id FROM work_sessions")
 
-    await shifts_service.close_out_shift(worker, [], "idem-key-close-1")
+    await shifts_service.close_out_shift(worker, [], "idem-key-close-1", counted=Decimal("0"))
 
     summary = await tracking_repo.summary_for_session(shift_id)
     assert summary["pings"] == 2

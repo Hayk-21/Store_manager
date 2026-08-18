@@ -14,6 +14,12 @@ know where the code puts it is to run the code.
 There were three. The middle one was the welcome, sent only to restore the reply
 keyboard, which greeted a worker who had just finished with «Բարև, ։» and told them
 how to open a shop they had closed. The keyboard rides on the summary now.
+
+The offer itself is now the exception rather than the rule: closing asks for the
+figure and refuses without it, so the shift usually ends with the drawer already
+counted and this message says what it came to. The button is what is left for a shift
+that closed without one — a service older than the question — because a worker with
+no way at all to record the drawer is worse than one asked too late.
 """
 
 from __future__ import annotations
@@ -61,16 +67,45 @@ def _update() -> Update:
     )
 
 
-async def _sent(summary: dict) -> list[tuple[str, object]]:
-    """Every reply the end-of-shift report makes, as (text, keyboard)."""
+async def _sent(summary: dict, till_count: dict | None = None) -> list[tuple[str, object]]:
+    """Every reply the end-of-shift report makes, as (text, keyboard).
+
+    ``till_count`` is the reading closing took, when it took one. Most of this file
+    passes none, which is the shift that closed without being asked.
+    """
     out: list[tuple[str, object]] = []
 
     async def capture(self, text, *args, **kwargs):
         out.append((text, kwargs.get("reply_markup")))
 
     with mock.patch.object(Message, "reply_text", capture):
-        await shift.report_end(_update(), summary)
+        await shift.report_end(_update(), summary, till_count)
     return out
+
+
+def _count(counted: str = "30000.00", handed: str = "17000.00") -> dict:
+    return {"id": 1, "kind": "close", "counted": counted,
+            "expected": "47000.00", "handed_over": handed}
+
+
+async def test_a_drawer_already_counted_is_reported_rather_than_asked_for():
+    """Closing took the figure, so the last message says what it came to. Offering the
+    question again after the fact is the habit this replaced."""
+    sent = await _sent(_summary(), _count())
+
+    assert "30,000" in sent[-1][0], "what stays in the shop"
+    assert "17,000" in sent[-1][0], "and what goes to the owner"
+    assert not any(hasattr(markup, "inline_keyboard") for _, markup in sent)
+    assert texts.BTN_OPEN in str(sent[-1][1]), "and the off-shift keyboard is back"
+
+
+async def test_a_drawer_that_owed_the_owner_nothing_says_so():
+    """A shop that leaves everything behind hands over nothing, and a worker holding
+    no money should be told that rather than left to work it out."""
+    sent = await _sent(_summary(), _count(counted="47000.00", handed="0.00"))
+
+    assert "47,000" in sent[-1][0]
+    assert texts.TILL_NOTHING_TO_HAND.strip() in sent[-1][0]
 
 
 async def test_ending_a_shift_offers_to_count_the_drawer():

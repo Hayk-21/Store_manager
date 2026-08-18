@@ -150,12 +150,22 @@ def build() -> Application:
                 MessageHandler(_exact(texts.BTN_CO_ADD), closeout.prompt_item),
                 MessageHandler(_exact(texts.BTN_CO_REMOVE), closeout.drop_last),
             ],
+            # The drawer, asked only when this shift is the one shutting the shop.
+            # Nothing has been written at this point: the server refused the close
+            # for want of the figure, and the same call goes again with it.
+            closeout.ASK_TILL: [
+                MessageHandler(_free_text, closeout.type_till),
+            ],
         },
         # Every other button is a way out: the states above take only free text,
         # so a button pressed mid-write-up lands here rather than being read as
         # a product name or a price.
         fallbacks=[
             MessageHandler(_exact(texts.BTN_CO_ABANDON), closeout.cancel),
+            # «Չեղարկել» is the only button on the keyboard that asks for the
+            # drawer, and backing out there abandons the write-up: nothing was
+            # written, and the shift is still open to be closed properly.
+            MessageHandler(_exact(texts.BTN_CANCEL), closeout.cancel),
             CallbackQueryHandler(closeout.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
             CommandHandler("cancel", closeout.cancel),
             CommandHandler("start", closeout.escape(shift.start)),

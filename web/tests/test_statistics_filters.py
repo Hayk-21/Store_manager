@@ -46,6 +46,7 @@ async def _a_shop_with_a_days_trading():
           "payment_method": "cash"}],
         "idem-close-1",
         close_store_too=True,
+        counted=Decimal("0"),
     )
     return owner_id, store_id
 
@@ -164,6 +165,7 @@ async def test_a_period_of_giveaways_does_not_take_the_page_down(client):
           "payment_method": "cash"}],
         "idem-close-1",
         close_store_too=True,
+        counted=Decimal("0"),
     )
     await login(client, "@ownerhandle")
 

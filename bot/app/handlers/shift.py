@@ -12,6 +12,7 @@ from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from app import format, keyboards, texts
 from app.api import ApiError, ApiUnavailable, api, new_idempotency_key
+from app.handlers import till
 
 log = logging.getLogger("storemanager.bot.shift")
 
@@ -281,7 +282,13 @@ async def end_shift(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 
-async def report_end(update: Update, summary: dict) -> None:
+async def report_end(update: Update, summary: dict, till_count: dict | None = None) -> None:
+    """The shift read back. ``till_count`` is the drawer reading it closed with.
+
+    There is one only when this shift shut the shop, because that is the only time
+    it is asked for — and when there is, it is reported here rather than invited,
+    since it has already been taken.
+    """
     message = texts.SHIFT_ENDED.format(
         duration=format.duration_minutes(summary.get("duration_minutes")),
         receipts=summary["sales"]["receipts"],
@@ -323,11 +330,20 @@ async def report_end(update: Update, summary: dict) -> None:
     # middle once, and the message after it pushed the button up off the top of a
     # phone screen — the worker was told to count the till and then shown something
     # else, so they never saw the button and reasonably reported it missing.
-    #
-    # Whatever cash is left stays in the shop and is the float the next shift opens
-    # with, so somebody has to say how much, and the person who just locked up is
-    # the one who knows. Offered rather than demanded: a worker leaving a shop
-    # should not be held there by a number.
+    if till_count is not None:
+        # Already answered — the shop does not shut without it. What is left to say
+        # is what the figure came to: what stays here, and what they are carrying.
+        await update.effective_message.reply_text(
+            till.confirmation(till_count),
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboards.off_shift(),
+        )
+        return
+
+    # No reading came back, which means the close did not ask for one — a service
+    # older than the question. Whatever cash is left is the float the next shift
+    # opens with, so somebody still has to say how much, and the person who just
+    # locked up is the one who knows.
     await update.effective_message.reply_text(
         texts.TILL_HANDOVER_PROMPT,
         parse_mode=ParseMode.HTML,

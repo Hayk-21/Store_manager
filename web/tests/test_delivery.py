@@ -170,6 +170,9 @@ async def test_a_write_up_line_can_be_a_delivery(client, bot_headers):
     response = await client.post(
         f"{BASE}/shift/close-out",
         json={"telegram_id": telegram_id, "idempotency_key": "idem-key-close-01",
+              # Whatever is left in the drawer. This shift shuts the shop, and the
+              # close is refused without it.
+              "counted": "0",
               "lines": [
                   {"item_id": item_id, "quantity": 1, "unit_price": "3500.00",
                    "payment_method": "cash", "is_delivery": True},
@@ -328,7 +331,7 @@ async def test_a_delivery_does_not_earn_a_bonus(client):
     # counter, comfortably short of it.
     await _a_counter_sale_and_a_delivery(worker, item_id)
 
-    await shifts_service.close_out_shift(worker, [], "idem-close-1", close_store_too=True)
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", close_store_too=True, counted=Decimal("0"))
 
     # Null rather than zero: the column is only written when a bonus is earned.
     assert await db.fetchval(
@@ -352,7 +355,7 @@ async def test_the_counter_alone_still_earns_one(client):
     )
     await _a_counter_sale_and_a_delivery(worker, item_id)
 
-    await shifts_service.close_out_shift(worker, [], "idem-close-1", close_store_too=True)
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", close_store_too=True, counted=Decimal("0"))
 
     assert await db.fetchval("SELECT bonus_paid FROM work_sessions") == Decimal("2000.00")
 

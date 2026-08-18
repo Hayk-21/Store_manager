@@ -35,6 +35,9 @@ STATUS_BY_CODE: dict[str, int] = {
     # The drawer is counted by whoever locks up. Counting while the shop is still
     # trading hands the owner the change the shift still needs.
     "store_still_open": 409,
+    # And the other way round: the shop does not shut until somebody says what is
+    # in the drawer.
+    "till_count_required": 422,
     "others_on_shift": 409,
     "unknown_item": 404,
     "insufficient_stock": 409,

@@ -196,7 +196,7 @@ async def test_a_name_already_on_the_list_is_refused(client, bot_headers):
 
 async def test_adding_without_an_open_shift_is_refused(client, bot_headers):
     _, _, worker, telegram_id = await _on_shift()
-    await shifts_service.close_out_shift(worker, [], "idem-close-1")
+    await shifts_service.close_out_shift(worker, [], "idem-close-1", counted=Decimal("0"))
 
     response = await client.post(
         f"{BASE}/items", json=_body(telegram_id), headers=bot_headers

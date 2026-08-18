@@ -56,6 +56,7 @@ async def _a_traded_day(close: bool = True):
               "payment_method": "cash"}],
             "idem-close-1",
             close_store_too=True,
+            counted=Decimal("0"),
         )
     session_id = await db.fetchval("SELECT id FROM store_sessions")
     return owner_id, store_id, item_id, session_id

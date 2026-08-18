@@ -6,11 +6,13 @@ the owner's yet: it is the change the next person needs to open up with. It live
 ``stores.till_balance``, which is the one place that answers "how much is in this
 shop's drawer".
 
-One person sets it, once a day. At the end of their shift the worker counts what
-they are leaving and says so; that becomes the store's balance, and everything else
-in the drawer goes to the owner. Nobody is asked at the *start* of a shift — that
-asked a worker to answer for a drawer somebody else had filled, and the answer told
-you nothing you could hold anyone to.
+One person sets it, once a day: whoever shuts the shop counts what they are leaving
+and says so, and that becomes the store's balance while everything else in the drawer
+goes to the owner. It is asked as part of closing and the shop does not shut without
+it — offered afterwards as a button, it was skipped on exactly the evenings it
+mattered. Nobody is asked at the *start* of a shift either; that asked a worker to
+answer for a drawer somebody else had filled, and the answer told you nothing you
+could hold anyone to.
 
     the owner's share  =  what was in the till  −  what was left behind
                        =  (yesterday's float + today's takings − wages − petty
@@ -92,7 +94,7 @@ async def carry_over_float(conn, owner_id: int, store_id: int, store_session_id:
 async def declare_close(
     worker, counted: Decimal, idem_key: str, note: str | None = None
 ) -> dict:
-    """The worker's count at the end of their shift.
+    """The worker's count, taken on its own after the shop has shut.
 
     Two things happen, in one transaction: the count is recorded, and the shop's
     balance becomes what was left. The owner's share is worked out and stored beside
@@ -108,6 +110,11 @@ async def declare_close(
     It is the *session* that has to be shut, not just this worker's shift. The drawer is
     shared — one of two cashiers going home cannot settle the change their colleague
     needs for the next four hours.
+
+    The ordinary path no longer comes through here: closing the shop asks for the
+    figure and refuses without it, so the reading lands inside that same transaction
+    (see :func:`count_as_the_shop_shuts`). This stays for the second reading — a
+    number typed wrong, or a shop shut by a bot too old to have asked.
     """
     if counted < ZERO or counted > MAX_COUNT:
         raise BotError("validation_error", "Սխալ գումար։")
@@ -124,49 +131,74 @@ async def declare_close(
             if await sessions_repo.is_open(conn, shift["store_session_id"]):
                 raise BotError("store_still_open")
 
-            # What the books said at this moment, frozen beside the count. A sale
-            # amended next week must not rewrite what the owner was owed tonight.
-            totals = await money_repo.totals_on(conn, shift["store_session_id"])
-            in_the_till = Decimal(totals["cash"])
-            handed_over = _owners_share(in_the_till, counted)
-
-            count_id = await till_repo.insert(
-                conn,
-                owner_id=worker.owner_id,
-                store_id=shift["store_id"],
-                store_session_id=shift["store_session_id"],
-                work_session_id=shift["id"],
-                worker_id=worker.id,
-                kind="close",
-                counted=counted,
-                expected=in_the_till,
-                handed_over=handed_over,
-                note=note,
-                external_id=idem_key,
-            )
-            await stores_repo.set_till_balance(
-                conn, worker.owner_id, shift["store_id"], counted
-            )
+            count = await _record(conn, worker, shift, counted, idem_key, note)
     except asyncpg.exceptions.UniqueViolationError:
         original = await till_repo.by_external_id(worker.owner_id, idem_key)
         if original is None:  # pragma: no cover - some other constraint
             raise
         return _payload(original, duplicate=True)
 
+    return {"ok": True, "duplicate": False, "count": count}
+
+
+async def count_as_the_shop_shuts(
+    conn, worker, shift, counted: Decimal, idem_key: str
+) -> dict:
+    """The same reading, taken as part of shutting the shop.
+
+    Called from inside the close-out's transaction, after the store session has been
+    closed and every wage paid out of the drawer — which is the only moment the two
+    figures beside each other mean anything. Either the shift closes with a reading
+    against it or neither happens.
+
+    The shop being shut is not checked here, unlike above: this *is* the code that
+    shuts it, and it holds the lock that says so.
+
+    ``idem_key`` is the close-out's own, written verbatim as the count's external id
+    so a retried close answers with the reading it already took rather than making a
+    second one. Verbatim rather than derived: both columns take 8 to 128 characters,
+    and a key with a suffix on it could not fit where the original did.
+    """
+    if counted < ZERO or counted > MAX_COUNT:
+        raise BotError("validation_error", "Սխալ գումար։")
+    return await _record(conn, worker, shift, counted, idem_key)
+
+
+async def _record(conn, worker, shift, counted: Decimal, idem_key: str, note=None) -> dict:
+    """Write the reading down and make it the shop's float.
+
+    ``expected`` is what the books said at this moment, frozen beside the count: a
+    sale amended next week must not rewrite what the owner was owed tonight.
+    """
+    totals = await money_repo.totals_on(conn, shift["store_session_id"])
+    in_the_till = Decimal(totals["cash"])
+    handed_over = _owners_share(in_the_till, counted)
+
+    count_id = await till_repo.insert(
+        conn,
+        owner_id=worker.owner_id,
+        store_id=shift["store_id"],
+        store_session_id=shift["store_session_id"],
+        work_session_id=shift["id"],
+        worker_id=worker.id,
+        kind="close",
+        counted=counted,
+        expected=in_the_till,
+        handed_over=handed_over,
+        note=note,
+        external_id=idem_key,
+    )
+    await stores_repo.set_till_balance(conn, worker.owner_id, shift["store_id"], counted)
     log.info(
         "worker %s left %s in store %s; the owner is owed %s",
         worker.id, counted, shift["store_id"], handed_over,
     )
     return {
-        "ok": True,
-        "duplicate": False,
-        "count": {
-            "id": count_id,
-            "kind": "close",
-            "counted": f"{counted:.2f}",
-            "expected": f"{in_the_till:.2f}",
-            "handed_over": f"{handed_over:.2f}",
-        },
+        "id": count_id,
+        "kind": "close",
+        "counted": f"{counted:.2f}",
+        "expected": f"{in_the_till:.2f}",
+        "handed_over": f"{handed_over:.2f}",
     }
 
 
@@ -432,17 +464,17 @@ async def restore_count(conn, owner_id: int, payload: dict) -> None:
     )
 
 
-def _payload(row, *, duplicate: bool) -> dict:
-    counted, expected = Decimal(row["counted"]), Decimal(row["expected"])
+def count_payload(row) -> dict:
+    """One stored reading, as the bot reads it back to the worker."""
     handed = row["handed_over"]
     return {
-        "ok": True,
-        "duplicate": duplicate,
-        "count": {
-            "id": row["id"],
-            "kind": row["kind"],
-            "counted": f"{counted:.2f}",
-            "expected": f"{expected:.2f}",
-            "handed_over": f"{Decimal(handed):.2f}" if handed is not None else None,
-        },
+        "id": row["id"],
+        "kind": row["kind"],
+        "counted": f"{Decimal(row['counted']):.2f}",
+        "expected": f"{Decimal(row['expected']):.2f}",
+        "handed_over": f"{Decimal(handed):.2f}" if handed is not None else None,
     }
+
+
+def _payload(row, *, duplicate: bool) -> dict:
+    return {"ok": True, "duplicate": duplicate, "count": count_payload(row)}

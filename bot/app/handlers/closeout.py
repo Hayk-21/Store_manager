@@ -7,6 +7,13 @@ is the whole reason this is typed rather than assumed.
 
 Nothing is committed until the summary is confirmed. The basket lives in
 ``user_data`` up to that point, so backing out costs nothing.
+
+Confirming is not quite the last step when this shift is the one shutting the shop:
+the drawer is counted first, and the server refuses to close without the figure. It
+used to be offered afterwards, as a button on the message saying the shift had
+ended — which is a button a worker on their way out has no reason to press, so the
+reading went missing on the evenings it mattered and the next shift opened against a
+float nobody had counted.
 """
 
 from __future__ import annotations
@@ -23,7 +30,7 @@ from app.api import ApiError, ApiUnavailable, api, new_idempotency_key
 
 log = logging.getLogger("storemanager.bot.closeout")
 
-PICK_ITEM, ASK_QUANTITY, ASK_PRICE, ASK_METHOD, CONFIRM = range(10, 15)
+PICK_ITEM, ASK_QUANTITY, ASK_PRICE, ASK_METHOD, CONFIRM, ASK_TILL = range(10, 16)
 
 MAX_QUANTITY = 10_000
 MAX_LINES = 50
@@ -554,13 +561,39 @@ async def drop_last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def submit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """«Հաստատել» pressed. The shop may still have one question first."""
     query = update.callback_query
     await query.answer()
+    await query.edit_message_reply_markup(reply_markup=None)
+    return await _send(update, context, None)
+
+
+async def type_till(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """What is being left in the drawer, and the close-out again with it.
+
+    Only asked when this shift is the one shutting the shop, which is the server's
+    call — so the worker who leaves at six while a colleague serves until ten never
+    sees this step.
+    """
+    counted = format.parse_money(update.effective_message.text)
+    if counted is None or counted < 0:
+        await update.effective_message.reply_text(texts.TILL_BAD_AMOUNT)
+        return ASK_TILL
+    return await _send(update, context, counted)
+
+
+async def _send(update: Update, context, counted: Decimal | None) -> int:
+    """Write the day up, if the drawer has been answered for.
+
+    The first attempt goes without a figure on purpose: whether this close shuts the
+    shop depends on who else is still on shift, which is not something a phone can
+    know. The server refuses when it does, and nothing is written by the refused
+    attempt — the same key is sent again with the number, so the retry is the same
+    close-out rather than a second one.
+    """
     basket = _basket(context)
     key = context.user_data.get("co_key") or new_idempotency_key()
     context.user_data["co_key"] = key
-
-    await query.edit_message_reply_markup(reply_markup=None)
 
     try:
         result = await api.close_out(
@@ -577,14 +610,40 @@ async def submit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 for line in basket
             ],
             key,
+            counted=None if counted is None else str(counted),
         )
+    except ApiError as exc:
+        if exc.code == "till_count_required":
+            await update.effective_message.reply_text(
+                texts.TILL_ASK_BEFORE_CLOSE,
+                parse_mode=ParseMode.HTML,
+                # Nothing but «Չեղարկել» while a number is expected, so a stray tap
+                # on the main menu cannot be read as an amount.
+                reply_markup=keyboards.selling(),
+            )
+            return ASK_TILL
+        # A figure the server would not take — too large, or not a number it can
+        # use. The write-up is still in hand, so ask again rather than throw the
+        # whole list away over one mistyped amount.
+        if counted is not None and exc.code == "validation_error":
+            await update.effective_message.reply_text(exc.human())
+            return ASK_TILL
+        return await _fail(update, exc)
+    except ApiUnavailable as exc:
+        # The connection went at the last step, with a whole day typed up and the
+        # worker standing at the door. Nothing was written, the key is unchanged, so
+        # the number typed again is the same close-out rather than a second one.
+        if counted is not None:
+            await update.effective_message.reply_text(exc.human())
+            return ASK_TILL
+        return await _fail(update, exc)
     except Exception as exc:  # noqa: BLE001
         return await _fail(update, exc)
 
     _clear(context)
     from app.handlers.shift import report_end
 
-    await report_end(update, result["summary"])
+    await report_end(update, result["summary"], result.get("till_count"))
     return ConversationHandler.END
 
 
