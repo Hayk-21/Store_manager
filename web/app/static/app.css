@@ -260,6 +260,12 @@ td.num, th.num {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* A *heading* is words, and the rule above was never about words. «Կանխիկ վաճառք»
+   held on one unbreakable line sets the column's width for the whole table, so a
+   dozen two-word headings decided that the reports list did not fit on a screen —
+   and a list read by scrolling sideways is a list nobody reads. The figures under
+   them stay on one line, which is what the rule was for. */
+th.num { white-space: normal; }
 tbody tr:hover { background: rgba(255, 255, 255, .02); }
 tfoot td { font-weight: 600; border-top: 2px solid var(--line); border-bottom: 0; }
 .voided { opacity: .55; text-decoration: line-through; }

@@ -45,10 +45,16 @@ The 50 most recent sessions, newest first (`sessions.recent_store_sessions`).
 | **Առաքում** | what went out by delivery, with the order count under it. The one figure in the row not recoverable from the others |
 | **Շահույթ** | margin − wages − bonus − petty cash − this shop's expenses that day. Green or red. It is not the takings |
 | **Վաճառք · Կանխիկ վաճառք · Քարտով վաճառք** | the takings and the two doors they came through. **Not** drawer balances — a wage paid has already come off those |
-| **Նախորդից մնացած** | the float this session opened on: what the *previous* worker left |
-| **Մնաց խանութում** | the evening's last count — or, when nobody counted, the float it opened with, marked «հաշվարկով» |
 | **Աշխատավարձ** | what the drawer paid, from the ledger |
 | | **Մանրամասն** opens the detail; **✕** deletes the whole session, closed ones only |
+
+**The drawer is not in this table.** «Նախորդից մնացած» and «Մնաց խանութում» were columns
+here, and the pair of them is what pushed the list past the width of a screen — eleven
+columns about selling and two about the drawer. A list read by scrolling sideways is a
+list nobody reads. Both figures are on the report a row opens, as tiles beside
+«Ղեկավարին», where they can also be corrected; the list keeps the questions it is
+actually scanned for. Nothing is computed for them here any more — the float aggregate
+and the per-row `last_count` subquery came out of `recent_store_sessions` with them.
 
 Two rules this table exists to keep:
 
@@ -65,6 +71,12 @@ screen, and the detail of the row being read is underneath all of it. The receip
 and the ledger get the same window for the same reason. Below 1200px, where every table
 becomes a list of cards, the cap is removed — two scrollbars fighting over one finger is
 worse than a long page.
+
+**Sideways it must not scroll at all.** Two things keep it inside the screen: the drawer
+columns are gone (above), and a numeric *heading* is allowed to wrap. `td.num` is
+`nowrap` so that «-7,000.00 ֏» never breaks across two lines — but `th.num` inherited
+that, and «Կանխիկ վաճառք» held on one unbreakable line was setting its column's width
+for the whole table. Headings are words; the figures under them still hold their line.
 
 ---
 

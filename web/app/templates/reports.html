@@ -25,8 +25,12 @@
           <th class="num">Վաճառք</th>
           <th class="num">Կանխիկ վաճառք</th>
           <th class="num">Քարտով վաճառք</th>
-          <th class="num">Նախորդից մնացած</th>
-          <th class="num">Մնաց խանութում</th>
+          {# «Նախորդից մնացած» and «Մնաց խանութում» stood here and no longer do. Two
+             drawer readings among eleven columns about selling, and the pair of them
+             was what pushed this table past the width of a screen — a list read by
+             scrolling sideways is a list nobody reads. They are drawer questions and
+             they are answered where the drawer is: on the report a row opens, as two
+             tiles beside «Ղեկավարին», where they can also be corrected. #}
           <th class="num">Աշխատավարձ</th>
           <th></th>
         </tr>
@@ -70,20 +74,6 @@
           <td class="num" data-label="Վաճառք">{{ s.income | money }}</td>
           <td class="num" data-label="Կանխիկ վաճառք">{{ s.net_sale_cash | money }}</td>
           <td class="num" data-label="Քարտով վաճառք">{{ s.net_sale_card | money }}</td>
-          {# The float this session opened on: what the *previous* worker counted and
-             left in the drawer. It is not takings and it is not this shift's — it was
-             in the till from the first minute — so it stands beside what this shift
-             left rather than inside any of the figures before it. The pair reads as
-             the handover it is: X came in, Y went out. #}
-          <td class="num" data-label="Նախորդից մնացած">{{ s.carried_in | money }}</td>
-          {# The evening's last count of the drawer. When nobody counted it is the
-             float the shop opened with — not zero, because a worker going home
-             without counting has not emptied the shop — and the row says which of
-             the two it is, since one was declared and the other worked out. #}
-          <td class="num" data-label="Մնաց խանութում">
-            {{ s.left_in_store | money }}
-            {%- if s.nobody_counted %}<br><span class="muted small nowrap">հաշվարկով</span>{% endif %}
-          </td>
           {# From the ledger, like everything else in the row, rather than from the
              snapshot written at closing time — which is the same number once the shop
              has shut, and zero all day while it is still open. #}

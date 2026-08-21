@@ -294,11 +294,13 @@ for — **who worked it, what it sold, what it made**:
   came through. The columns here before were the drawer *balances*: a wage paid or
   money taken out has already come off those, so «Կանխիկ 83,500» sat beside «Վաճառք
   57,500» looking like a split that does not add up.
-* **Մնաց խանութում** is the evening's last count of the drawer — or, when nobody
-  counted, the float the shop opened with, marked «հաշվարկով» because that one was
-  worked out rather than declared. Not zero: a worker going home without counting has
-  not emptied the shop. That rule lives in `_left_in_store` and the report header
-  calls it too.
+
+**The drawer is not one of them.** «Նախորդից մնացած» and «Մնաց խանութում» were columns
+here, and the pair of them is what pushed the table past the width of a screen — eleven
+columns about selling and two about the drawer. A list read by scrolling sideways is a
+list nobody reads, so both figures live on the report a row opens, where they can also
+be corrected. The rule that a skipped count leaves the float alone is unchanged; it
+lives in `_left_in_store` and the report header still calls it.
 
 Every figure is read from the same place the detail page reads it — the ledger for the
 money, the sale lines for the margin — and from the ledger rather than from the
@@ -311,6 +313,12 @@ receipts, every movement of the drawer — so each **scrolls inside its own wind
 past forty receipts, and getting back to the list meant scrolling past all three. Below
 1200px, where a table becomes a list of cards, the cap is lifted: two scrollbars
 fighting over one finger is worse than a long page.
+
+Sideways there is to be **no scrolling at all**, and the other half of that is letting a
+numeric heading wrap. `td.num` is `nowrap` so «-7,000.00 ֏» never breaks across two
+lines; `th.num` inherited it, and «Կանխիկ վաճառք» on one unbreakable line was setting
+its column's width for the whole table. Headings are words. The figures still hold their
+line.
 
 ### Reading the receipts in either order
 

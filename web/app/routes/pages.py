@@ -1026,6 +1026,12 @@ async def _sessions_with_profit(owner_id: int) -> list[dict]:
     The subtraction is Python's rather than SQL's so that the list and the report it
     opens use one formula — see ``statistics.session_profit``. Rows become dicts to
     take the extra key; a Record is read-only.
+
+    The two drawer readings this used to work out for every row — what the shop opened
+    on and what it closed on — are no longer columns here: eleven columns about selling
+    plus two about the drawer did not fit on a screen. They are on the report a row
+    opens, where they can also be corrected, and ``_left_in_store`` still decides them
+    there.
     """
     rows = await sessions_repo.recent_store_sessions(owner_id, settings.tzname)
     return [
@@ -1035,10 +1041,6 @@ async def _sessions_with_profit(owner_id: int) -> list[dict]:
                 row["margin"], row["salaries"], row["bonuses"],
                 row["withdrawn"], row["day_spending"],
             ),
-            # The same rule the report header uses, so a row and the page it opens
-            # cannot say two different things about the drawer.
-            "left_in_store": _left_in_store(row["last_count"], row["carried_in"]),
-            "nobody_counted": row["last_count"] is None,
         }
         for row in rows
     ]

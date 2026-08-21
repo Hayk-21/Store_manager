@@ -126,8 +126,12 @@ async def test_the_rows_profit_is_the_reports_own_profit(client):
     assert "-2,000.00" in detail.text
 
 
-async def test_the_row_says_what_stayed_in_the_shop(client):
-    """The evening's last count of the drawer, by the rule the report itself uses."""
+async def test_the_drawer_is_answered_on_the_report_and_not_in_the_list(client):
+    """«Նախորդից մնացած» and «Մնաց խանութում» were columns here, and the pair of them is
+    what pushed this table past the width of a screen — eleven columns about selling and
+    two about the drawer. A list read by scrolling sideways is a list nobody reads, and
+    the drawer is a question the report a row opens already answers, in boxes that can
+    also correct it."""
     _, _, worker, _ = await _a_completed_shift()
     session_id = await db.fetchval("SELECT id FROM store_sessions")
     await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
@@ -137,15 +141,16 @@ async def test_the_row_says_what_stayed_in_the_shop(client):
     listing = await client.get("/reports")
     detail = await client.get(f"/reports?store_session_id={session_id}")
 
-    assert "Մնաց խանութում" in listing.text
-    assert "1,500.00" in listing.text
+    assert "Մնաց խանութում" not in listing.text
+    assert "Նախորդից մնացած" not in listing.text
+    assert "Մնաց խանութում" in detail.text
     assert "1,500.00" in detail.text
-    assert "հաշվարկով" not in listing.text, "somebody counted, so nothing is inferred"
 
 
 async def test_an_uncounted_drawer_leaves_the_float_not_nothing(client):
     """A worker who goes home without counting has not emptied the shop: the float
-    stays where it is, because nothing but a count moves it."""
+    stays where it is, because nothing but a count moves it. Only the owner's
+    force-close and the overnight sweep can now end an evening that way."""
     owner_id = await make_owner("@ownerhandle")
     store_id = await make_store(owner_id, "Խանութ 1", lat=YEREVAN_LAT, lng=YEREVAN_LNG)
     await db.execute("UPDATE stores SET till_balance = 4000 WHERE id = $1", store_id)
@@ -154,13 +159,14 @@ async def test_an_uncounted_drawer_leaves_the_float_not_nothing(client):
         id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("0.00")
     )
     await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-1", 900)
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
     await shifts_service.end_shift(worker, None, None, "idem-end-1")
     await login(client, "@ownerhandle")
 
-    page = await client.get("/reports")
+    page = await client.get(f"/reports?store_session_id={session_id}")
 
     assert "4,000.00" in page.text, "the float it opened with, not nothing"
-    assert "հաշվարկով" in page.text, "and the row says the figure was worked out"
+    assert "ոչ ոք չի հաշվել" in page.text, "and the page says the figure was worked out"
 
 
 async def test_an_open_sessions_wage_is_not_zero_in_the_list(client):

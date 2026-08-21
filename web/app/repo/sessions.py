@@ -8,7 +8,6 @@ from decimal import Decimal
 import asyncpg
 
 from app.db import db
-from app.repo import money as money_repo
 from app.repo.workers import DISPLAY_NAME
 
 # -- store sessions ---------------------------------------------------------
@@ -116,6 +115,12 @@ async def recent_store_sessions(
     second way: the subtraction itself is done in one place, by
     ``statistics.session_profit``.
 
+    It does *not* read the drawer. The float carried in and the evening's last count
+    were two more columns on a table that had stopped fitting on a screen, and a
+    per-row subquery each time the list was opened; they are drawer questions and the
+    report a row opens answers them, from ``money.totals_for_session`` and the counts
+    it already fetches.
+
     ``tz`` is the display timezone, needed for the one figure that is asked by
     calendar day rather than by session: a shop's own typed expenses. Bucketing
     ``opened_at`` by the server's UTC date would file an evening opening under
@@ -136,14 +141,8 @@ async def recent_store_sessions(
                   JOIN workers w ON w.id = ws.worker_id
                  WHERE ws.store_session_id = ss.id) AS worker_names,
                till.income, till.net_sale_cash, till.net_sale_card,
-               till.salaries, till.bonuses, till.withdrawn, till.carried_in,
+               till.salaries, till.bonuses, till.withdrawn,
                goods.delivered, goods.deliveries, goods.margin,
-               -- The evening's last reading of the drawer, and null when nobody
-               -- looked. A second count replaces the first rather than adding to
-               -- it, so the newest is the one that counts.
-               (SELECT t.counted FROM till_counts t
-                 WHERE t.store_session_id = ss.id
-                 ORDER BY t.created_at DESC, t.id DESC LIMIT 1) AS last_count,
                -- Only this shop's own expenses, on the day it opened. One left as
                -- «Ամբողջ բիզնեսը» belongs to the business rather than to the branch
                -- that happened to be trading, and counting it here would take the
@@ -172,15 +171,7 @@ async def recent_store_sessions(
                      coalesce(-sum(m.amount) FILTER (WHERE m.kind = 'bonus'), 0)
                          AS bonuses,
                      coalesce(-sum(m.amount) FILTER (WHERE m.kind = 'withdrawal'), 0)
-                         AS withdrawn,
-                     -- The float the shop carried in this morning. It is what stays on
-                     -- the premises when a session ends without anybody counting the
-                     -- drawer. Picked out by its note, like the same figure in
-                     -- ``money.totals_for_session``, so an owner correcting a float the
-                     -- system never recorded gets a row that counts as one.
-                     coalesce(sum(m.amount) FILTER (
-                         WHERE m.kind = 'deposit' AND m.note = $5), 0)
-                         AS carried_in
+                         AS withdrawn
                 FROM cash_movements m WHERE m.store_session_id = ss.id
           ) till ON true
           -- What was sold. Delivery is the same money through a different door, and
@@ -203,7 +194,6 @@ async def recent_store_sessions(
         tz,
         limit,
         offset,
-        money_repo.CARRIED_OVER_NOTE,
     )
 
 

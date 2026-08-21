@@ -407,21 +407,26 @@ async def test_the_report_shows_both_ends_of_the_drawer(client):
     assert "8,500.00" in page, "and what the owner is owed"
 
 
-async def test_the_list_carries_the_same_pair(client):
-    """The row and the report it opens answer the drawer question the same way."""
+async def test_the_list_leaves_the_drawer_to_the_report(client):
+    """The pair used to be two more columns on the list as well, and thirteen columns
+    did not fit on a screen. The drawer is asked of a shift, not scanned across fifty of
+    them, and the report a row opens is where both figures are — and where they can be
+    corrected."""
     owner_id, store_id, item_id = await _a_shop(balance="30000")
     anahit, _ = await _worker(owner_id, "Անի")
     gor, _ = await _worker(owner_id, "Գոռ")
 
     await _a_days_work(anahit, item_id, 2, "mon", left="30000")
-    await _a_days_work(gor, item_id, 1, "tue", left="25000")
+    tuesday = await _a_days_work(gor, item_id, 1, "tue", left="25000")
     await login(client, "@ownerhandle")
 
-    page = (await client.get("/reports")).text
+    listing = (await client.get("/reports")).text
+    report = (await client.get(f"/reports?store_session_id={tuesday}")).text
 
-    assert "Նախորդից մնացած" in page
-    assert page.count("30,000.00") >= 1
-    assert page.count("25,000.00") >= 1
+    assert "Նախորդից մնացած" not in listing
+    assert "Մնաց խանութում" not in listing
+    assert "Նախորդից մնացած" in report
+    assert "30,000.00" in report, "what Anahit left"
 
 
 async def test_the_float_is_inside_what_the_owner_is_owed(client):
