@@ -292,11 +292,24 @@ async def insert_movement(
 
 
 async def ledger_for_session(store_session_id: int) -> list[asyncpg.Record]:
-    """Every movement of one session, newest first — the audit trail."""
+    """Every movement of one session, newest first — the audit trail.
+
+    ``lines`` says what was sold, for the rows where anything was: «Vanter ×2», the
+    same rendering the receipts table uses, so a figure in the drawer and the receipt
+    it came from read as the same event. Without it a column of «Վաճառք · Կանխիկ ·
+    3,500 ֏» is a list of amounts with nothing to check them against, and the only
+    way to tell two identical rows apart was the minute they landed.
+
+    Null for everything else, and left blank rather than dashed: a wage or petty cash
+    bought no goods, and only a sale or its reversal carries a ``sale_id`` at all.
+    """
     return await db.fetch(
         f"""
         SELECT m.id, m.method, m.kind, m.amount, m.note, m.created_at, m.created_by,
-               CASE WHEN w.id IS NULL THEN NULL ELSE {DISPLAY_NAME} END AS worker_name
+               CASE WHEN w.id IS NULL THEN NULL ELSE {DISPLAY_NAME} END AS worker_name,
+               (SELECT string_agg(i.name || ' ×' || si.quantity, ', ' ORDER BY si.id)
+                  FROM sale_items si JOIN items i ON i.id = si.item_id
+                 WHERE si.sale_id = m.sale_id) AS lines
           FROM cash_movements m
           LEFT JOIN workers w ON w.id = m.worker_id
          WHERE m.store_session_id = $1

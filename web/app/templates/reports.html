@@ -9,7 +9,10 @@
 
 <div class="card">
   {% if sessions %}
-  <div class="table-wrap">
+  {# Fifty shifts is a page and a half of scrolling before anything else on this
+     screen, and the detail of the one being read is underneath all of it. The list
+     keeps its own window and its headings stay put inside it. #}
+  <div class="table-wrap table-scroll">
     <table class="cards">
       <thead>
         <tr>
@@ -438,7 +441,7 @@
     {% endif %}
   </div>
   {% if d.receipts %}
-  <div class="table-wrap">
+  <div class="table-wrap table-scroll">
     <table class="cards">
       <thead>
         <tr><th>Ժամ</th><th>Աշխատող</th><th>Ապրանքներ</th><th class="num">Քանակ</th>
@@ -821,11 +824,16 @@
   {% endif %}
 
   <h3>Դրամարկղի շարժ</h3>
-  <div class="table-wrap">
+  <div class="table-wrap table-scroll">
     <table class="cards">
       <thead>
-        <tr><th>Ժամ</th><th>Տեսակ</th><th>Ձև</th><th>Աշխատող</th><th>Նշում</th>
-            <th class="num">Գումար</th><th class="num"></th></tr>
+        {# «Վաճառք · Կանխիկ · 3,500 ֏» said nothing about what was sold, so a row
+           in the drawer's own ledger could not be matched to the receipt it came
+           from without counting rows in the table above and hoping. The products
+           and their quantities are in the row now — the same «name ×quantity» the
+           receipts table shows, so the two read the same way. #}
+        <tr><th>Ժամ</th><th>Տեսակ</th><th>Ապրանք</th><th>Ձև</th><th>Աշխատող</th>
+            <th>Նշում</th><th class="num">Գումար</th><th class="num"></th></tr>
       </thead>
       <tbody>
         {% for m in d.ledger %}
@@ -836,6 +844,9 @@
         <tr>
           <td class="nowrap" data-label="Ժամ">{{ m.created_at | clock }}</td>
           <td class="cell-name" data-label="Տեսակ">{{ labels.get(m.kind, m.kind) }}</td>
+          {# Only a sale or its reversal has any; a wage and petty cash bought no
+             goods, and an em dash there would read as goods nobody could name. #}
+          <td class="cell-name" data-label="Ապրանք">{{ m.lines or '' }}</td>
           <td data-label="Ձև">{{ 'Կանխիկ' if m.method == 'cash' else 'Քարտ' }}</td>
           <td data-label="Աշխատող">{{ m.worker_name or '—' }}</td>
           <td data-label="Նշում">{{ m.note or '' }}</td>

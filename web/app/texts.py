@@ -84,6 +84,28 @@ def insufficient_stock_message(name: str, requested: int, available: int) -> str
     return f"«{name}» — պահեստում կա ընդամենը {available} հատ, խնդրված է {requested}։"
 
 
+def till_over_cash_message(available) -> str:
+    """The drawer cannot be left with more than it holds.
+
+    Sent when a worker's closing count is above the cash the books say is in the
+    till. What they leave becomes the shop's float and the rest is what the owner is
+    owed, so a figure above the till reads as "the owner gets nothing tonight" and
+    quietly carries the difference into tomorrow's opening balance.
+
+    The ceiling is stated as a number, because the answer to "how much may I write"
+    is a number. What it is made of is described in words rather than added up term
+    by term: a wage or a withdrawal can be booked against the card side of the same
+    session, so a printed sum would not always tie out to the ceiling beside it.
+    """
+    return (
+        f"Այդքան կանխիկ դրամարկղում չկա։ Ըստ գրքերի դրամարկղում կա "
+        f"{available:,.0f} ֏՝ նախորդ հերթափոխից մնացածը գումարած օրվա կանխիկ "
+        f"վաճառքը, հանած աշխատավարձը և դրամարկղից վերցվածը։\n\n"
+        f"Գրեք {available:,.0f} ֏ կամ ավելի քիչ։ Եթե դրամարկղում իրականում ավելի "
+        f"շատ կանխիկ կա, զանգահարեք ղեկավարին։"
+    )
+
+
 def no_store_in_range_message(nearest_name: str | None, distance_m: int | None) -> str:
     """Telling the worker how far off they are turns a dead end into an instruction."""
     if nearest_name is None or distance_m is None:

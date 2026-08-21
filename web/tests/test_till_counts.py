@@ -286,13 +286,18 @@ async def test_leaving_everything_hands_over_nothing(client):
 
 
 async def test_leaving_more_than_the_till_held_owes_the_owner_nothing(client):
-    """Usually an unrecorded sale or a miscount. The owner gets nothing from this shop
+    """Usually an unrecorded sale or a miscount, and now only the owner can say it: the
+    worker's own count is capped at the books. The owner gets nothing from this shop
     today; they do not owe it money. «-5,000 ֏» beside "hand to the owner" is not a
     figure anybody can act on, which is the whole reason it is floored at zero."""
     owner_id, store_id, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker, left="45000")
+    await _lock_up(worker, left="40000")
+
+    await till_service.correct_a_count(
+        owner_id, await db.fetchval("SELECT id FROM till_counts"), Decimal("45000")
+    )
 
     assert (await _reading())["handed_over"] == Decimal("0.00")
     assert await _balance(store_id) == Decimal("45000.00")
@@ -305,7 +310,11 @@ async def test_the_gap_is_still_visible_when_more_was_left_than_expected(client)
     owner_id, _, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker, left="45000")
+    await _lock_up(worker, left="40000")
+
+    await till_service.correct_a_count(
+        owner_id, await db.fetchval("SELECT id FROM till_counts"), Decimal("45000")
+    )
 
     reading = await _reading()
     assert reading["expected"] == Decimal("40000.00"), "what the books said"
@@ -361,6 +370,149 @@ async def test_an_absurd_count_is_refused(client):
         await till_service.declare_close(
             worker, Decimal("99999999999"), "idem-till-1"
         )
+
+
+# -- more than is in there ----------------------------------------------------
+#
+# It happened, repeatedly, and it is worse than a wrong figure on a report. What the
+# worker says they are leaving *becomes* the shop's balance, so a drawer holding
+# 29,000 declared as 31,500 tells the owner they are owed nothing tonight and opens
+# tomorrow 2,500 above the cash that is actually on the premises — a hole nobody can
+# find afterwards, because the person who could have recounted the drawer went home.
+
+async def test_a_worker_cannot_leave_more_than_the_drawer_holds(client):
+    """2,000 carried in and 7,000 taken is 9,000; 12,000 is not in there to leave."""
+    owner_id, _, item_id = await _a_shop(balance="2000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+
+    with pytest.raises(BotError) as raised:
+        await _lock_up(worker, left="12000")
+
+    assert raised.value.code == "validation_error"
+
+
+async def test_the_refusal_says_how_much_is_actually_there(client):
+    """A worker told only "no" recounts the same drawer and types the same number. The
+    ceiling is what they need, so the ceiling is in the sentence."""
+    owner_id, _, item_id = await _a_shop(balance="2000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+
+    with pytest.raises(BotError) as raised:
+        await _lock_up(worker, left="12000")
+
+    assert "9,000" in raised.value.message
+
+
+async def test_the_refused_close_leaves_the_shift_open(client):
+    """The refusal is raised inside the close-out's transaction, so the shop is still
+    open, the wage is unpaid and nothing has been written down. Otherwise a mistyped
+    number would end the day in a state nobody could finish."""
+    owner_id, _, _ = await _a_shop(balance="2000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+
+    with pytest.raises(BotError):
+        await _lock_up(worker, left="12000")
+
+    assert await db.fetchval(
+        "SELECT closed_at IS NULL FROM store_sessions WHERE id = $1", session_id
+    ), "the shop is still open"
+    assert await db.fetchval("SELECT count(*) FROM till_counts") == 0
+
+
+async def test_the_whole_drawer_may_be_left_in_the_shop(client):
+    """The ceiling is the till, not a penny under it: a shop that keeps its whole
+    takings overnight hands the owner nothing and that is a legitimate evening."""
+    owner_id, store_id, item_id = await _a_shop(balance="2000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+
+    await _lock_up(worker, left="9000")
+
+    assert await _balance(store_id) == Decimal("9000.00")
+    assert (await _reading())["handed_over"] == Decimal("0.00")
+
+
+async def test_the_ceiling_is_the_drawer_after_the_wage_has_left_it(client):
+    """The reading is taken once the shop is shut and the wage is paid, so the money
+    the worker is holding is not money they can also leave behind."""
+    owner_id, _, item_id = await _a_shop(balance="2000.00")
+    worker_id, _ = await make_worker(owner_id, "Անի", salary_amount="3000.00")
+    worker = shifts_service.Worker(
+        id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("3000.00")
+    )
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+
+    # 2,000 + 7,000 = 9,000 in the drawer, less the 3,000 wage they are taking home.
+    with pytest.raises(BotError):
+        await _lock_up(worker, left="9000")
+    await _lock_up(worker, "idem-lockup-2", left="6000")
+
+    assert (await _reading())["counted"] == Decimal("6000.00")
+
+
+async def test_a_drawer_that_reads_below_nothing_can_still_be_shut(client):
+    """Nothing stops an owner taking more out of a till than the books say it holds,
+    and under the old wage rules a cash salary out of a day taken on card did the same.
+    A ceiling that followed the till below zero would then refuse every figure there
+    is — including the honest zero that shuts the shop."""
+    owner_id, _, _ = await _a_shop()
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    session_id = await _session()
+    await corrections_service.add_movement(
+        owner_id, owner_id, session_id, "withdrawal", "cash", Decimal("5000"),
+        "վերցրել է ղեկավարը",
+    )
+
+    await _lock_up(worker, left="0")
+
+    assert await _till(session_id) < Decimal("0")
+    assert (await _reading())["counted"] == Decimal("0.00")
+
+
+async def test_the_second_reading_is_capped_the_same_way(client):
+    """«Դրամարկղի մնացորդ» after the shop has shut is the same claim about the same
+    drawer, so it answers to the same books."""
+    owner_id, store_id, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker, left="30000")
+
+    with pytest.raises(BotError):
+        await till_service.declare_close(worker, Decimal("45000"), "idem-till-2")
+
+    assert await _balance(store_id) == Decimal("30000.00"), "the first reading stands"
+
+
+async def test_the_owner_is_not_capped(client):
+    """Deliberately. They may know what the books do not — a sale nobody entered, a
+    drawer topped up in person — and the report is where that gets settled."""
+    owner_id, store_id, _ = await _a_shop(balance="40000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await _lock_up(worker, left="30000")
+
+    await till_service.correct_a_count(
+        owner_id, await db.fetchval("SELECT id FROM till_counts"), Decimal("45000")
+    )
+
+    assert await _balance(store_id) == Decimal("45000.00")
 
 
 async def test_it_can_be_counted_again_after_the_shift_has_ended(client):
@@ -855,9 +1007,13 @@ async def test_a_share_of_nothing_explains_itself(client):
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     session_id = await _session()
-    # Left more than the till ever held: an unrecorded sale, or a number typed
-    # without counting.
-    await _lock_up(worker, left="45000")
+    # More left than the till ever held. The worker cannot write that any more — their
+    # figure is capped at the books — so it is the owner saying it, which is the case
+    # the cap deliberately leaves open: they may know of a sale nobody entered.
+    await _lock_up(worker, left="40000")
+    await till_service.correct_a_count(
+        owner_id, await db.fetchval("SELECT id FROM till_counts"), Decimal("45000")
+    )
     await login(client, "@ownerhandle")
 
     page = await client.get(f"/reports?store_session_id={session_id}")
@@ -1086,16 +1242,17 @@ async def test_the_header_follows_a_corrected_count(client):
 
 
 async def test_the_owner_can_correct_what_was_left_in_the_shop(client):
-    """The figure a cashier types at the door is the one most often wrong — a nought
-    too many, a bundle counted twice — and the report used to show it and nothing
-    else."""
+    """The figure a cashier types at the door is the one most often wrong — a bundle
+    counted twice, a wage forgotten — and the report used to show it and nothing else.
+    Within the till, since a figure above it is refused at the door now, and still
+    wrong: 45,000 left of a 47,000 drawer hands the owner 2,000 of a 17,000 day."""
     owner_id, store_id, item_id = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     await sales_service.record_sale(
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
-    await _lock_up(worker, left="300000")
+    await _lock_up(worker, left="45000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
 
     await till_service.correct_a_count(owner_id, count_id, Decimal("30000"))
@@ -1170,7 +1327,7 @@ async def test_correcting_a_count_from_the_report(client):
     owner_id, store_id, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
-    await _lock_up(worker, left="300000")
+    await _lock_up(worker, left="35000")
     count_id = await db.fetchval("SELECT id FROM till_counts")
     await login(client, "@ownerhandle")
     csrf = await db.fetchval(
@@ -1641,7 +1798,9 @@ async def test_a_reading_filled_in_for_an_old_evening_leaves_todays_drawer_alone
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
     tuesday = await _session()
-    await _lock_up(worker, "idem-lockup-1")  # nobody counted
+    # The whole float left behind, so the day's 7,000 is what went to the owner and
+    # the next session opens on a drawer that can be left with something.
+    await _lock_up(worker, "idem-lockup-1", left="40000")
 
     await _open(worker, "idem-open-2")
     await _lock_up(worker, "idem-lockup-2", left="12000")

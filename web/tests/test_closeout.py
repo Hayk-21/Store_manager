@@ -540,6 +540,29 @@ async def test_a_replayed_close_out_counts_the_drawer_once(client, bot_headers):
     assert await db.fetchval("SELECT count(*) FROM till_counts") == 1
 
 
+async def test_more_than_the_drawer_holds_is_refused_over_the_wire(client, bot_headers):
+    """The refusal the bot has to be able to act on. It arrives as a 422 the same shape
+    as a mistyped amount, so the bot asks for the number again with the whole write-up
+    still in hand rather than throwing the day away."""
+    _, _, telegram_id, item_id, _ = await _on_shift(salary="0.00", till="2000.00")
+    await _open(client, bot_headers, telegram_id)
+
+    response = await _close_out(
+        client, bot_headers, telegram_id,
+        [{"item_id": item_id, "quantity": 2, "payment_method": "cash"}],
+        counted="12000",
+    )
+
+    assert response.status_code == 422
+    body = response.json()["error"]
+    assert body["code"] == "validation_error"
+    assert "9,000" in body["message"], "2,000 carried in and 7,000 sold"
+    assert await db.fetchval(
+        "SELECT count(*) FROM work_sessions WHERE ended_at IS NULL"
+    ) == 1, "the shift is still open, and the day still there to be written up"
+    assert await db.fetchval("SELECT count(*) FROM sales") == 0
+
+
 async def test_a_figure_the_till_could_never_hold_is_refused(client, bot_headers):
     """And the close-out with it: a mistyped nought must not shut the shop with a
     float of ten million behind it."""

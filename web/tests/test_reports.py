@@ -200,6 +200,74 @@ async def test_the_detail_view_shows_shifts_receipts_and_the_ledger(client):
     assert "8,000.00" in response.text
 
 
+def _the_ledger(page: str) -> str:
+    """The «Դրամարկղի շարժ» table alone.
+
+    By its heading and not by its name: the words appear higher up the page too, in
+    the sentence pointing at this section, and splitting on those lands in the middle
+    of the drawer's explanation instead.
+    """
+    return page.split("<h3>Դրամարկղի շարժ</h3>")[1]
+
+
+async def test_the_ledger_says_what_was_sold(client):
+    """«Վաճառք · Կանխիկ · 10,500 ֏» is an amount with nothing to check it against. Two
+    identical rows an hour apart were told apart by the minute they landed and by
+    nothing else, and matching one to its receipt meant counting rows in the table
+    above and hoping."""
+    _, _, worker, _ = await _a_completed_shift()
+    await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    await login(client, "@ownerhandle")
+
+    page = (await client.get(f"/reports?store_session_id={session_id}")).text
+
+    ledger = _the_ledger(page)
+    assert ">Ապրանք</th>" in ledger
+    assert "HQD Cuvie ×3" in ledger, "the quantity too, or a 10,500 row is three vapes"
+
+
+async def test_a_reversal_names_the_goods_that_came_back(client):
+    """The void row is the one worth naming: it is negative, it is the row an owner
+    stops at, and «Չեղարկում · -10,500 ֏» does not say what was un-sold."""
+    _, _, worker, _ = await _a_completed_shift()
+    await sales_service.void_last_sale(worker, "սխալ սեղմեցի")
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    await login(client, "@ownerhandle")
+
+    page = (await client.get(f"/reports?store_session_id={session_id}")).text
+
+    assert _the_ledger(page).count("HQD Cuvie ×3") == 2, "the sale and the reversal of it"
+
+
+async def test_a_wage_row_names_no_goods(client):
+    """It bought none. An em dash there reads as goods nobody could name."""
+    _, _, worker, _ = await _a_completed_shift()
+    await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    await login(client, "@ownerhandle")
+
+    page = (await client.get(f"/reports?store_session_id={session_id}")).text
+
+    ledger = _the_ledger(page)
+    assert 'data-label="Ապրանք"></td>' in ledger, "the wage row, with the cell left blank"
+    assert "—" not in ledger.split('data-label="Ապրանք"')[1].split("</td>")[0]
+
+
+async def test_the_long_tables_scroll_inside_themselves(client):
+    """Fifty shifts, an evening of receipts and every movement of the drawer, each
+    growing without a ceiling: reading the ledger meant scrolling past all of it, and
+    getting back to the list meant scrolling past all of it again."""
+    _, _, worker, _ = await _a_completed_shift()
+    await shifts_service.end_shift(worker, None, None, "idem-key-end-01")
+    session_id = await db.fetchval("SELECT id FROM store_sessions")
+    await login(client, "@ownerhandle")
+
+    page = (await client.get(f"/reports?store_session_id={session_id}")).text
+
+    assert page.count("table-wrap table-scroll") == 3, "the list, the receipts, the ledger"
+
+
 async def test_taking_money_out_of_the_till_is_not_hidden_behind_a_triangle(client):
     """It was collapsed at the foot of the ledger and got reported as missing — the
     owner could find no way to take cash out of the drawer, and this was it. Same

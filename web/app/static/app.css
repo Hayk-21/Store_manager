@@ -264,6 +264,30 @@ tbody tr:hover { background: rgba(255, 255, 255, .02); }
 tfoot td { font-weight: 600; border-top: 2px solid var(--line); border-bottom: 0; }
 .voided { opacity: .55; text-decoration: line-through; }
 
+/* A long table gets a window instead of the whole page.
+   ==========================================================================
+   Three tables on a report grow without a ceiling — fifty shifts, an evening of
+   receipts, every movement of the drawer — and each one pushed everything under
+   it off the screen. Reading the ledger meant scrolling past forty receipts, and
+   getting back to the shift list meant scrolling past all three.
+
+   So they scroll inside themselves. The height is in `vh` rather than in rows: a
+   fixed pixel height is a guess about somebody else's screen, and this way a
+   laptop shows what a laptop can show. The heading row stays put while the rows
+   move under it, because a wide table read fifteen rows down with no headings is
+   thirteen numbers nobody can name. */
+.table-scroll { max-height: 62vh; overflow-y: auto; }
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+  /* The cell's own border-bottom scrolls away with the box in some browsers,
+     which leaves the heading floating over the rows with nothing between them.
+     An inset shadow is painted with the background and stays. */
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
 /* -- footer (requirement 4) ------------------------------------------------ */
 
 footer {
@@ -667,6 +691,10 @@ table.stack .cell-actions button { width: auto; flex: 0 0 auto; }
   table.cards tr.void-note td { justify-content: flex-start; text-align: left; }
   /* A table that is no longer a table must not keep a scrollbar. */
   .table-wrap { overflow-x: visible; }
+  /* And a list of cards must not be trapped in a box of its own. A phone screen
+     is the height of about two cards, so a window 62vh tall inside a page that
+     already scrolls is two scrollbars fighting over one finger. */
+  .table-scroll { max-height: none; overflow-y: visible; }
 
   /* -- chrome -------------------------------------------------------------- */
 

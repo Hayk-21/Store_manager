@@ -64,6 +64,16 @@ same rule from the other side: the count is the closing act. A second reading th
 `💰 Դրամարկղի մնացորդ` on the off-shift keyboard replaces the first, for a figure
 noticed to be wrong at the door.
 
+**And the count may not be larger than the drawer.** The ceiling is the books — the
+float carried in, plus the day's cash sales, less the wage just paid and anything taken
+out — and a figure above it is refused with the ceiling in the message, so the worker
+can recount while they are still standing at the till. Workers were writing more than
+they had: what they leave *becomes* the shop's balance, so a drawer holding 29,000
+declared as 31,500 tells the owner they are owed nothing tonight and opens tomorrow
+2,500 above the cash actually on the premises — a hole nobody can find once the person
+who could have recounted it has gone home. The owner is deliberately not capped, on the
+report: they may know of a sale nobody entered.
+
 That ordering is not decoration. The owner's share is the till less the float, so
 anything still to come out of the till — a wage above all — has to come out before it
 is worked out. The button used to be on the working keyboard: a worker counted up at
@@ -262,6 +272,9 @@ that most need reading back.
 
 ### What one row of `/reports` says
 
+The whole page — every tile, every correction box, every rule it enforces — is written
+down in **[`REPORTS.md`](REPORTS.md)**. What follows is the list view only.
+
 A row is one time a shop was open, and it answers the questions an owner scans a list
 for — **who worked it, what it sold, what it made**:
 
@@ -291,6 +304,13 @@ Every figure is read from the same place the detail page reads it — the ledger
 money, the sale lines for the margin — and from the ledger rather than from the
 snapshot written at closing time, which is the same number once the shop has shut and
 zero all day while it is still open.
+
+Three tables on this page grow without a ceiling — fifty sessions, an evening of
+receipts, every movement of the drawer — so each **scrolls inside its own window**
+(`.table-scroll`, 62vh, heading row pinned). Reading the ledger used to mean scrolling
+past forty receipts, and getting back to the list meant scrolling past all three. Below
+1200px, where a table becomes a list of cards, the cap is lifted: two scrollbars
+fighting over one finger is worse than a long page.
 
 ### Reading the receipts in either order
 
@@ -334,7 +354,11 @@ so:
   its own place in the evening, because nothing else holds it once it is gone;
 * a shift's wage, which also clears whatever the till was too thin to pay;
 * breakage and shelf corrections;
-* a ledger entry, added or removed.
+* a ledger entry, added or removed. Each sale row in «Դրամարկղի շարժ» names what was
+  sold — «HQD Cuvie ×3», the same rendering the receipts table uses — because a column
+  of «Վաճառք · Կանխիկ · 3,500 ֏» is a list of amounts with nothing to check them
+  against, and two identical rows an hour apart were told apart by the minute they
+  landed and by nothing else.
 
 ### The float, end to end
 

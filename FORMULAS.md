@@ -256,6 +256,13 @@ closing count:  stores.till_balance ← counted
                 Ղեկավարին           = max(0, till cash − counted)
 ```
 
+**And `counted` may not exceed the till.** A worker's own reading is capped at
+`max(0, till cash)` — the float carried in, plus the day's cash sales, less the wage
+just paid and anything taken out — and a figure above it is refused with that ceiling
+in the message. What they leave becomes the shop's balance, so a claim above the till
+opens the next morning on cash that is not in the drawer. The owner's corrections are
+not capped: they may know of a sale nobody entered.
+
 **Carried in.** When a session is opened, that balance is deposited into the new
 session's till as one `deposit` movement with `created_by = 'system'` — which is
 what `Նախորդից մնացած` reads:
