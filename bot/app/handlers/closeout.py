@@ -605,9 +605,21 @@ def _ask_for_the_drawer(details: dict | None) -> str:
         before = Decimal(str(details.get("before_wages", left)))
         salary = Decimal(str(details.get("salary_paid", 0)))
         bonus = Decimal(str(details.get("bonus_paid", 0)))
+        owed = (
+            Decimal(str(details.get("salary_unpaid", 0)))
+            + Decimal(str(details.get("bonus_unpaid", 0)))
+        )
     except (ArithmeticError, TypeError, ValueError):
         log.warning("could not read the drawer figures from %r", details)
         return texts.TILL_ASK_BEFORE_CLOSE
+
+    # What the drawer could not cover, and what to do about it. The ceiling on its
+    # own tells a worker owed 3,000 out of an empty till that the only number they
+    # may write is 0 — true, and no use to somebody who is owed the money. The money
+    # is not missing; it is in a sister shop's drawer or the owner's pocket.
+    short = (
+        texts.TILL_ASK_SHORT.format(owed=format.money(owed)) if owed > 0 else ""
+    )
 
     # Only the lines there is something to say. «Ձեր պրեմիան՝ − 0 ֏» on every
     # ordinary shift is a line that teaches the worker to skip the section.
@@ -619,12 +631,15 @@ def _ask_for_the_drawer(details: dict | None) -> str:
     if not taken:
         # Nothing came out — an unpaid shift, or a drawer that could not cover it.
         # With no subtraction to show, the two figures are the same number twice.
-        return texts.TILL_ASK_NOTHING_TAKEN.format(left=format.money(left))
+        return texts.TILL_ASK_NOTHING_TAKEN.format(
+            left=format.money(left), short=short
+        )
 
     return texts.TILL_ASK_WITH_THE_SUM.format(
         before=format.money(before),
         taken=taken,
         left=format.money(left),
+        short=short,
     )
 
 

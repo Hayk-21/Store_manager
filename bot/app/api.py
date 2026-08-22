@@ -436,6 +436,45 @@ class Api:
             json={"telegram_id": telegram_id, "accept": accept},
         )
 
+    async def money_request_targets(self, telegram_id: int) -> dict:
+        """Who this shop could ask for cash: the open shops. The owner is always
+        available and is added by the bot, since they have no shop to list."""
+        return await self._call(
+            "GET", "/cash/requests/who", params={"telegram_id": telegram_id}
+        )
+
+    async def ask_for_money(
+        self, telegram_id: int, asked_of: str, amount: str, key: str
+    ) -> dict:
+        """Ask for cash. ``asked_of`` is a store id as a string, or "owner"."""
+        return await self._call(
+            "POST",
+            "/cash/requests",
+            json={
+                "telegram_id": telegram_id,
+                "asked_of": asked_of,
+                "amount": amount,
+                "idempotency_key": key,
+            },
+        )
+
+    async def pending_money_requests(self, telegram_id: int) -> dict:
+        return await self._call(
+            "GET", "/cash/requests/pending", params={"telegram_id": telegram_id}
+        )
+
+    async def decide_money_request(
+        self, telegram_id: int, request_id: int, accept: bool
+    ) -> dict:
+        """Yes or no. The one call the bot makes that may be an *owner* answering —
+        the server works out which from the Telegram account, so nothing here has to
+        know or declare it."""
+        return await self._call(
+            "POST",
+            f"/cash/requests/{request_id}/decide",
+            json={"telegram_id": telegram_id, "accept": accept},
+        )
+
     async def write_off(
         self,
         telegram_id: int,

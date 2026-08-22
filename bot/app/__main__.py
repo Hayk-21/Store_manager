@@ -29,6 +29,7 @@ from app.handlers import (
     closeout,
     common,
     defect,
+    money_ask,
     newitem,
     restock,
     sell,
@@ -365,7 +366,21 @@ def build() -> Application:
                 CallbackQueryHandler(
                     transfer.choose_store, pattern=f"^{keyboards.CB_TRANSFER_STORE}:"
                 ),
+                # Asking for cash starts from the same screen, so it lives in the
+                # same conversation. Two conversations alive on one screen is how a
+                # tap ends up answered by the wrong flow.
+                CallbackQueryHandler(
+                    money_ask.begin, pattern=f"^{keyboards.CB_MONEY_ASK_NEW}$"
+                ),
                 CallbackQueryHandler(transfer.noop, pattern=f"^{keyboards.CB_NOOP}$"),
+            ],
+            money_ask.PICK_WHO: [
+                CallbackQueryHandler(
+                    money_ask.choose_who, pattern=f"^{keyboards.CB_MONEY_ASK_WHO}:"
+                ),
+            ],
+            money_ask.ASK_AMOUNT: [
+                MessageHandler(_free_text, money_ask.type_amount),
             ],
             transfer.PICK_ITEM: [
                 CallbackQueryHandler(transfer.choose_item, pattern=f"^{keyboards.CB_ITEM}:"),
@@ -441,6 +456,13 @@ def build() -> Application:
     # on shift here. Registered after «^t:», and the prefixes cannot collide.
     application.add_handler(
         CallbackQueryHandler(cash.decide, pattern=f"^{keyboards.CB_MONEY_TRANSFER}:")
+    )
+    # And answering a request for cash — the one handler here that may be tapped by
+    # somebody who is not a worker at all. A request made of the owner is pushed to
+    # the owner's own chat with these buttons on it, and the server works out which
+    # authority is answering from the account that tapped.
+    application.add_handler(
+        CallbackQueryHandler(money_ask.decide, pattern=f"^{keyboards.CB_MONEY_REQUEST}:")
     )
 
     application.add_handler(MessageHandler(_exact(texts.BTN_OPEN), shift.ask_location))

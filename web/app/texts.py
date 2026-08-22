@@ -88,6 +88,13 @@ MONEY_TRANSFER_SENT = (
     "{worker}-ը ուղարկել է <b>{amount} ֏</b>։\n\n"
     "Երբ գումարը ձեռքի տակ լինի, սեղմեք «Ստացա»՝ այն կավելանա ձեր դրամարկղին։"
 )
+# The same envelope, when it is the owner who is sending it. No shop and no
+# colleague to name, and «-ը ուղարկել է» over a blank reads as a broken message.
+MONEY_FROM_THE_OWNER_SENT = (
+    "💵 <b>Գումար՝ ղեկավարից</b>\n\n"
+    "Ղեկավարը ուղարկել է <b>{amount} ֏</b>։\n\n"
+    "Երբ գումարը ձեռքի տակ լինի, սեղմեք «Ստացա»՝ այն կավելանա ձեր դրամարկղին։"
+)
 MONEY_TRANSFER_RECEIVED = (
     "✅ «{store}» խանութը հաստատեց՝ <b>{amount} ֏</b> ստացվել է։"
 )
@@ -102,6 +109,60 @@ MONEY_TRANSFER_RETURNED = (
 MONEY_TRANSFER_CALLBACK = "mt"
 BTN_MONEY_TRANSFER_GOT_IT = "✅ Ստացա"
 BTN_MONEY_TRANSFER_MISSING = "❌ Չեմ ստացել"
+
+
+# A shop asking for cash, pushed to whoever can say yes — workers on shift at the
+# shop being asked, or the owner on their own chat. It carries its buttons for the
+# same reason the transfer does: the person who has to act did not start the action,
+# and a message that only says "go and look somewhere" gets looked at and forgotten.
+MONEY_REQUEST_ASKED = (
+    "🙋 <b>Գումարի հարցում</b>\n\n"
+    "«{store}» խանութը խնդրում է <b>{amount} ֏</b>։\n"
+    "Խնդրողը՝ {worker}։\n\n"
+    "Հաստատելու դեպքում գումարը կհանվի ձեր դրամարկղից, և «{store}»-ը "
+    "կհաստատի ստանալը։"
+)
+# The same, to the owner. Their money does not come out of any till, so the
+# sentence that explains what confirming costs would be wrong for them.
+MONEY_REQUEST_ASKED_OF_OWNER = (
+    "🙋 <b>Գումարի հարցում</b>\n\n"
+    "«{store}» խանութը խնդրում է <b>{amount} ֏</b>։\n"
+    "Խնդրողը՝ {worker}։\n\n"
+    "Հաստատելու դեպքում խանութը կհաստատի գումարը ստանալը։"
+)
+MONEY_REQUEST_ACCEPTED = (
+    "✅ Ձեր հարցումը հաստատվեց՝ <b>{amount} ֏</b> {source}։\n\n"
+    "Երբ գումարը ձեռքի տակ լինի, սեղմեք «Ստացա»։"
+)
+MONEY_REQUEST_REJECTED = "❌ Ձեր հարցումը մերժվեց՝ <b>{amount} ֏</b> {source}։"
+# What fills «{source}» above. A request names who was asked, and the two read
+# differently in Armenian, so neither can be built by pasting a name into one shape.
+MONEY_REQUEST_FROM_STORE = "«{store}» խանութից"
+MONEY_REQUEST_FROM_OWNER = "ղեկավարից"
+
+MONEY_REQUEST_CALLBACK = "mq"
+BTN_MONEY_REQUEST_YES = "✅ Հաստատել"
+BTN_MONEY_REQUEST_NO = "❌ Մերժել"
+
+
+def money_request_buttons(request_id: int) -> dict:
+    """The two answers, as Telegram's own inline-keyboard shape.
+
+    Built here rather than in the bot because this is the service that sends the
+    message — the callback prefix is the bot's «mq», and a test holds them together.
+    """
+    return {
+        "inline_keyboard": [[
+            {
+                "text": BTN_MONEY_REQUEST_YES,
+                "callback_data": f"{MONEY_REQUEST_CALLBACK}:{request_id}:y",
+            },
+            {
+                "text": BTN_MONEY_REQUEST_NO,
+                "callback_data": f"{MONEY_REQUEST_CALLBACK}:{request_id}:n",
+            },
+        ]]
+    }
 
 
 def money_transfer_buttons(transfer_id: int) -> dict:
@@ -121,6 +182,31 @@ def money_transfer_buttons(transfer_id: int) -> dict:
 
 def insufficient_stock_message(name: str, requested: int, available: int) -> str:
     return f"«{name}» — պահեստում կա ընդամենը {available} հատ, խնդրված է {requested}։"
+
+
+def till_over_cash_message(available) -> str:
+    """The drawer cannot be left with more than it holds.
+
+    Sent when a worker's closing count is above the cash the books say is in the till.
+    What they leave becomes the shop's float and the rest is what the owner is owed, so
+    a figure above the till reads as "the owner gets nothing tonight" *and* quietly
+    carries the difference into tomorrow's opening balance.
+
+    The ceiling is stated as a number, because the answer to "how much may I write" is
+    a number. What it is made of is described in words rather than added up term by
+    term: a wage or a withdrawal can be booked against the card side of the same
+    session, so a printed sum would not always tie out to the ceiling beside it.
+
+    It should rarely be seen — the bot puts the same figure in front of the worker
+    before asking — so this is the safety net rather than the explanation.
+    """
+    return (
+        f"Այդքան կանխիկ դրամարկղում չկա։ Ըստ գրքերի դրամարկղում կա "
+        f"{available:,.0f} ֏՝ նախորդ հերթափոխից մնացածը գումարած օրվա կանխիկ "
+        f"վաճառքը, հանած աշխատավարձը և դրամարկղից վերցվածը։\n\n"
+        f"Գրեք {available:,.0f} ֏ կամ ավելի քիչ։ Եթե դրամարկղում իրականում ավելի "
+        f"շատ կանխիկ կա, զանգահարեք ղեկավարին։"
+    )
 
 
 def no_store_in_range_message(nearest_name: str | None, distance_m: int | None) -> str:

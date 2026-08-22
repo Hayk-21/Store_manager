@@ -35,6 +35,7 @@ from app.errors import BotError
 from app.repo import money as money_repo
 from app.repo import money_transfers as transfers_repo
 from app.repo import sessions as sessions_repo
+from app.repo import users as users_repo
 from app.repo import workers as workers_repo
 from app.services import telegram
 
@@ -63,6 +64,12 @@ def note_received(store_name: str) -> str:
 
 def note_returned(store_name: str) -> str:
     return f"Վերադարձվեց «{store_name}» խանութից"
+
+
+# Money the owner put in, which left no drawer on its way here. Not «Ստացվեց … », so
+# a reader of the ledger can tell a shop topping up a sister shop from the owner
+# funding one out of their own pocket — those are different facts about the business.
+NOTE_FROM_THE_OWNER = "Ստացվեց ղեկավարից"
 
 
 async def send_by_worker(
@@ -169,7 +176,7 @@ async def send_by_worker(
         worker.id, amount, shift["store_id"], to_store_id,
     )
     row = await transfers_repo.get(worker.owner_id, transfer_id)
-    await _tell_the_destination(row)
+    await tell_the_destination(row)
     payload = _payload(row, duplicate=False)
     payload["store_totals"] = {"cash": f"{left_in_till:.2f}"}
     return payload
@@ -205,6 +212,9 @@ async def decide_by_worker(worker, transfer_id: int, accept: bool) -> dict:
             transfer["from_store_id"],
             transfer["to_store_id"],
         )
+        # Null when the owner is the one who sent it: they have no drawer, so there
+        # was no withdrawal to mirror and there is nothing to give back either.
+        from_the_owner = transfer["from_store_id"] is None
 
         if accept:
             await money_repo.insert_movement(
@@ -217,12 +227,19 @@ async def decide_by_worker(worker, transfer_id: int, accept: bool) -> dict:
                 amount=amount,
                 work_session_id=shift["id"],
                 worker_id=worker.id,
-                note=note_received(names["src"]),
+                note=NOTE_FROM_THE_OWNER if from_the_owner else note_received(names["src"]),
                 created_by="worker",
             )
             await transfers_repo.decide(
                 conn, transfer_id, "received",
                 worker_id=worker.id, to_session_id=shift["store_session_id"],
+            )
+        elif from_the_owner:
+            # Nothing was ever taken out of a till, so there is nothing to put back.
+            # The owner is told, and what happens to the money is between them and
+            # whoever was supposed to have carried it.
+            await transfers_repo.decide(
+                conn, transfer_id, "rejected", worker_id=worker.id
             )
         else:
             # Back into the drawer it left, which needs that shop to still be
@@ -265,7 +282,7 @@ async def decide_by_worker(worker, transfer_id: int, accept: bool) -> dict:
     return _payload(row, duplicate=False)
 
 
-async def _tell_the_destination(transfer) -> None:
+async def tell_the_destination(transfer) -> None:
     """Nudge whoever is on shift at the shop the money is going to.
 
     They are the only people who can confirm it, and money nobody knows to expect
@@ -274,14 +291,25 @@ async def _tell_the_destination(transfer) -> None:
     the worker has to go and find: this is the one thing in the bot where the
     people who need to act are not the people who started the action.
 
+    Public, because a transfer can also be created by somebody accepting a request
+    for money — the same envelope, arriving the same way, so it is announced by the
+    same code rather than by a second copy that would drift from this one.
+
     A failure to deliver is logged and swallowed. The transfer is already written,
     and it is still on «Փոխանցումներ» to be answered.
     """
-    body = texts.MONEY_TRANSFER_SENT.format(
-        amount=f"{Decimal(transfer['amount']):,.0f}",
-        store=escape(transfer["from_store_name"]),
-        worker=escape(transfer["sent_by_name"] or ""),
-    )
+    if transfer["from_store_name"]:
+        body = texts.MONEY_TRANSFER_SENT.format(
+            amount=f"{Decimal(transfer['amount']):,.0f}",
+            store=escape(transfer["from_store_name"]),
+            worker=escape(transfer["sent_by_name"] or ""),
+        )
+    else:
+        # From the owner. No shop and no colleague to name, and saying «-ը ուղարկել
+        # է» over a blank is worse than a sentence written for the case.
+        body = texts.MONEY_FROM_THE_OWNER_SENT.format(
+            amount=f"{Decimal(transfer['amount']):,.0f}",
+        )
     markup = texts.money_transfer_buttons(transfer["id"])
     for chat_id in await workers_repo.telegram_ids_on_shift(transfer["to_store_id"]):
         try:
@@ -294,11 +322,14 @@ async def _tell_the_destination(transfer) -> None:
 
 
 async def _tell_the_sender(transfer) -> None:
-    """And tell the shop it came from what happened to it.
+    """And tell whoever it came from what happened to it.
 
     A rejection above all: the money is back in their drawer, which changes the
     figure they are about to count, and finding that out at closing time is
     finding it out too late.
+
+    The owner is told too, on their own chat — money they handed over and that
+    never arrived is the one they most need to hear about.
     """
     template = (
         texts.MONEY_TRANSFER_RECEIVED
@@ -309,7 +340,12 @@ async def _tell_the_sender(transfer) -> None:
         amount=f"{Decimal(transfer['amount']):,.0f}",
         store=escape(transfer["to_store_name"]),
     )
-    for chat_id in await workers_repo.telegram_ids_on_shift(transfer["from_store_id"]):
+    if transfer["from_store_id"] is None:
+        chat_ids = await _the_owners_chat(transfer["owner_id"])
+    else:
+        chat_ids = await workers_repo.telegram_ids_on_shift(transfer["from_store_id"])
+
+    for chat_id in chat_ids:
         try:
             await telegram.send_message(chat_id, body)
         except telegram.Undeliverable as exc:
@@ -317,6 +353,18 @@ async def _tell_the_sender(transfer) -> None:
                 "could not tell chat %s about money transfer %s: %s",
                 chat_id, transfer["id"], exc.reason,
             )
+
+
+async def _the_owners_chat(owner_id: int) -> list[int]:
+    """The owner's own Telegram chat, as a list so it reads like the worker case.
+
+    Empty when they have never messaged the bot — the binding happens on first
+    contact — and an empty list simply sends nothing, which is the right outcome for
+    somebody with no chat to send to.
+    """
+    owner = await users_repo.by_id(owner_id)
+    chat_id = owner["telegram_id"] if owner is not None else None
+    return [chat_id] if chat_id else []
 
 
 def _payload(row, *, duplicate: bool) -> dict:

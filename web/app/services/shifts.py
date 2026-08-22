@@ -690,6 +690,14 @@ async def _the_drawer_so_far(conn, shift) -> dict[str, str]:
         (await money_repo.totals_on(conn, shift["store_session_id"]))["cash"]
     )
     salary, bonus = Decimal(paid["salary"]), Decimal(paid["bonus"])
+    # What the drawer could not cover, straight off the shift row the wage was just
+    # written to. It is what turns "here is your ceiling" into "and here is what to
+    # do about it": the answer to an empty till is to ask another shop or the owner
+    # for money, not to write a bigger number than the drawer can back.
+    owed = await conn.fetchrow(
+        "SELECT salary_unpaid, bonus_unpaid FROM work_sessions WHERE id = $1",
+        shift["id"],
+    )
     return {
         "in_the_till": f"{in_the_till:.2f}",
         "salary_paid": f"{salary:.2f}",
@@ -698,6 +706,8 @@ async def _the_drawer_so_far(conn, shift) -> dict[str, str]:
         # as a sum: it is the figure the worker recognises as "the day", and seeing
         # it above their own wage is what makes the subtraction obvious.
         "before_wages": f"{in_the_till + salary + bonus:.2f}",
+        "salary_unpaid": f"{Decimal(owed['salary_unpaid'] or 0):.2f}",
+        "bonus_unpaid": f"{Decimal(owed['bonus_unpaid'] or 0):.2f}",
     }
 
 

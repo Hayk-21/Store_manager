@@ -268,6 +268,36 @@ class MoneyTransferDecision(BotRequest):
     accept: bool
 
 
+class MoneyAskRequest(IdempotentRequest):
+    """A shop asking another shop, or the owner, for cash.
+
+    ``asked_of`` is a store id as a string, or the literal ``"owner"``. One field
+    rather than two, because exactly one of them is ever meant and a pair of
+    optional columns is a pair that can both arrive filled in. The asking shop is
+    never sent — it is the one the shift is open in.
+    """
+
+    asked_of: str = Field(min_length=1, max_length=32)
+    amount: Decimal = Field(gt=0)
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _string_money(cls, value):
+        if isinstance(value, float):
+            raise ValueError("send money as a decimal string, not a float")
+        return value
+
+
+class MoneyAskDecision(BotRequest):
+    """Yes or no, from whoever was asked — a worker at that shop, or the owner.
+
+    Which of the two is never declared here. It is worked out from the Telegram
+    account that tapped, because that is the thing an answer cannot lie about.
+    """
+
+    accept: bool
+
+
 class WriteOffRequest(IdempotentRequest):
     """Stock that left without being sold: broken, expired, lost."""
 

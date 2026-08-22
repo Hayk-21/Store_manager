@@ -65,16 +65,17 @@ same rule from the other side: the count is the closing act. A second reading th
 noticed to be wrong at the door.
 
 **The question comes with the sum behind it.** The refusal carries `details` —
-`before_wages`, `salary_paid`, `bonus_paid`, `in_the_till` — computed inside the
-transaction at the one moment they are all true at once: the day's sales applied, the
-wage and bonus out of the drawer, nothing else about to touch it. The bot lays them out
-as a subtraction before asking for the number. The wage leaves the till *before* the
-reading is taken, which is invisible from the door, and the commonest wrong answer was
-the day's takings before it came out — the worker's own money counted twice, once in
-their pocket and once as the float the next shift opens against. `salary_paid` is what
-the drawer actually paid, not what the shift cost, so a wage the till could not cover is
-not claimed as money in somebody's hand. A bot that gets no `details` asks the plain
-question instead; the number wanted is the same either way.
+`before_wages`, `salary_paid`, `bonus_paid`, `in_the_till`, plus `salary_unpaid` and
+`bonus_unpaid` — computed inside the transaction at the one moment they are all true at
+once: the day's sales applied, the wage and bonus out of the drawer, nothing else about
+to touch it. The bot lays them out as a subtraction before asking for the number. The
+wage leaves the till *before* the reading is taken, which is invisible from the door,
+and the commonest wrong answer was the day's takings before it came out — the worker's
+own money counted twice, once in their pocket and once as the float the next shift opens
+against. `salary_paid` is what the drawer actually paid, not what the shift cost, so a
+wage the till could not cover is not claimed as money in somebody's hand. A bot that
+gets no `details` asks the plain question instead; the number wanted is the same either
+way.
 
 Afterwards the confirmation says what stays and what goes to the owner, with the drawer
 figure above them so the subtraction can be checked rather than trusted — but only when
@@ -82,12 +83,22 @@ it holds. A count above what the books expected hands the owner nothing, and sho
 that arithmetic to somebody at a locked door invites them to chase a discrepancy they
 cannot settle; it goes on the owner's report instead.
 
-**The count is a reading, and nothing caps it.** Whatever is counted goes down, above
-the books as readily as below them — the drawer is sometimes ahead of the ledger, and a
-refusal at that moment leaves somebody locking up unable to shut the shop over a gap
-they cannot fix from the door. The books are kept beside the reading as `expected`, so
-an evening where the two disagree says so on the report, which is where the owner can
-actually look into it.
+**And the count may not be larger than the drawer.** The ceiling is the books — the
+float carried in, plus the day's cash sales, less the wage just paid and anything taken
+out — and a figure above it is refused with the ceiling in the message, so the worker
+can recount while they are still standing at the till. Workers were writing more than
+they had: what they leave *becomes* the shop's balance, so a drawer holding 29,000
+declared as 31,500 tells the owner they are owed nothing tonight and opens tomorrow
+2,500 above the cash actually on the premises — a hole nobody can find once the person
+who could have recounted it has gone home. The owner is deliberately not capped, on the
+report: they may know of a sale nobody entered.
+
+Since the bot shows the sum first, the refusal is a safety net rather than the
+explanation. **A till that could not cover the wage is a different problem**, and the
+ceiling on its own is no use to somebody owed 3,000 out of an empty drawer — so when
+`salary_unpaid` is set the same message says where the money is and how to go and get
+it: «🔄 Փոխանցումներ» → «🙋 Գումար խնդրել». The shift can still be closed without it,
+and the debt is recorded either way.
 
 That ordering is not decoration. The owner's share is the till less the float, so
 anything still to come out of the till — a wage above all — has to come out before it
@@ -718,6 +729,26 @@ missed. «Չեմ ստացել» puts the money back in the drawer it left — no
 nothing should have left the books — and is refused once that shop has shut, which leaves
 the transfer pending for the owner rather than burying a deposit in a settled till.
 
+**Money can also be asked for, which is the direction an empty drawer actually needs.**
+«🙋 Գումար խնդրել» on the same screen asks a named open shop, or the owner, for an
+amount; nothing bounds it at the asking end, because what a shop needs is not what it
+has. Saying yes is what moves it: the giving shop's withdrawal is booked then and there
+against the drawer *as it stands at that moment*, and it creates exactly the transfer
+above, so money asked for and money sent arrive by one route and not two.
+
+The owner is always on the list — they have no shop to be open or shut, and they are the
+answer when every other till is as empty as this one. Their money has no drawer behind
+it: nothing is booked when they accept, the deposit lands as «Ստացվեց ղեկավարից» so the
+ledger can tell owner funding from a sister shop topping one up, and a refusal at the far
+end gives nothing back because nothing was ever taken out.
+
+`POST /cash/requests/{id}/decide` is **the one bot endpoint that is not a worker's.** A
+request made of the owner is pushed to the owner's own chat with the same two buttons,
+and who tapped decides which authority answers — resolved from the Telegram account
+rather than declared in the body, because that is the one thing an answer cannot lie
+about. An owner who also works a shift answers as the owner when the request was theirs
+to give, and as a cashier otherwise.
+
 **A shared drawer is locked, not just a shared worker.** `withdraw_by_worker` locked the
 calling worker's own shift row, which serialises that worker's own double-taps but not
 two different cashiers on the same store session: both could read the same "1,500 in the
@@ -810,6 +841,14 @@ two ledger rows written at two different moments — a `withdrawal` at `pending`
 `deposit` at `received`, and on `rejected` a `deposit` back where it came from. Folding
 it into `transfers` would have meant a stock table with a nullable item, and folding it
 into the ledger alone would have left no row to answer «has it got there yet».
+
+**`money_requests` is the asking, and it is a third table for the same kind of reason.**
+A request and a transfer are two different decisions by two different people — will you
+give it, and did it arrive — and one status column cannot hold both without two meanings
+of "rejected". So a request points at the `money_transfers` row its acceptance created,
+and from the asking shop's side the two are one thing: an envelope to confirm.
+`money_transfers.from_store_id` is nullable for exactly one case, money from the owner,
+who has no drawer for it to come out of.
 
 Rules worth knowing before changing anything:
 
@@ -919,6 +958,10 @@ services cannot drift apart on what a failure means.
 | POST | `/cash/transfers` | send cash to one of them → 201. Leaves this till at once; arrives at the other only when confirmed |
 | GET | `/cash/transfers/pending` | cash this shop has been told to expect and not yet confirmed |
 | POST | `/cash/transfers/{id}/decide` | «Ստացա» credits this till; «Չեմ ստացել» puts it back where it came from |
+| GET | `/cash/requests/who` | the open shops this one could ask for cash. The owner is always askable and the bot adds them |
+| POST | `/cash/requests` | ask a shop or the owner for cash → 201. Moves nothing yet |
+| GET | `/cash/requests/pending` | what this shop is being asked for and has not answered |
+| POST | `/cash/requests/{id}/decide` | yes or no. **The one call that may be an owner answering** — resolved from the Telegram account, not the body |
 | GET | `/shift/review` | the whole open shift: sales, breakage, shelf corrections, cash out, the drawer, the wage due |
 | POST | `/shift/till` | a second reading of the drawer, after closing took the first → 201 |
 | POST | `/shift/close-out` | declare the day's sales, count the drawer and end the shift, in one transaction |

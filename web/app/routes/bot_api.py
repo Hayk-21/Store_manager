@@ -22,6 +22,7 @@ from app.errors import BotError
 from app.repo import adjustments as adjustments_repo
 from app.repo import items as items_repo
 from app.repo import money as money_repo
+from app.repo import money_requests as money_requests_repo
 from app.repo import money_transfers as money_transfers_repo
 from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
@@ -37,6 +38,8 @@ from app.schemas import (
     CloseStoreRequest,
     EndShiftRequest,
     LocationPingRequest,
+    MoneyAskDecision,
+    MoneyAskRequest,
     MoneyTransferDecision,
     MoneyTransferRequest,
     NewItemRequest,
@@ -51,6 +54,7 @@ from app.schemas import (
     WriteOffRequest,
 )
 from app.services import money as money_service
+from app.services import money_requests as money_requests_service
 from app.services import money_transfers as money_transfers_service
 from app.services import sales as sales_service
 from app.services import shifts as shifts_service
@@ -746,6 +750,79 @@ async def decide_money_transfer(transfer_id: int, body: MoneyTransferDecision) -
     worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
     return await money_transfers_service.decide_by_worker(
         worker, transfer_id, body.accept
+    )
+
+
+@router.get("/cash/requests/who")
+async def money_request_targets(telegram_id: int = Query(gt=0)) -> dict:
+    """Who this shop could ask for cash: the open shops, and the owner.
+
+    The owner is always there — they have no shop to be open or shut — and they are
+    the answer when every other till is as empty as this one.
+    """
+    worker = await _worker(telegram_id)
+    shift = await sessions_repo.open_for_worker(worker.id)
+    if shift is None:
+        raise BotError("no_open_session")
+
+    return {
+        "ok": True,
+        "stores": [
+            {"id": row["id"], "name": row["name"]}
+            for row in await stores_repo.list_open_for_owner(worker.owner_id)
+            if row["id"] != shift["store_id"]
+        ],
+    }
+
+
+@router.post("/cash/requests", status_code=201)
+async def ask_for_money(body: MoneyAskRequest) -> dict:
+    """Ask another shop, or the owner, for cash. Moves nothing — it is a question."""
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
+    return await money_requests_service.ask(
+        worker, body.asked_of, body.amount, body.idempotency_key
+    )
+
+
+@router.get("/cash/requests/pending")
+async def pending_money_requests(telegram_id: int = Query(gt=0)) -> dict:
+    """What this shop is being asked for and has not answered.
+
+    Only the shop's own. An owner's requests are answered from the message pushed to
+    them, and this endpoint resolves a worker.
+    """
+    worker = await _worker(telegram_id)
+    shift = await sessions_repo.open_for_worker(worker.id)
+    if shift is None:
+        raise BotError("no_open_session")
+
+    return {
+        "ok": True,
+        "incoming": [
+            {
+                "id": row["id"],
+                "amount": f"{Decimal(row['amount']):.2f}",
+                "store": row["to_store_name"],
+                "worker": row["requested_by_name"],
+            }
+            for row in await money_requests_repo.pending_for_store(
+                worker.owner_id, shift["store_id"]
+            )
+        ],
+    }
+
+
+@router.post("/cash/requests/{request_id}/decide")
+async def decide_money_request(request_id: int, body: MoneyAskDecision) -> dict:
+    """Yes or no, from whoever was asked.
+
+    The one endpoint the bot has that is not a worker's. Who tapped decides which
+    authority answers, and it is resolved from the Telegram account rather than
+    declared in the body — the owner's is bound to their account and a worker's to
+    theirs, so the same button on the same message settles to the right person.
+    """
+    return await money_requests_service.decide(
+        body.telegram_id, request_id, body.accept
     )
 
 

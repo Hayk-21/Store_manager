@@ -18,13 +18,21 @@ could hold anyone to.
                        =  (yesterday's float + today's takings − wages − petty
                           cash)  −  the new float
 
-The first bracket is not a ceiling on the second. A count is a *reading*, not a
-claim: whoever is locking up writes down what is actually in the drawer, and the
-drawer can hold more than the books say — a sale nobody entered, change somebody
-put in, a figure the books have not caught up with. Refusing the reading did not
-make the books right, it only left the worker unable to shut the shop. Where the
-two disagree the count keeps ``expected`` beside ``counted``, so the gap is on the
-report for the owner to settle rather than argued with at the counter.
+The first bracket is also the **ceiling on the second**. A worker cannot declare that
+they are leaving more cash than the drawer holds: what they leave *becomes* the shop's
+balance, so a drawer holding 29,000 declared as 31,500 tells the owner they are owed
+nothing tonight and opens tomorrow 2,500 above the money actually on the premises — a
+hole nobody can find once the person who could have recounted it has gone home. The
+figure is stated in the refusal, so the recount happens while they are still at the
+till. The bot also shows the sum before asking, so the ceiling is rarely a surprise.
+
+The owner is deliberately not capped, from the report: they may know what the books do
+not — a sale nobody entered, a drawer topped up in person — and that path does not come
+through :func:`_record`.
+
+A till that cannot cover the wage is a different problem and has its own answer: the
+worker asks another shop or the owner for money before closing (see
+``services/money_requests.py``), rather than writing a figure the drawer cannot back.
 
 **Shown, not booked.** The subtraction is a figure on the report and nothing else: no
 `withdrawal` row, no adjustment when the count disagrees with the books. The owner
@@ -45,6 +53,7 @@ from decimal import Decimal
 
 import asyncpg
 
+from app import texts
 from app.db import db
 from app.errors import AppError, BotError
 from app.repo import audit as audit_repo
@@ -152,7 +161,7 @@ async def declare_close(
 async def count_as_the_shop_shuts(
     conn, worker, shift, counted: Decimal, idem_key: str
 ) -> dict:
-    """The same reading, taken as part of shutting the shop.
+    """The same reading, taken as part of shutting the shop, and never above the till.
 
     Called from inside the close-out's transaction, after the store session has been
     closed and every wage paid out of the drawer — which is the only moment the two
@@ -178,16 +187,26 @@ async def _record(conn, worker, shift, counted: Decimal, idem_key: str, note=Non
     ``expected`` is what the books said at this moment, frozen beside the count: a
     sale amended next week must not rewrite what the owner was owed tonight.
 
-    Whatever the worker counted is written down, including a figure above what the
-    books say the drawer held. It is a reading of a real drawer and the books are not
-    always the last word on it — a sale entered late, change put in, money brought
-    back — and a refusal at that moment leaves somebody locking up unable to shut the
-    shop over a discrepancy they cannot fix from the door. The two figures are stored
-    side by side and the difference is on the report, which is where it can actually
-    be looked into.
+    A worker may not claim to be leaving more than the drawer holds. What they leave
+    becomes the shop's float, so an evening's takings of 29,000 declared as 31,500
+    tells the owner they are owed nothing *and* opens tomorrow on a balance 2,500 above
+    the cash actually on the premises — a hole that then has to be found by counting a
+    drawer somebody has already gone home from. The books say what is in there, so the
+    books are the ceiling, and the difference is refused while the worker is still
+    standing at the till and can recount it.
+
+    Only the worker's own count is capped this way. The owner correcting a session
+    afterwards may know something the books do not — an unrecorded sale, a drawer
+    topped up in person — and that path does not come through here.
     """
     totals = await money_repo.totals_on(conn, shift["store_session_id"])
     in_the_till = Decimal(totals["cash"])
+    # Floored, because the till genuinely can read below nothing — a wage paid out of
+    # a day taken on card — and a negative ceiling would refuse every figure there is,
+    # including the honest «0» that shuts the shop.
+    allowed = max(ZERO, in_the_till)
+    if counted > allowed:
+        raise BotError("validation_error", texts.till_over_cash_message(allowed))
     handed_over = _owners_share(in_the_till, counted)
 
     count_id = await till_repo.insert(

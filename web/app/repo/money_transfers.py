@@ -13,15 +13,18 @@ from app.repo.workers import DISPLAY_NAME
 # and every caller is rendering it for somebody. The sender's name comes with it:
 # the message at the other end says who to expect the envelope from, and "somebody
 # at Կենտրոն" is not something a person can go and ask about.
+#
+# The source is a LEFT JOIN because money can come from the owner, who has no shop
+# and no drawer: ``from_store_name`` is then null and the reader says «ղեկավարից».
 _SELECT = f"""
-    SELECT t.id, t.amount, t.status, t.created_at, t.decided_at,
+    SELECT t.id, t.owner_id, t.amount, t.status, t.created_at, t.decided_at,
            t.from_store_id, t.to_store_id, t.from_session_id, t.to_session_id,
            t.sent_by_worker_id, t.decided_by_worker_id,
            src.name AS from_store_name,
            dst.name AS to_store_name,
            CASE WHEN w.id IS NULL THEN NULL ELSE {DISPLAY_NAME} END AS sent_by_name
       FROM money_transfers t
-      JOIN stores src ON src.id = t.from_store_id
+      LEFT JOIN stores src ON src.id = t.from_store_id
       JOIN stores dst ON dst.id = t.to_store_id
       LEFT JOIN workers w ON w.id = t.sent_by_worker_id
 """
@@ -31,15 +34,19 @@ async def insert(
     conn,
     *,
     owner_id: int,
-    from_store_id: int,
     to_store_id: int,
-    from_session_id: int,
     amount: Decimal,
-    sent_by_worker_id: int | None,
+    from_store_id: int | None = None,
+    from_session_id: int | None = None,
+    sent_by_worker_id: int | None = None,
     external_id: str | None = None,
 ) -> int:
     """One row, always pending. Nothing here is ever created already answered —
-    unlike stock, there is no path where the same person is at both ends."""
+    unlike stock, there is no path where the same person is at both ends.
+
+    A null source is the owner's own money: there is no drawer it came out of, so
+    nothing is booked at that end and nothing is given back if it never arrives.
+    """
     return await conn.fetchval(
         """
         INSERT INTO money_transfers

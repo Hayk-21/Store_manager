@@ -35,7 +35,8 @@ REFUSED = ApiError(
 
 
 def _refused_with(salary: str = "5000.00", bonus: str = "0.00",
-                  left: str = "18500.00", before: str = "23500.00") -> ApiError:
+                  left: str = "18500.00", before: str = "23500.00",
+                  owed: str = "0.00") -> ApiError:
     """The same refusal, carrying the arithmetic behind the question.
 
     The server computes it at the one moment it is all true at once: the day's sales
@@ -49,6 +50,8 @@ def _refused_with(salary: str = "5000.00", bonus: str = "0.00",
             "salary_paid": salary,
             "bonus_paid": bonus,
             "before_wages": before,
+            "salary_unpaid": owed,
+            "bonus_unpaid": "0.00",
         },
         status=422,
     )
@@ -233,6 +236,32 @@ async def test_a_shift_that_was_paid_nothing_shows_no_subtraction():
     assert "Ձեր աշխատավարձը" not in asked
     assert "Ձեր պրեմիան" not in asked
     assert "չի փակվի" in asked
+
+
+async def test_a_drawer_that_could_not_pay_the_wage_says_where_the_money_is():
+    """The ceiling on its own tells somebody owed 3,000 out of an empty till that the
+    only number they may write is 0 — true, and no use to them. The money is not
+    missing; it is in a sister shop's drawer or the owner's pocket."""
+    context = _Context(closeout_basket=_basket(), co_key="keykeykey")
+
+    _, sent, _ = await _run(
+        closeout.submit, _tapped(), context,
+        _Server(_refused_with(salary="2000.00", bonus="0.00",
+                              left="0.00", before="2000.00", owed="3000.00")),
+    )
+
+    asked = sent[-1][0]
+    assert "3,000" in asked, "what they are still owed"
+    assert "Գումար խնդրել" in asked, "and how to go and get it"
+
+
+async def test_a_drawer_that_covered_the_wage_says_nothing_about_asking():
+    """The ordinary evening. A standing offer to go and ask for money is noise on it."""
+    context = _Context(closeout_basket=_basket(), co_key="keykeykey")
+
+    _, sent, _ = await _run(closeout.submit, _tapped(), context, _Server(_refused_with()))
+
+    assert "Գումար խնդրել" not in sent[-1][0]
 
 
 async def test_figures_that_cannot_be_read_fall_back_to_the_plain_question():

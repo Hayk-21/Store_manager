@@ -116,7 +116,8 @@ Four paragraphs, and each one exists because a figure above it was being taken o
    դրամարկղում մնացել է X».
 4. **Where that X went**, in one of four sentences chosen by the state:
    * nobody counted → what is shown is inferred, and here is the box to correct it;
-   * the count is above what the books hold → no handover, and the gap is on show;
+   * the count claims more than the books hold → no handover (only reachable by an
+     owner's correction now — see the ceiling below);
    * the ordinary case → «Դրանից X մնում է խանութում, իսկ Y-ը՝ ղեկավարին»;
    * nothing owed → «Ամբողջը մնում է խանութում».
 
@@ -238,30 +239,38 @@ is on), so it sends without a figure, is refused, asks, and re-sends **under the
 idempotency key**.
 
 The refusal carries the arithmetic with it — what the drawer held, what the wage and
-bonus took out of it, and what is therefore left to leave behind — so the bot can show
-the subtraction instead of asking for a number against a drawer the worker has to add up
-themselves. The wage leaves the till before the reading is taken, and the commonest wrong
-answer was the takings *before* it did.
+bonus took out of it, what is therefore left to leave behind, and what the drawer could
+not cover — so the bot can show the subtraction instead of asking for a number against a
+drawer the worker has to add up themselves. The wage leaves the till before the reading
+is taken, and the commonest wrong answer was the takings *before* it did.
 
-**2. The count is a reading, and nothing caps it.** Whatever is in the drawer goes down,
-above the books as readily as below them. The drawer is sometimes ahead of the ledger —
-a sale entered late, change put back, money returned from an errand — and a refusal at
-that moment leaves whoever is locking up unable to shut the shop over a gap they cannot
-fix from the door.
-
-What the books said is frozen beside the reading as `expected`:
+**2. A worker may not claim to leave more cash than the drawer holds.** The ceiling is
+the books:
 
 ```
         the float carried in
       + today's cash sales
       − the wage just paid
       − anything taken out of the drawer
-      = expected
+      = the most that may be left behind
 ```
 
-so an evening where the two disagree says so on this page, which is where it can be
-looked into. `Ղեկավարին` is floored at zero, so a drawer that came up over hands the
-owner nothing rather than showing them a negative.
+Refused with the ceiling in the message, so the worker can recount while they are still
+standing at the till — though the bot now shows this sum *before* asking, so the refusal
+is the safety net rather than the explanation. This happened repeatedly and is worse than
+a wrong figure on a report: what they leave *becomes* the shop's balance, so a drawer
+holding 29,000 declared as 31,500 tells the owner they are owed nothing tonight **and**
+opens tomorrow 2,500 above the cash that is actually on the premises — a hole nobody can
+find afterwards. The ceiling is floored at zero, because a till can read below nothing
+and a negative ceiling would refuse even the honest «0» that shuts the shop.
+
+**The owner is deliberately not capped.** They may know what the books do not — a sale
+nobody entered, a drawer topped up in person — and this page is where that gets settled.
+That is also the only way a report can show a count above the till.
+
+A till that could not cover the wage is a different problem and has its own answer: the
+worker asks another shop or the owner for money before closing, and the same message that
+names the ceiling says so. `Ղեկավարին` is still floored at zero either way.
 
 **3. The handover is shown, never booked.** No `withdrawal` row, no adjustment when the
 count disagrees with the books. The ledger is the shop's record of what it took and

@@ -521,6 +521,57 @@ MONEY_TRANSFER_WAITING = (
 )
 MONEY_TRANSFER_WAITING_ROW = "• {amount} — «{store}»-ից, {worker}"
 
+# -- asking for money --------------------------------------------------------
+#
+# The other direction, and the one the drawer running dry actually needs. The wage
+# is what exposes it: the till pays as far as it reaches and the rest is a debt, so
+# a worker locking up on 2,000 with a 5,000 wage due goes home short *and* the shop
+# opens tomorrow with no change. The money is not missing — it is in a sister shop's
+# drawer, or in the owner's pocket — and there was no way to say so from the counter.
+BTN_MONEY_ASK = "🙋 Գումար խնդրել"
+BTN_MONEY_ASK_OWNER = "👤 Ղեկավարից"
+MONEY_ASK_PICK_WHO = (
+    "🙋 <b>Գումար խնդրել</b>\n\n"
+    "Ումի՞ց եք խնդրում։\n"
+    "Ցուցակում այն խանութներն են, որտեղ այս պահին որևէ մեկը հերթափոխի վրա է։"
+)
+MONEY_ASK_AMOUNT = (
+    "🙋 <b>{who}</b>\n\n"
+    "Որքա՞ն գումար եք խնդրում։ Գրեք թվով։"
+)
+MONEY_ASK_SENT = (
+    "🙋 Հարցումն ուղարկվեց՝ <b>{amount}</b> {source}։\n\n"
+    "Երբ պատասխանեն, դուք ծանուցում կստանաք։ Գումարը ձեր դրամարկղին կավելանա "
+    "այն ժամանակ, երբ դուք հաստատեք, որ ստացել եք։"
+)
+MONEY_ASK_SENT_PLAINLY = "🙋 Գումարի հարցումն ուղարկվեց։"
+# Who was asked, in the shape the sentences above need it.
+MONEY_ASK_FROM_STORE = "«{store}» խանութից"
+MONEY_ASK_FROM_OWNER = "ղեկավարից"
+
+# Answering one, which happens on a message pushed by the web service — to a shop's
+# workers, or to the owner. These labels are minted there too; a test holds the two
+# copies together.
+BTN_MONEY_ASK_YES = "✅ Հաստատել"
+BTN_MONEY_ASK_NO = "❌ Մերժել"
+MONEY_ASK_ACCEPTED = (
+    "✅ Հաստատվեց՝ <b>{amount}</b> → «{store}»։\n\n"
+    "Գումարը հանվեց ձեր դրամարկղից։ Երբ այնտեղ հաստատեն ստանալը, "
+    "դուք ծանուցում կստանաք։"
+)
+# The owner's copy. Nothing came out of a till, because they have not got one.
+MONEY_ASK_ACCEPTED_BY_OWNER = (
+    "✅ Հաստատվեց՝ <b>{amount}</b> → «{store}»։\n\n"
+    "Երբ խանութը հաստատի ստանալը, գումարը կավելանա նրանց դրամարկղին։"
+)
+MONEY_ASK_REFUSED = "❌ Մերժվեց՝ <b>{amount}</b> → «{store}»։"
+MONEY_ASK_DECIDED_PLAINLY = "Հարցման պատասխանը գրանցվեց։"
+MONEY_ASK_WAITING = (
+    "🙋 <b>Գումարի հարցումներ</b>\n\n{rows}\n\n"
+    "Հաստատելու դեպքում գումարը կհանվի ձեր դրամարկղից։"
+)
+MONEY_ASK_WAITING_ROW = "• {amount} — «{store}», {worker}"
+
 # -- counting the drawer -----------------------------------------------------
 
 # One count, at the end, by the person who was at the drawer. Counting at the start
@@ -555,7 +606,8 @@ TILL_ASK_WITH_THE_SUM = (
     "<b>Հաշվարկ</b>\n"
     "Դրամարկղում կար՝ {before}\n"
     "{taken}"
-    "Մնում է դրամարկղում՝ <b>{left}</b>\n\n"
+    "Մնում է դրամարկղում՝ <b>{left}</b>\n"
+    "{short}\n"
     "Վերցրեք ձեր գումարը և հաշվեք դրամարկղում մնացած կանխիկը։\n"
     "Գրեք թվով, թե որքան եք թողնում խանութում՝ 0-ից {left}։\n"
     "Մնացածը հանձնվում է ղեկավարին։\n\n"
@@ -563,13 +615,22 @@ TILL_ASK_WITH_THE_SUM = (
 )
 TILL_ASK_TAKEN_SALARY = "Ձեր աշխատավարձը՝ − {salary}\n"
 TILL_ASK_TAKEN_BONUS = "Ձեր պրեմիան՝ − {bonus}\n"
+# The drawer could not cover the wage. Saying only «you may write 0» is true and no
+# use to somebody who is owed the money — so this says where the money is instead.
+# The shift can still be closed without it; the debt is recorded either way.
+TILL_ASK_SHORT = (
+    "\n⚠️ Դրամարկղը չբավականացրեց՝ ձեզ մնաց <b>{owed}</b> չվճարված։\n"
+    "Կարող եք գումար խնդրել այլ խանութից կամ ղեկավարից՝ "
+    "«🔄 Փոխանցումներ» → «🙋 Գումար խնդրել», և հետո նորից փակել հերթափոխը։\n"
+)
 # Nothing came out of the drawer for this shift — an unpaid one, or a till that
 # could not cover the wage. There is no subtraction to show, and printing the same
 # figure on two lines as though something happened between them would be a sum that
 # does not add up to anything.
 TILL_ASK_NOTHING_TAKEN = (
     "💰 <b>Դրամարկղի մնացորդը</b>\n\n"
-    "Դրամարկղում կա՝ <b>{left}</b>\n\n"
+    "Դրամարկղում կա՝ <b>{left}</b>\n"
+    "{short}\n"
     "Հաշվեք դրամարկղում մնացած կանխիկը և գրեք թվով, թե որքան եք թողնում "
     "խանութում՝ 0-ից {left}։\n"
     "Մնացածը հանձնվում է ղեկավարին։\n\n"

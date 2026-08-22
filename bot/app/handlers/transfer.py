@@ -19,7 +19,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from app import format, keyboards, texts
 from app.api import ApiError, ApiUnavailable, api, new_idempotency_key
-from app.handlers import cash
+from app.handlers import cash, money_ask
 
 log = logging.getLogger("storemanager.bot.transfer")
 
@@ -34,6 +34,10 @@ _KEYS = ("tr_store", "tr_store_name", "tr_item", "tr_candidates", "tr_key")
 def _clear(context) -> None:
     for key in _KEYS:
         context.user_data.pop(key, None)
+    # Asking for money shares this conversation, so leaving the screen has to drop
+    # its half-finished state too — otherwise the next number typed anywhere lands
+    # on a request the worker walked away from.
+    money_ask.clear(context)
 
 
 async def _fail(update, context, exc: Exception) -> int:
@@ -81,10 +85,11 @@ async def show(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         reply_markup=keyboards.transfer_menu(incoming),
     )
     # Cash on its way here belongs on the same screen: it is the same question from
-    # the shop's side — what is somebody else sending us, and has it arrived? It
-    # comes with its own buttons and stays silent when there is nothing waiting, so
-    # this screen is unchanged for a shop nobody has sent money to.
+    # the shop's side — what is somebody else sending us, and has it arrived? Both
+    # panels come with their own buttons and stay silent when there is nothing
+    # waiting, so this screen is unchanged for a shop with no money business.
     await cash.show_waiting(update, context)
+    await money_ask.show_waiting(update, context)
     return PICK_STORE
 
 

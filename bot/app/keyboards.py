@@ -69,6 +69,12 @@ CB_REASON = "cr"
 # of a contract between the two services, and a test holds them together.
 CB_MONEY_STORE = "ms"
 CB_MONEY_TRANSFER = "mt"
+# Asking for money rather than sending it: choosing who to ask, and answering one.
+# The second is minted by the web service too — and, uniquely, may be tapped by the
+# *owner* rather than a worker.
+CB_MONEY_ASK_NEW = "mn"
+CB_MONEY_ASK_WHO = "mw"
+CB_MONEY_REQUEST = "mq"
 # Dismissing a confirmation, which happens outside any conversation. Nothing
 # builds one any more, but a keyboard already sitting in somebody's chat still
 # can, and a tap that spins forever is worse than one that says "cancelled".
@@ -367,6 +373,9 @@ def transfer_menu(incoming: list[dict]) -> InlineKeyboardMarkup:
             ),
         ])
     rows.append([InlineKeyboardButton(texts.BTN_TRANSFER_ASK, callback_data=CB_TRANSFER_NEW)])
+    # Money, on the same screen as stock: both are business with another shop, and a
+    # cashier with an empty drawer looks for help in one place, not two.
+    rows.append([InlineKeyboardButton(texts.BTN_MONEY_ASK, callback_data=CB_MONEY_ASK_NEW)])
     rows.append([InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)])
     return InlineKeyboardMarkup(rows)
 
@@ -432,6 +441,42 @@ def money_transfer_stores(stores: list[dict]) -> InlineKeyboardMarkup:
         for store in stores
     ]
     rows.append([InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)])
+    return InlineKeyboardMarkup(rows)
+
+
+def money_ask_targets(stores: list[dict]) -> InlineKeyboardMarkup:
+    """Who to ask for cash: the open shops, and the owner.
+
+    The owner is last and always there. They have no shop to be open or shut, and
+    they are the answer when every other till is as empty as this one.
+    """
+    rows = [
+        [InlineKeyboardButton(
+            store["name"][:64], callback_data=f"{CB_MONEY_ASK_WHO}:{store['id']}"
+        )]
+        for store in stores
+    ]
+    rows.append([InlineKeyboardButton(
+        texts.BTN_MONEY_ASK_OWNER, callback_data=f"{CB_MONEY_ASK_WHO}:owner"
+    )])
+    rows.append([InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)])
+    return InlineKeyboardMarkup(rows)
+
+
+def money_asks_waiting(incoming: list[dict]) -> InlineKeyboardMarkup:
+    """A ✅ / ❌ pair per request, for the screen a worker goes to when the pushed
+    message was missed. The same callback data the web service puts on that
+    message, so both routes end in one handler."""
+    rows = []
+    for row in incoming:
+        rows.append([
+            InlineKeyboardButton(
+                texts.BTN_MONEY_ASK_YES, callback_data=f"{CB_MONEY_REQUEST}:{row['id']}:y"
+            ),
+            InlineKeyboardButton(
+                texts.BTN_MONEY_ASK_NO, callback_data=f"{CB_MONEY_REQUEST}:{row['id']}:n"
+            ),
+        ])
     return InlineKeyboardMarkup(rows)
 
 

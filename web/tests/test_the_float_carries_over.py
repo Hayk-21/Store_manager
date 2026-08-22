@@ -78,6 +78,10 @@ async def _a_days_work(worker, item_id: int | None, sold: int, key: str, left: s
     shutting the shop. Counting used to be a separate call afterwards, which is how a
     night could pass with nobody having said anything about the drawer.
 
+    It is also refused when it is *more than the drawer holds* — see ``_a_shop``, which
+    is why these chains start with a shop that has a float rather than conjuring one on
+    the first evening.
+
     Idempotency keys are padded to the eight characters the schema insists on — the
     constraint is there so a bot cannot send a one-character key, and a test that trips
     over it is the constraint working.
