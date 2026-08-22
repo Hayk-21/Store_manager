@@ -64,6 +64,24 @@ same rule from the other side: the count is the closing act. A second reading th
 `💰 Դրամարկղի մնացորդ` on the off-shift keyboard replaces the first, for a figure
 noticed to be wrong at the door.
 
+**The question comes with the sum behind it.** The refusal carries `details` —
+`before_wages`, `salary_paid`, `bonus_paid`, `in_the_till` — computed inside the
+transaction at the one moment they are all true at once: the day's sales applied, the
+wage and bonus out of the drawer, nothing else about to touch it. The bot lays them out
+as a subtraction before asking for the number. The wage leaves the till *before* the
+reading is taken, which is invisible from the door, and the commonest wrong answer was
+the day's takings before it came out — the worker's own money counted twice, once in
+their pocket and once as the float the next shift opens against. `salary_paid` is what
+the drawer actually paid, not what the shift cost, so a wage the till could not cover is
+not claimed as money in somebody's hand. A bot that gets no `details` asks the plain
+question instead; the number wanted is the same either way.
+
+Afterwards the confirmation says what stays and what goes to the owner, with the drawer
+figure above them so the subtraction can be checked rather than trusted — but only when
+it holds. A count above what the books expected hands the owner nothing, and showing
+that arithmetic to somebody at a locked door invites them to chase a discrepancy they
+cannot settle; it goes on the owner's report instead.
+
 **The count is a reading, and nothing caps it.** Whatever is counted goes down, above
 the books as readily as below them — the drawer is sometimes ahead of the ledger, and a
 refusal at that moment leaves somebody locking up unable to shut the shop over a gap

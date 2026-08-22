@@ -34,6 +34,26 @@ REFUSED = ApiError(
 )
 
 
+def _refused_with(salary: str = "5000.00", bonus: str = "0.00",
+                  left: str = "18500.00", before: str = "23500.00") -> ApiError:
+    """The same refusal, carrying the arithmetic behind the question.
+
+    The server computes it at the one moment it is all true at once: the day's sales
+    are in and the wage is out, inside the transaction it is about to roll back.
+    """
+    return ApiError(
+        "till_count_required",
+        "Հերթափոխը դեռ չի փակվել։ Նախ հաշվեք դրամարկղը։",
+        details={
+            "in_the_till": left,
+            "salary_paid": salary,
+            "bonus_paid": bonus,
+            "before_wages": before,
+        },
+        status=422,
+    )
+
+
 def _summary() -> dict:
     return {
         "session_id": 3,
@@ -148,6 +168,87 @@ async def test_confirming_the_write_up_asks_for_the_drawer():
     assert texts.TILL_ASK_BEFORE_CLOSE in [text for text, _ in sent]
 
 
+# -- the sum in front of the question ------------------------------------------
+#
+# The wage comes out of the drawer before the reading is taken, and from the door
+# that is invisible. The commonest wrong answer was the day's takings *before* the
+# wage — the worker's own money counted twice, once in their pocket and once as the
+# shop's float — and the number they typed became the float the next shift opened
+# against. So the subtraction is shown rather than left to be remembered.
+
+async def test_the_question_shows_what_the_drawer_held_and_what_was_taken():
+    context = _Context(closeout_basket=_basket(), co_key="keykeykey")
+
+    _, sent, _ = await _run(closeout.submit, _tapped(), context, _Server(_refused_with()))
+
+    asked = sent[-1][0]
+    assert "23,500" in asked, "what the drawer held"
+    assert "5,000" in asked, "the wage that has already left it"
+    assert "18,500" in asked, "and what is actually there to leave behind"
+
+
+async def test_the_worker_is_told_to_take_their_money_first():
+    """The whole point of showing the sum: the wage is in their hand, not in the
+    drawer, and the figure being asked for is what is left after it."""
+    context = _Context(closeout_basket=_basket(), co_key="keykeykey")
+
+    _, sent, _ = await _run(closeout.submit, _tapped(), context, _Server(_refused_with()))
+
+    asked = sent[-1][0]
+    assert "Ձեր աշխատավարձը" in asked
+    assert "չի փակվի" in asked, "and it still says why it is being asked"
+
+
+async def test_a_bonus_is_named_separately_from_the_wage():
+    """They are two different entitlements and a worker checking the sum against the
+    notes in their hand has to be able to tell which is which."""
+    context = _Context(closeout_basket=_basket(), co_key="keykeykey")
+
+    _, sent, _ = await _run(
+        closeout.submit, _tapped(), context,
+        _Server(_refused_with(salary="5000.00", bonus="2000.00",
+                              left="16500.00", before="23500.00")),
+    )
+
+    asked = sent[-1][0]
+    assert "Ձեր պրեմիան" in asked
+    assert "2,000" in asked
+    assert "16,500" in asked
+
+
+async def test_a_shift_that_was_paid_nothing_shows_no_subtraction():
+    """An unpaid shift, or a drawer that could not cover the wage. Printing the same
+    figure twice with a «− 0 ֏» between them is a sum that adds up to nothing, and it
+    teaches the worker to skip the section."""
+    context = _Context(closeout_basket=_basket(), co_key="keykeykey")
+
+    _, sent, _ = await _run(
+        closeout.submit, _tapped(), context,
+        _Server(_refused_with(salary="0.00", bonus="0.00",
+                              left="9000.00", before="9000.00")),
+    )
+
+    asked = sent[-1][0]
+    assert "9,000" in asked
+    assert "Ձեր աշխատավարձը" not in asked
+    assert "Ձեր պրեմիան" not in asked
+    assert "չի փակվի" in asked
+
+
+async def test_figures_that_cannot_be_read_fall_back_to_the_plain_question():
+    """A shape this bot does not understand must not stop a shift being closed. The
+    number being asked for is the same either way."""
+    context = _Context(closeout_basket=_basket(), co_key="keykeykey")
+    nonsense = ApiError(
+        "till_count_required", "…", details={"in_the_till": "not a number"}, status=422
+    )
+
+    state, sent, _ = await _run(closeout.submit, _tapped(), context, _Server(nonsense))
+
+    assert state == closeout.ASK_TILL
+    assert sent[-1][0] == texts.TILL_ASK_BEFORE_CLOSE
+
+
 async def test_the_first_attempt_carries_no_figure():
     """It cannot: whether this close shuts the shop depends on who else is still on,
     which is the server's to know. So the bot asks by being refused."""
@@ -206,6 +307,33 @@ async def test_what_the_count_came_to_is_reported_back():
     said = "\n".join(text for text, _ in sent)
     assert "3,000" in said, "what stays in the shop"
     assert "4,000" in said, "and what goes to the owner"
+
+
+async def test_the_handover_is_shown_as_a_subtraction_that_can_be_checked():
+    """They were told what the drawer held a moment ago and are now handed a
+    different number to carry. Both figures on screen make it arithmetic rather
+    than something to take on trust."""
+    context = _Context(closeout_basket=_basket(), co_key="keykeykey")
+    server = _Server(_closed(counted="3000.00", handed="4000.00"))
+
+    _, sent, _ = await _run(closeout.type_till, _typed("3000"), context, server)
+
+    said = "\n".join(text for text, _ in sent)
+    assert "7,000" in said, "what was in the drawer — 7,000 − 3,000 = 4,000"
+
+
+async def test_a_drawer_that_came_up_over_is_not_offered_a_subtraction():
+    """The owner's share is floored at nothing, so «the drawer held 4,000, you are
+    leaving 5,000, hand over 0» would ask a cashier at a locked door to work out a
+    discrepancy they can do nothing about. It is on the owner's report instead."""
+    context = _Context(closeout_basket=_basket(), co_key="keykeykey")
+    server = _Server(_closed(counted="9000.00", handed="0.00"))
+
+    _, sent, _ = await _run(closeout.type_till, _typed("9000"), context, server)
+
+    said = "\n".join(text for text, _ in sent)
+    assert texts.TILL_NOTHING_TO_HAND.strip() in said
+    assert "Դրամարկղում կար" not in said
 
 
 async def test_the_drawer_button_is_not_offered_once_it_has_been_answered():

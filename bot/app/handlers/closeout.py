@@ -582,6 +582,52 @@ async def type_till(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await _send(update, context, counted)
 
 
+def _ask_for_the_drawer(details: dict | None) -> str:
+    """The question, with the sum behind it when the server sent one.
+
+    The wage has already come out of the drawer by the time this is asked — that
+    ordering is deliberate, because the owner's share is the till less the float and
+    anything still to leave the till has to leave first. But it is invisible from
+    the door, and the commonest wrong answer was the day's takings *before* the wage:
+    the worker's own money counted twice, once in their pocket and once as the shop's
+    float. So the subtraction is put in front of them.
+
+    Falls back to the plain question when there are no figures — a web service older
+    than they are, mid-deploy. The number being asked for is the same either way, and
+    a shift that cannot be closed is far worse than one closed without the arithmetic
+    on screen.
+    """
+    if not details or "in_the_till" not in details:
+        return texts.TILL_ASK_BEFORE_CLOSE
+
+    try:
+        left = Decimal(str(details["in_the_till"]))
+        before = Decimal(str(details.get("before_wages", left)))
+        salary = Decimal(str(details.get("salary_paid", 0)))
+        bonus = Decimal(str(details.get("bonus_paid", 0)))
+    except (ArithmeticError, TypeError, ValueError):
+        log.warning("could not read the drawer figures from %r", details)
+        return texts.TILL_ASK_BEFORE_CLOSE
+
+    # Only the lines there is something to say. «Ձեր պրեմիան՝ − 0 ֏» on every
+    # ordinary shift is a line that teaches the worker to skip the section.
+    taken = ""
+    if salary > 0:
+        taken += texts.TILL_ASK_TAKEN_SALARY.format(salary=format.money(salary))
+    if bonus > 0:
+        taken += texts.TILL_ASK_TAKEN_BONUS.format(bonus=format.money(bonus))
+    if not taken:
+        # Nothing came out — an unpaid shift, or a drawer that could not cover it.
+        # With no subtraction to show, the two figures are the same number twice.
+        return texts.TILL_ASK_NOTHING_TAKEN.format(left=format.money(left))
+
+    return texts.TILL_ASK_WITH_THE_SUM.format(
+        before=format.money(before),
+        taken=taken,
+        left=format.money(left),
+    )
+
+
 async def _send(update: Update, context, counted: Decimal | None) -> int:
     """Write the day up, if the drawer has been answered for.
 
@@ -615,7 +661,7 @@ async def _send(update: Update, context, counted: Decimal | None) -> int:
     except ApiError as exc:
         if exc.code == "till_count_required":
             await update.effective_message.reply_text(
-                texts.TILL_ASK_BEFORE_CLOSE,
+                _ask_for_the_drawer(exc.details),
                 parse_mode=ParseMode.HTML,
                 # Nothing but «Չեղարկել» while a number is expected, so a stray tap
                 # on the main menu cannot be read as an amount.

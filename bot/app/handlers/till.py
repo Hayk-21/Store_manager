@@ -142,20 +142,31 @@ def confirmation(count: dict) -> str:
 
     The owner's share is the figure the worker is about to act on — they are holding
     that money — so it is stated outright rather than left as a subtraction they do in
-    their head at the door.
+    their head at the door. The drawer it came out of is shown above it, so the figure
+    can be checked instead of taken on trust: they were told what was in the till a
+    moment ago and are now being handed a different number to carry.
 
-    There is no "the books disagree" line, and there deliberately cannot be one: the
-    worker says what they are *leaving*, not what the whole drawer holds, so there is
-    no second reading of the same quantity to compare. Nor a "found extra" line: the
-    server floors the owner's share at nothing, and a cashier told the drawer holds
-    5,000 more than expected can do nothing useful with that. It is on the owner's
-    report, where somebody can look into it.
+    Only when the subtraction is the whole story. A count above what the books expected
+    hands the owner nothing, and printing «the drawer held 4,000, you are leaving 5,000,
+    hand over 0» invites a cashier at a locked door to work out a discrepancy they can
+    do nothing about — the server floors the share at nothing, and the gap is on the
+    owner's report where somebody can look into it.
+
+    There is no "the books disagree" line for the same reason, and there deliberately
+    cannot be one: the worker says what they are *leaving*, not what the whole drawer
+    holds, so there is no second reading of the same quantity to compare.
     """
     handed = Decimal(count["handed_over"] or 0)
     body = texts.TILL_DONE_CLOSE.format(counted=format.money(count["counted"]))
 
     if handed > 0:
-        return body + texts.TILL_HANDED_OVER.format(handed=format.money(handed))
+        return (
+            body
+            + texts.TILL_WAS_IN_THE_DRAWER.format(
+                expected=format.money(count.get("expected") or 0)
+            )
+            + texts.TILL_HANDED_OVER.format(handed=format.money(handed))
+        )
     return body + texts.TILL_NOTHING_TO_HAND
 
 

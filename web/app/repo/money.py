@@ -338,6 +338,27 @@ async def taken_out_during_shift(work_session_id: int) -> list[asyncpg.Record]:
     )
 
 
+async def paid_to_worker_on(conn, work_session_id: int) -> asyncpg.Record:
+    """What the drawer has just handed this shift, split into wage and bonus.
+
+    Read on the caller's connection because it is asked *inside* the close-out,
+    between paying the wage and asking for the drawer reading — a pooled read would
+    run on another connection and see a till the wage had not yet come out of.
+
+    Both positive. They are stored as negative amounts, because they left the till,
+    but what the worker is about to be shown is money going into their hand.
+    """
+    return await conn.fetchrow(
+        """
+        SELECT coalesce(-sum(amount) FILTER (WHERE kind = 'salary'), 0) AS salary,
+               coalesce(-sum(amount) FILTER (WHERE kind = 'bonus'), 0)  AS bonus
+          FROM cash_movements
+         WHERE work_session_id = $1 AND method = 'cash'
+        """,
+        work_session_id,
+    )
+
+
 async def withdrawn_by_worker_on(
     conn, work_session_id: int, uncapped_notes: Sequence[str] = ()
 ) -> Decimal:

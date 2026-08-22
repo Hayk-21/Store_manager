@@ -545,7 +545,40 @@ TILL_ASK_BEFORE_CLOSE = (
     "մնացածը հանձնվում է ղեկավարին։\n\n"
     "Առանց այս թվի հերթափոխը չի փակվի։"
 )
+# The same question with the arithmetic in front of it, used whenever the server
+# sends the figures. The subtraction is shown rather than asserted: the wage has
+# already left the drawer by this point, and a worker who answers with the day's
+# takings has counted the money in their own pocket twice — once there and once in
+# the shop. Seeing their wage on its own line is what stops that.
+TILL_ASK_WITH_THE_SUM = (
+    "💰 <b>Դրամարկղի մնացորդը</b>\n\n"
+    "<b>Հաշվարկ</b>\n"
+    "Դրամարկղում կար՝ {before}\n"
+    "{taken}"
+    "Մնում է դրամարկղում՝ <b>{left}</b>\n\n"
+    "Վերցրեք ձեր գումարը և հաշվեք դրամարկղում մնացած կանխիկը։\n"
+    "Գրեք թվով, թե որքան եք թողնում խանութում՝ 0-ից {left}։\n"
+    "Մնացածը հանձնվում է ղեկավարին։\n\n"
+    "Առանց այս թվի հերթափոխը չի փակվի։"
+)
+TILL_ASK_TAKEN_SALARY = "Ձեր աշխատավարձը՝ − {salary}\n"
+TILL_ASK_TAKEN_BONUS = "Ձեր պրեմիան՝ − {bonus}\n"
+# Nothing came out of the drawer for this shift — an unpaid one, or a till that
+# could not cover the wage. There is no subtraction to show, and printing the same
+# figure on two lines as though something happened between them would be a sum that
+# does not add up to anything.
+TILL_ASK_NOTHING_TAKEN = (
+    "💰 <b>Դրամարկղի մնացորդը</b>\n\n"
+    "Դրամարկղում կա՝ <b>{left}</b>\n\n"
+    "Հաշվեք դրամարկղում մնացած կանխիկը և գրեք թվով, թե որքան եք թողնում "
+    "խանութում՝ 0-ից {left}։\n"
+    "Մնացածը հանձնվում է ղեկավարին։\n\n"
+    "Առանց այս թվի հերթափոխը չի փակվի։"
+)
 TILL_DONE_CLOSE = "💰 Գրանցվեց՝ դրամարկղում մնում է <b>{counted}</b>։\n"
+# What the drawer held, so the handover below it can be checked rather than trusted.
+# Only printed when the subtraction actually holds — see till.confirmation.
+TILL_WAS_IN_THE_DRAWER = "Դրամարկղում կար՝ {expected}\n"
 # The figure the worker is about to act on — they are holding that money — so it is
 # stated rather than left to be worked out from the other two.
 TILL_HANDED_OVER = "Ղեկավարին հանձնվում է՝ <b>{handed}</b>։\n"

@@ -437,6 +437,52 @@ async def test_the_shop_does_not_shut_until_the_drawer_is_counted(client, bot_he
     assert response.json()["error"]["code"] == "till_count_required"
 
 
+async def test_the_refusal_carries_the_arithmetic_behind_the_question(client, bot_headers):
+    """The bot puts these in front of the worker, and they are only all true at this
+    one moment: the day's sales are in, the wage is out, and the transaction holding
+    both is about to be rolled back and replayed with the answer.
+
+    Without them the worker was asked «how much are you leaving?» against a drawer
+    they had to add up themselves, and the commonest wrong answer was the takings
+    *before* the wage — their own money counted twice, once in their pocket and once
+    as the float the next shift opens against.
+    """
+    _, _, telegram_id, item_id, _ = await _on_shift(salary="8000.00", till="20000.00")
+    await _open(client, bot_headers, telegram_id)
+
+    response = await _close_out(
+        client, bot_headers, telegram_id,
+        [{"item_id": item_id, "quantity": 2, "payment_method": "cash"}],
+        counted=None,
+    )
+
+    details = response.json()["error"]["details"]
+    # 20,000 carried in and 7,000 sold, less the 8,000 wage the worker is holding.
+    assert details["before_wages"] == "27000.00"
+    assert details["salary_paid"] == "8000.00"
+    assert details["bonus_paid"] == "0.00"
+    assert details["in_the_till"] == "19000.00", "what is actually there to leave"
+
+
+async def test_a_wage_the_drawer_could_not_cover_is_not_claimed_as_taken(client, bot_headers):
+    """The till pays as far as it reaches and the rest is a debt. Telling the worker
+    they took 8,000 out of a drawer that held 3,500 would have them counting money
+    they were never handed."""
+    _, _, telegram_id, item_id, _ = await _on_shift(salary="8000.00")
+    await _open(client, bot_headers, telegram_id)
+
+    response = await _close_out(
+        client, bot_headers, telegram_id,
+        [{"item_id": item_id, "quantity": 1, "payment_method": "cash"}],
+        counted=None,
+    )
+
+    details = response.json()["error"]["details"]
+    assert details["salary_paid"] == "3500.00", "only what the drawer actually paid"
+    assert details["in_the_till"] == "0.00"
+    assert details["before_wages"] == "3500.00"
+
+
 async def test_the_refused_close_out_writes_nothing_at_all(client, bot_headers):
     """The refusal comes from inside the transaction, after the sale has been applied
     and the wage paid, so the whole thing has to come back out. A shift left open with

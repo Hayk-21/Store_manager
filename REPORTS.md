@@ -237,6 +237,12 @@ The bot cannot know in advance whether its close shuts the shop (that depends on
 is on), so it sends without a figure, is refused, asks, and re-sends **under the same
 idempotency key**.
 
+The refusal carries the arithmetic with it — what the drawer held, what the wage and
+bonus took out of it, and what is therefore left to leave behind — so the bot can show
+the subtraction instead of asking for a number against a drawer the worker has to add up
+themselves. The wage leaves the till before the reading is taken, and the commonest wrong
+answer was the takings *before* it did.
+
 **2. The count is a reading, and nothing caps it.** Whatever is in the drawer goes down,
 above the books as readily as below them. The drawer is sometimes ahead of the ledger —
 a sale entered late, change put back, money returned from an errand — and a refusal at

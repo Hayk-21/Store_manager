@@ -647,7 +647,9 @@ async def close_out_shift(
             # rolled back without it. The worker is standing at the drawer; a
             # minute later they are not, and nobody can count it for them.
             if counted is None:
-                raise BotError("till_count_required")
+                raise BotError(
+                    "till_count_required", details=await _the_drawer_so_far(conn, shift)
+                )
             await _close_store_session(conn, shift["store_session_id"], "worker")
             # After the shop is shut, so the reading is taken against a drawer with
             # every wage already out of it — the two figures beside each other only
@@ -664,6 +666,39 @@ async def close_out_shift(
     return await _with_the_count(
         await _end_payload(row, duplicate=False), worker.owner_id, idempotency_key
     )
+
+
+async def _the_drawer_so_far(conn, shift) -> dict[str, str]:
+    """The arithmetic behind the question, for the bot to put in front of the worker.
+
+    Asked at the one moment it is all true at once: the day's sales are in, the wage
+    and bonus are out, and nothing else will touch this till — the whole transaction
+    is about to be rolled back and replayed with the answer.
+
+    Sent as numbers rather than a sentence because the bot is the one asking the
+    question and owns its wording. Without them it asked «how much are you leaving?»
+    against a drawer the worker had to add up themselves, and the commonest wrong
+    answer was the takings *before* the wage came out — the money in their hand
+    counted twice, once in their pocket and once in the shop.
+
+    ``in_the_till`` is the figure the answer is measured against, and it already has
+    the wage out of it, so the two below it are shown as what was taken rather than
+    as anything still to subtract.
+    """
+    paid = await money_repo.paid_to_worker_on(conn, shift["id"])
+    in_the_till = Decimal(
+        (await money_repo.totals_on(conn, shift["store_session_id"]))["cash"]
+    )
+    salary, bonus = Decimal(paid["salary"]), Decimal(paid["bonus"])
+    return {
+        "in_the_till": f"{in_the_till:.2f}",
+        "salary_paid": f"{salary:.2f}",
+        "bonus_paid": f"{bonus:.2f}",
+        # What the drawer held before the two above left it. Given rather than left
+        # as a sum: it is the figure the worker recognises as "the day", and seeing
+        # it above their own wage is what makes the subtraction obvious.
+        "before_wages": f"{in_the_till + salary + bonus:.2f}",
+    }
 
 
 async def _with_the_count(payload: dict, owner_id: int, idem_key: str) -> dict:
