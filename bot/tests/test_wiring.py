@@ -7,7 +7,12 @@ from unittest import mock
 
 import pytest
 from telegram import CallbackQuery, Chat, Location, Message, Update, User
-from telegram.ext import ApplicationHandlerStop, ConversationHandler, MessageHandler
+from telegram.ext import (
+    ApplicationHandlerStop,
+    CommandHandler,
+    ConversationHandler,
+    MessageHandler,
+)
 
 from app import format, keyboards, texts
 from app.__main__ import BUTTON_LABELS, build
@@ -331,6 +336,77 @@ def test_a_worker_whose_conversation_vanished_always_gets_an_answer():
             getattr(h, "filters", None) is not None and h.check_update(probe)
             for h in plain
         ), f"{what} goes unanswered when no conversation is open"
+
+
+def _claimed_by_something(app, update) -> bool:
+    """Would *any* handler take this update, in group order?
+
+    Commands are deliberately not probed with this: ``CommandHandler.check_update``
+    reaches for the bot behind the message, which a hand-built Update has not got.
+    Reply-keyboard labels arrive as ordinary text and are the case that matters.
+    """
+    for handlers in app.handlers.values():
+        for handler in handlers:
+            check = handler.check_update(update)
+            if check is not None and check is not False:
+                return True
+    return False
+
+
+def test_no_button_is_ever_answered_with_silence_while_a_flow_is_open():
+    """The bug from the field, and the worst shape a bug can take here.
+
+    «Ավարտել իմ հերթափոխը» opens the write-up. Pressed *again* it matched nothing:
+    not the states, which take only free text and so exclude every button label; not
+    the fallbacks, because this flow is where that button leads and `_DOORS` therefore
+    leaves it out. The update fell past every handler in the application and the bot
+    said nothing whatsoever — indistinguishable, from behind a counter at the end of
+    a shift, from the bot being down.
+
+    So this asserts the property the module docstring already claims: with any flow
+    open in any of its states, every label on a reply keyboard lands somewhere.
+    """
+    app = build()
+    flows = [h for h in app.handlers[0] if isinstance(h, ConversationHandler)]
+    key = (1, 1)
+
+    for flow in flows:
+        for state in flow.states:
+            for label in reply_keyboard_labels():
+                for other in flows:
+                    other._conversations.pop(key, None)
+                flow._conversations[key] = state
+                assert _claimed_by_something(app, _message(label)), (
+                    f"{flow.name or flow} in state {state}: pressing {label!r} "
+                    f"is answered by nothing at all"
+                )
+    for flow in flows:
+        flow._conversations.pop(key, None)
+
+
+def test_start_reaches_the_open_flow_so_it_can_let_go():
+    """Every conversation declares `/start` in its fallbacks so a cashier who is lost
+    can get out. Registered ahead of them, the global handler matched first — printed
+    the greeting and left the flow exactly where it was, so the one thing everybody
+    tries when the bot seems stuck did nothing, while looking like it had.
+
+    Ordering is the whole mechanism, so ordering is what this holds.
+    """
+    handlers = build().handlers[0]
+    global_start = next(
+        i for i, h in enumerate(handlers)
+        if isinstance(h, CommandHandler) and "start" in h.commands
+    )
+    last_flow = max(i for i, h in enumerate(handlers) if isinstance(h, ConversationHandler))
+
+    assert global_start > last_flow, (
+        "the global /start shadows every flow's own /start fallback"
+    )
+
+    for flow in (h for h in handlers if isinstance(h, ConversationHandler)):
+        assert any(
+            isinstance(h, CommandHandler) and "start" in h.commands for h in flow.fallbacks
+        ), f"{flow.name or flow} cannot be left with /start"
 
 
 def test_the_recovery_handlers_are_last_so_the_flows_get_first_refusal():

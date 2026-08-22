@@ -57,6 +57,31 @@ async def stray_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
+async def stray_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Any other button that nothing wanted.
+
+    Registered last of all, so it only ever sees a label every flow declined — and
+    the reason that can happen is that a reply keyboard outlives the flow that drew
+    it. Telegram leaves the last one on screen until something replaces it, so a
+    cashier can be looking at the write-up's buttons while the write-up is over, or
+    at buttons belonging to a flow this process no longer remembers after a restart.
+
+    It exists because the alternative is silence, and silence is the one answer a
+    worker cannot act on: it is indistinguishable from the bot being down. This was
+    not hypothetical — «Ավարտել իմ հերթափոխը» pressed inside the write-up matched
+    nothing anywhere and answered nothing at all, twice, to somebody trying to go
+    home. The flows have proper answers for their own buttons; this is the net under
+    them, and it puts the right keyboard back, which is usually the whole repair.
+
+    ``user_data`` is deliberately left alone. Something may still legitimately own a
+    half-typed basket, and throwing it away to tidy up a stale keyboard would cost
+    more than the confusion it fixes.
+    """
+    await update.effective_message.reply_text(
+        texts.BUTTON_NOT_AVAILABLE, reply_markup=await keyboard_for(update)
+    )
+
+
 async def keyboard_for(update: Update):
     """The menu this worker should be looking at.
 

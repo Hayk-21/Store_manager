@@ -167,6 +167,11 @@ def build() -> Application:
             # drawer, and backing out there abandons the write-up: nothing was
             # written, and the shift is still open to be closed properly.
             MessageHandler(_exact(texts.BTN_CANCEL), closeout.cancel),
+            # The button that opened this, pressed again. It is not in _DOORS —
+            # this flow *is* where it leads — so without a fallback of its own it
+            # matched nothing anywhere in the application and the bot answered a
+            # cashier with silence. Never a re-entry: that would clear the basket.
+            MessageHandler(_exact(texts.BTN_END_SHIFT), closeout.already_writing_up),
             CallbackQueryHandler(closeout.cancel, pattern=f"^{keyboards.CB_CANCEL}$"),
             CommandHandler("cancel", closeout.cancel),
             CommandHandler("start", closeout.escape(shift.start)),
@@ -294,8 +299,6 @@ def build() -> Application:
         per_message=False,
     )
 
-    application.add_handler(CommandHandler("start", shift.start))
-    application.add_handler(CommandHandler("help", common.help_command))
     application.add_handler(sell_flow)
     application.add_handler(defect_flow)
     application.add_handler(cash_flow)
@@ -465,6 +468,16 @@ def build() -> Application:
         CallbackQueryHandler(money_ask.decide, pattern=f"^{keyboards.CB_MONEY_REQUEST}:")
     )
 
+    # **After every flow, and that ordering is the point.** Each conversation
+    # declares `/start` in its fallbacks so a cashier who is lost can get out of it,
+    # and registered up here that fallback was dead code: this handler matched first,
+    # printed the greeting, and left the conversation exactly where it was. So the
+    # one thing everybody tries when the bot seems stuck did nothing to unstick it,
+    # while looking like it had. Down here a flow gets first refusal and clears
+    # itself; with nothing open, this answers.
+    application.add_handler(CommandHandler("start", shift.start))
+    application.add_handler(CommandHandler("help", common.help_command))
+
     application.add_handler(MessageHandler(_exact(texts.BTN_OPEN), shift.ask_location))
     application.add_handler(MessageHandler(_shared_location, shift.handle_location))
     # The label arriving as text means the tap produced no location: Telegram
@@ -487,6 +500,14 @@ def build() -> Application:
     # nothing at all: the cashier had typed exactly what was asked of them and got
     # silence, which is indistinguishable from the bot being down.
     application.add_handler(MessageHandler(_exact(texts.BTN_CANCEL), common.stray_cancel))
+    # And every other button, for the same reason one step further out. A reply
+    # keyboard outlives the flow that drew it — Telegram leaves the last one up until
+    # something replaces it — so a label can arrive that nothing wants, and until this
+    # existed the answer was nothing at all. `_free_text` below cannot catch these: it
+    # excludes every button label by design, which is exactly what left the gap.
+    application.add_handler(
+        MessageHandler(filters.Text(BUTTON_LABELS), common.stray_button)
+    )
     application.add_handler(MessageHandler(filters.COMMAND, common.unknown))
     application.add_handler(MessageHandler(_free_text, common.stray_text))
     application.add_error_handler(common.on_error)

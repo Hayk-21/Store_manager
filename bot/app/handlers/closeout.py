@@ -544,6 +544,35 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return CONFIRM
 
 
+async def already_writing_up(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """«Ավարտել իմ հերթափոխը» pressed while the write-up is already open.
+
+    It went unanswered, and that is the worst thing a button can do: nothing in the
+    flow claimed the label — the states take free text, which excludes every button
+    — and no fallback did either, so the update fell past every handler in the
+    application and the bot said nothing at all. A cashier at the end of a shift
+    pressed the one button that ends shifts, twice, and could not tell the bot from a
+    dead bot. `/start` did not help them either; it never reached this conversation.
+
+    Re-entering would be worse than silence: ``begin`` clears the basket, so a
+    half-typed day would vanish because somebody pressed the button that got them
+    there. So it shows them where they are instead, with the list intact.
+
+    Returns to the list from wherever they were — including from the drawer
+    question, which they can reach again through «Ավարտել ցուցակը». The close-out
+    keeps its key, so that is the same close-out and not a second one.
+    """
+    basket = _basket(context)
+    await update.effective_message.reply_text(
+        texts.CLOSEOUT_ALREADY_OPEN
+        + "\n\n"
+        + _summary(basket, context.user_data.get("co_recorded")),
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboards.closeout_menu(empty=not basket),
+    )
+    return PICK_ITEM
+
+
 async def drop_last(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Nothing is committed yet, so undo is just popping the list."""
     basket = _basket(context)

@@ -601,6 +601,32 @@ cp .env.example .env          # BOT_TOKEN, API_BASE_URL, BOT_SHARED_SECRET
 python -m app
 ```
 
+### A button must never be answered with silence
+
+The bot is a stack of `ConversationHandler`s in one group, and python-telegram-bot gives
+the update to the **first** handler that claims it, then stops. Two consequences are
+load-bearing, and both were learned by a cashier standing at a locked shop getting no
+reply at all — which from behind a counter is indistinguishable from the bot being down.
+
+**Every flow's states take `_free_text`, which excludes every button label.** That is
+right — a tapped button arrives as ordinary text, and a state that consumed it would
+read «Վաճառել» as a product name. But it means a label a flow does not explicitly claim
+is claimed by *nothing*, since the catch-all at the bottom excludes button labels too.
+`_DOORS` covers the buttons that lead somewhere else; it does not cover the button that
+leads to the flow you are already in, so «Ավարտել իմ հերթափոխը» pressed inside the
+write-up fell past every handler in the application. It now has a fallback that shows
+the list again rather than re-entering, because re-entering clears the basket. Under all
+of it sits `common.stray_button`, registered last: any label nothing wanted gets "that
+button isn't available" and the correct keyboard back. A reply keyboard outlives the flow
+that drew it, so this case never stops being reachable.
+
+**`/start` is registered after every flow, deliberately.** Each conversation declares
+`/start` in its fallbacks so a lost cashier can get out of it. Registered at the top, the
+global handler matched first, printed the greeting, and left the conversation exactly
+where it was — so the one thing everybody tries when the bot seems stuck did nothing,
+while looking like it had. Down at the bottom a flow gets first refusal and clears
+itself; with nothing open, the global one answers. `test_wiring.py` holds both of these.
+
 ### Typing an amount into the bot
 
 `format.parse_money` is the one place a typed amount is read, and it has to accept two

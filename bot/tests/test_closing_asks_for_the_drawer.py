@@ -297,6 +297,29 @@ async def test_the_question_says_the_shift_is_not_closed_yet():
     )
 
 
+async def test_pressing_end_shift_again_shows_the_list_instead_of_saying_nothing():
+    """The bug from the field, and the worst shape one can take. The button that
+    opens the write-up matched nothing once it was open — not the states, which take
+    only free text, and not the fallbacks, because this flow is where that button
+    leads. The bot answered a cashier trying to go home with silence, twice.
+
+    Re-entering would be worse: it clears the basket, so a half-typed day would
+    vanish because somebody pressed the button that got them there.
+    """
+    context = _Context(closeout_basket=_basket(), co_key="keykeykey")
+
+    state, sent, server = await _run(
+        closeout.already_writing_up, _typed(texts.BTN_END_SHIFT), context, _Server()
+    )
+
+    assert state == closeout.PICK_ITEM
+    said = "\n".join(text for text, _ in sent)
+    assert texts.CLOSEOUT_ALREADY_OPEN in said
+    assert "HQD Cuvie" in said, "and the day they have typed so far is still there"
+    assert context.user_data["closeout_basket"] == _basket()
+    assert server.calls == [], "nothing is sent to the server by looking at the list"
+
+
 async def test_only_cancel_is_offered_while_the_number_is_expected():
     """A stray tap on «Վաճառել» must not be read as an amount."""
     context = _Context(closeout_basket=_basket(), co_key="keykeykey")

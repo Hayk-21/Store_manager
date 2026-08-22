@@ -285,6 +285,15 @@ CLOSEOUT_TOO_MANY = "Առավելագույնը {limit} տող։ Հաստատե�
 CLOSEOUT_ABANDONED = (
     "Չեղարկվեց։ Ոչինչ չի գրանցվել, հերթափոխը դեռ բաց է։"
 )
+# Pressing «Ավարտել իմ հերթափոխը» when it is already open. It used to be answered
+# with nothing at all, which is indistinguishable from the bot being down — so this
+# says where they are and what is left to do, and the list below it says what is in
+# hand. Deliberately not a re-entry: that would throw away a half-typed day.
+CLOSEOUT_ALREADY_OPEN = (
+    "Հերթափոխի ամփոփումն արդեն բաց է։\n"
+    "Ավարտելու համար սեղմեք «✅ Ավարտել ցուցակը», "
+    "կամ «✖️ Չեղարկել ամբողջը»՝ հրաժարվելու համար։"
+)
 
 STOCK_HEADER = "<b>{store}</b> — պահեստ\n{lines} անվանում · {units} հատ\n"
 STOCK_ROW = "• {name} — <b>{count}</b> հատ · {price}"
@@ -374,6 +383,13 @@ UNKNOWN_COMMAND = "Չհասկացա։ Օգտվեք ներքևի կոճակներ
 LOST_THE_THREAD = (
     "Չհասկացա։ Հնարավոր է՝ գործողությունը ընդհատվել է։\n"
     "Սկսեք նորից ներքևի կոճակներից։"
+)
+# A button that belongs to a screen the worker is no longer on. Telegram leaves the
+# last keyboard up until something replaces it, so this is what an out-of-date one
+# gets — and the reply carries the right keyboard, which is usually the whole repair.
+BUTTON_NOT_AVAILABLE = (
+    "Այդ կոճակը հիմա հասանելի չէ։\n"
+    "Ահա ձեր ընտրացանկը՝ ներքևում։"
 )
 
 HELP = (
