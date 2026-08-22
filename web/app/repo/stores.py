@@ -21,6 +21,25 @@ async def list_for_owner(owner_id: int) -> list[asyncpg.Record]:
     )
 
 
+async def list_open_for_owner(owner_id: int) -> list[asyncpg.Record]:
+    """The shops trading right now, with the session they are trading in.
+
+    For anything that has to reach a person rather than a record — sending cash
+    across, above all. A closed shop has nobody to hand an envelope to and no till
+    to put it in, so offering it in a list would be offering a dead end.
+    """
+    return await db.fetch(
+        """
+        SELECT s.id, s.name, ss.id AS store_session_id
+          FROM stores s
+          JOIN store_sessions ss ON ss.store_id = s.id AND ss.closed_at IS NULL
+         WHERE s.owner_id = $1 AND s.is_active
+         ORDER BY lower(s.name)
+        """,
+        owner_id,
+    )
+
+
 async def till_balance(conn, owner_id: int, store_id: int) -> Decimal | None:
     """The cash this shop keeps in its drawer between shifts.
 

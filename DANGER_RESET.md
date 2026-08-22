@@ -115,7 +115,7 @@ wants the *database* gone, that is a Neon action (§6), not a button.
 
 ## 3. Every table, and what happens to it
 
-Twenty-one tables exist. Sixteen are wiped, five are kept.
+Twenty-two tables exist. Seventeen are wiped, five are kept.
 
 | # | Table | Scoped by | Action | Why |
 |---|---|---|---|---|
@@ -127,19 +127,20 @@ Twenty-one tables exist. Sixteen are wiped, five are kept.
 | 6 | `stock_adjustments` | `owner_id` | **Wiped** | Who changed which count, and when. |
 | 7 | `write_offs` | `owner_id` | **Wiped** | Breakage. |
 | 8 | `transfers` | `owner_id` | **Wiped** | Stock moved between the owner's own shops. |
-| 9 | `expenses` | `owner_id` | **Wiped** | Rent, advertising, restocking. |
-| 10 | `sales` | `owner_id` | **Wiped** | The receipts. This is the table the owner means when they say "no info about past sales". |
-| 11 | `work_sessions` | `owner_id` | **Wiped** | Every shift: who worked, from where, for how much. |
-| 12 | `store_sessions` | `owner_id` | **Wiped** | Every trading period. |
-| 13 | `items` | `owner_id` | **Wiped** | The catalogue, with cost and sell prices — commercially the most sensitive rows here. |
-| 14 | `workers` | `owner_id` | **Wiped** | Names, Telegram ids, handles, salaries, bonus rules. Deleting these rows *is* the revocation described in §5: with no row, the bot's `/me` answers `unknown_worker`. |
-| 15 | `expense_categories` | `owner_id` | **Wiped** | The owner's own category names. |
-| 16 | `stores` | `owner_id` | **Wiped** | Shop names, addresses, coordinates, radius, day-start hour, `till_balance`. A factory reset, not a data purge: after this the account looks exactly like a new one. |
-| 17 | `users` | — | **Kept**, one row | The owner's own account, `telegram_username`, `telegram_id`, `telegram_bound_at`, `display_name`, `language`. Without it they cannot log back in and the app is a brick. Nothing about this row is business data; it is the key to the front door. |
-| 18 | `auth_sessions` | `user_id` | **Partially wiped** | Every session for this user is deleted *except the one performing the erase*. Reuse `users_repo.delete_sessions_for_user`, then re-create the current one — or add a `delete_sessions_for_user_except(user_id, token_hash)`. Rationale: a laptop left logged in somewhere else should not survive a factory reset, but signing the owner out mid-action is a needless cliff. |
-| 19 | `login_codes` | `user_id` | **Wiped** for this user | Short-lived hashes; nothing is lost and a stale code should not outlive the reset. |
-| 20 | `login_links` | `user_id` | **Wiped** for this user | Same. Any outstanding `manage.py user login-link` URL stops working, which is correct. |
-| 21 | `schema_migrations` | — | **Untouched** | Created inline by `web/migrate.py`, not by any `.sql` file, so it is invisible to a `grep CREATE TABLE migrations/`. Deleting it makes the next deploy re-run all 28 migrations against a populated schema and fail. Never touch it. |
+| 9 | `money_transfers` | `owner_id` | **Wiped** | Cash carried between the owner's own shops. Delete before `store_sessions`: it references both the session the money left and the one it landed in. |
+| 10 | `expenses` | `owner_id` | **Wiped** | Rent, advertising, restocking. |
+| 11 | `sales` | `owner_id` | **Wiped** | The receipts. This is the table the owner means when they say "no info about past sales". |
+| 12 | `work_sessions` | `owner_id` | **Wiped** | Every shift: who worked, from where, for how much. |
+| 13 | `store_sessions` | `owner_id` | **Wiped** | Every trading period. |
+| 14 | `items` | `owner_id` | **Wiped** | The catalogue, with cost and sell prices — commercially the most sensitive rows here. |
+| 15 | `workers` | `owner_id` | **Wiped** | Names, Telegram ids, handles, salaries, bonus rules. Deleting these rows *is* the revocation described in §5: with no row, the bot's `/me` answers `unknown_worker`. |
+| 16 | `expense_categories` | `owner_id` | **Wiped** | The owner's own category names. |
+| 17 | `stores` | `owner_id` | **Wiped** | Shop names, addresses, coordinates, radius, day-start hour, `till_balance`. A factory reset, not a data purge: after this the account looks exactly like a new one. |
+| 18 | `users` | — | **Kept**, one row | The owner's own account, `telegram_username`, `telegram_id`, `telegram_bound_at`, `display_name`, `language`. Without it they cannot log back in and the app is a brick. Nothing about this row is business data; it is the key to the front door. |
+| 19 | `auth_sessions` | `user_id` | **Partially wiped** | Every session for this user is deleted *except the one performing the erase*. Reuse `users_repo.delete_sessions_for_user`, then re-create the current one — or add a `delete_sessions_for_user_except(user_id, token_hash)`. Rationale: a laptop left logged in somewhere else should not survive a factory reset, but signing the owner out mid-action is a needless cliff. |
+| 20 | `login_codes` | `user_id` | **Wiped** for this user | Short-lived hashes; nothing is lost and a stale code should not outlive the reset. |
+| 21 | `login_links` | `user_id` | **Wiped** for this user | Same. Any outstanding `manage.py user login-link` URL stops working, which is correct. |
+| 22 | `schema_migrations` | — | **Untouched** | Created inline by `web/migrate.py`, not by any `.sql` file, so it is invisible to a `grep CREATE TABLE migrations/`. Deleting it makes the next deploy re-run every migration against a populated schema and fail. Never touch it. |
 
 Two things the table does not list because they are not rows: the `distance_m()`
 SQL function from `001_init.sql`, and every index and constraint. The schema
@@ -213,12 +214,13 @@ survive a partial cascade:
   `work_session_id` and `worker_id` all with **SET NULL** (`022`). Deleting store
   sessions orphans every drawer count instead of removing it.
 - Same SET-NULL shape on `stock_adjustments` (`020`), `transfers`'
-  `requested_by_worker_id` / `decided_by_worker_id` (`021`), `expenses.store_id`
+  `requested_by_worker_id` / `decided_by_worker_id` (`021`), `money_transfers`'
+  `sent_by_worker_id` / `decided_by_worker_id` (`031`), `expenses.store_id`
   and `expenses.category_id` (`008`), `sales.superseded_by_sale_id` (`009`), and
   `audit_events.user_id` / `reverted_by` (`010`).
 
 The conclusion: **one explicit `DELETE FROM … WHERE owner_id = $1` per table, in
-dependency order.** It is sixteen lines, every one of them readable, and it does
+dependency order.** It is seventeen lines, every one of them readable, and it does
 not depend on trigger ordering, on cascade semantics, or on nobody adding a new
 FK next year.
 
@@ -235,20 +237,21 @@ Leaves first, roots last:
  6. stock_adjustments
  7. write_offs
  8. transfers
- 9. expenses
-10. sales
-11. work_sessions
-12. store_sessions
-13. items
-14. workers
-15. expense_categories
-16. stores
+ 9. money_transfers
+10. expenses
+11. sales
+12. work_sessions
+13. store_sessions
+14. items
+15. workers
+16. expense_categories
+17. stores
 ```
 
-Checking the two RESTRICTs that bite: `sales` (10) is deleted before `workers`
-(14), so `sales.voided_by_worker_id` is clear. `store_sessions` (12) is deleted
-before `workers` (14), so `opened_by_worker_id` is clear. `sale_items` (2) and
-`write_offs` (7) are both gone before `items` (13). Every SET-NULL parent is
+Checking the two RESTRICTs that bite: `sales` (11) is deleted before `workers`
+(15), so `sales.voided_by_worker_id` is clear. `store_sessions` (13) is deleted
+before `workers` (15), so `opened_by_worker_id` is clear. `sale_items` (2) and
+`write_offs` (7) are both gone before `items` (14). Every SET-NULL parent is
 deleted after its children, so no orphan is ever produced.
 
 Each statement returns its row count from the `DELETE n` command tag — collect

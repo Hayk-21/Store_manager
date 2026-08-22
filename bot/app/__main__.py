@@ -251,20 +251,34 @@ def build() -> Application:
         per_message=False,
     )
 
-    # Taking cash out. The reason is a tap and the amount is free text, so it
-    # needs the same escapes as the others: a button pressed mid-way must not be
-    # read as an amount. The reason buttons are also live on the amount step —
-    # picking the other one there is how you change your mind about the ceiling
-    # without starting again.
+    # Cash leaving the drawer: spent, or sent to another shop. The category is a
+    # tap and everything after it is free text, so it needs the same escapes as the
+    # others — a button pressed mid-way must not be read as an amount or as a
+    # reason. The category buttons stay live on every later step, which is how you
+    # change your mind without starting again.
     cash_flow = ConversationHandler(
         entry_points=[MessageHandler(_exact(texts.BTN_TAKE_CASH), cash.begin)],
         states={
             cash.ASK_REASON: [
                 CallbackQueryHandler(cash.choose_reason, pattern=f"^{keyboards.CB_REASON}:"),
             ],
+            # «Այլ» alone: what the money is for, before how much.
+            cash.ASK_PURPOSE: [
+                CallbackQueryHandler(cash.choose_reason, pattern=f"^{keyboards.CB_REASON}:"),
+                MessageHandler(_free_text, cash.type_purpose),
+            ],
+            cash.PICK_STORE: [
+                CallbackQueryHandler(cash.choose_reason, pattern=f"^{keyboards.CB_REASON}:"),
+                CallbackQueryHandler(
+                    cash.choose_store, pattern=f"^{keyboards.CB_MONEY_STORE}:"
+                ),
+            ],
+            # One state for both amounts — spending and sending. Which question is
+            # being answered is decided by whether a shop was picked, so the
+            # category buttons can stay live on either.
             cash.ASK_AMOUNT: [
                 CallbackQueryHandler(cash.choose_reason, pattern=f"^{keyboards.CB_REASON}:"),
-                MessageHandler(_free_text, cash.type_amount),
+                MessageHandler(_free_text, cash.amount_step),
             ],
         },
         fallbacks=[
@@ -421,6 +435,12 @@ def build() -> Application:
     # a message that may well be tapped an hour after it arrived.
     application.add_handler(
         CallbackQueryHandler(transfer.decide, pattern=f"^{keyboards.CB_TRANSFER}:")
+    )
+    # And confirming cash sent from another shop, for the same reason — except these
+    # buttons are minted by the *web* service, on the message it pushes to whoever is
+    # on shift here. Registered after «^t:», and the prefixes cannot collide.
+    application.add_handler(
+        CallbackQueryHandler(cash.decide, pattern=f"^{keyboards.CB_MONEY_TRANSFER}:")
     )
 
     application.add_handler(MessageHandler(_exact(texts.BTN_OPEN), shift.ask_location))

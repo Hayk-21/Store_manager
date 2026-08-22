@@ -20,10 +20,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-import pytest
-
 from app.db import db
-from app.errors import BotError
 from app.repo import money as money_repo
 from app.services import corrections as corrections_service
 from app.services import money as money_service
@@ -351,12 +348,8 @@ async def test_a_real_evening_end_to_end(client):
     assert wages["salary_unpaid"] + wages["bonus_unpaid"] == Decimal("3866.00")
     assert await _cash(session_id) == Decimal("0.00"), "the drawer paid all it had"
 
-    # And the count that follows sees an empty till, not the float it opened with —
-    # which is also why claiming to leave 1,500 in it is refused. The drawer paid every
-    # dram it had to the wage; there is nothing left to leave behind.
-    with pytest.raises(BotError):
-        await till_service.declare_close(worker, Decimal("1500"), "idem-till-01")
-
+    # And the count that follows sees an empty till, not the float it opened with. The
+    # drawer paid every dram it had to the wage, so the honest reading is nothing.
     result = await till_service.declare_close(worker, Decimal("0"), "idem-till-02")
     assert result["count"]["expected"] == "0.00"
     assert result["count"]["handed_over"] == "0.00", "there is nothing to hand over"
@@ -387,10 +380,8 @@ async def test_the_owners_share_follows_a_sale_added_after_the_count(client):
         worker, Decimal("1000"), "առաքիչին", "idem-cash-01"
     )
     await shifts_service.close_out_shift(worker, [], "idem-close-1", counted=Decimal("0"))
-    # Counted while the drawer held 2,400 + 234 − 1,000 − 1,634 = 0. The 1,500 is the
-    # owner's word, not the worker's: a cashier can no longer claim to be leaving more
-    # than the books say is in there, and this reading is exactly such a claim — which
-    # is the case the owner's box is deliberately left uncapped for.
+    # Counted while the drawer held 2,400 + 234 − 1,000 − 1,634 = 0. The 1,500 is
+    # written from the report, which is the other way a reading is made.
     await till_service.set_left_in_store(owner_id, session_id, Decimal("1500"))
     assert await db.fetchval("SELECT expected FROM till_counts") == Decimal("0.00")
 

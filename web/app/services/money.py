@@ -27,29 +27,43 @@ KINDS = {"withdrawal", "deposit"}
 # rather than at a counter with a customer waiting.
 WORKER_WITHDRAWAL_LIMIT = Decimal("1000.00")
 
-# Why the money was taken, as a closed list rather than something typed.
+# Why the money was taken. The cashier picks a category, and the category — not
+# what they typed — decides the ceiling: «ճաշ», «Ճաշի համար» and «ճաշ 🙂» are one
+# thing to a person and three different things to a rule. So the bot sends a code,
+# and what is written on the row is settled here.
 #
-# The reason now decides the ceiling, and a ceiling may not hang off free text:
-# «ճաշ», «Ճաշի համար» and «ճաշ 🙂» are one thing to a person and three different
-# things to a rule. So the bot sends a code and the note written on the row is
-# chosen here — one spelling, the same on the report, the same to the sum below.
-#
-# A limit of ``None`` means the shift allowance does not apply. Paying Haypost for
-# a parcel is not petty cash: the amount is whatever the courier charges, and it
-# is the shop settling a bill rather than a cashier dipping into the drawer. What
-# still applies to both is the drawer itself — you cannot take out notes that are
-# not in it.
+# A limit of ``None`` means the shift allowance does not apply. Money leaves the
+# drawer for things nobody can put a figure on in advance — a courier, a plumber,
+# a box of bags, a taxi with stock in it — and a cashier who cannot record one is
+# a cashier who leaves an unexplained shortfall instead. What still applies is the
+# drawer itself: you cannot take out notes that are not in it.
 REASON_LUNCH = "lunch"
+REASON_OTHER = "other"
+# Retired from the bot's menu in favour of «Այլ», which asks what the money is
+# for instead of guessing. Still accepted, because the two services deploy apart
+# and a bot that has not restarted yet is still sending it — and because rows
+# already written carry this note and the sum below has to keep skipping them.
 REASON_DELIVERY = "delivery"
+
+# What «Այլ» writes in front of whatever the cashier typed. The category has to
+# survive onto the row: it is what says the allowance did not apply, and free text
+# alone cannot say that about itself.
+OTHER_PREFIX = "Այլ՝ "
+
 WITHDRAWAL_REASONS: dict[str, tuple[str, Decimal | None]] = {
     REASON_LUNCH: ("Ճաշ", WORKER_WITHDRAWAL_LIMIT),
     REASON_DELIVERY: ("Հայփոստ (առաքման վճար)", None),
 }
 
-# The notes that do not eat the allowance, so that taking 6,000 for a parcel at
-# noon does not leave the cashier unable to buy lunch.
-UNCAPPED_NOTES = tuple(
-    note for note, limit in WITHDRAWAL_REASONS.values() if limit is None
+# The notes that do not eat the allowance, so that paying a courier 6,000 at noon
+# does not leave the cashier unable to buy lunch. SQL LIKE patterns, because
+# «Այլ» carries the cashier's own words after the category and only the category
+# is fixed. Money sent to another shop is in here for the same reason — it is not
+# petty cash at all, it is the drawer moving.
+UNCAPPED_NOTES = (
+    "Հայփոստ (առաքման վճար)",
+    f"{OTHER_PREFIX}%",
+    "Փոխանցվեց %",
 )
 
 
@@ -113,11 +127,20 @@ async def record_movement(
 def _reason(reason: str | None, purpose: str) -> tuple[str, Decimal | None]:
     """What to write on the row, and what ceiling it answers to.
 
+    «Այլ» is the one category that keeps the cashier's own words, because the
+    whole point of it is that nobody can list in advance what money leaves a till
+    for. The category is written in front of them so the row still says which rule
+    it was taken under; the allowance does not apply, and the drawer is the only
+    thing that can refuse it.
+
     An unrecognised code — or none at all — is an older bot, which asked the
     cashier to type the reason and knew nothing about categories. It keeps the
     typed text and the original allowance: when the two services deploy
     separately, the safe direction to err in is the one with a limit.
     """
+    if reason == REASON_OTHER:
+        typed = (purpose or "").strip()[:280]
+        return (f"{OTHER_PREFIX}{typed}" if typed else ""), None
     if reason in WITHDRAWAL_REASONS:
         return WITHDRAWAL_REASONS[reason]
     return (purpose or "").strip()[:300], WORKER_WITHDRAWAL_LIMIT

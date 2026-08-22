@@ -349,13 +349,21 @@ async def withdrawn_by_worker_on(
     fee is not spent lunch money, so it must not count against the lunch money.
     Anything else does, including the free text older bots sent: a row nobody can
     classify is safer inside the limit than outside it.
+
+    They are LIKE patterns rather than whole notes. «Այլ» keeps the cashier's own
+    words after the category, so what identifies the row is its opening — and a
+    fixed reason like the old courier's fee is simply a pattern with no wildcard
+    in it, which LIKE matches exactly.
     """
     return await conn.fetchval(
         """
         SELECT coalesce(-sum(amount), 0)
           FROM cash_movements
          WHERE work_session_id = $1 AND kind = 'withdrawal' AND created_by = 'worker'
-           AND coalesce(note, '') <> ALL($2::text[])
+           AND NOT EXISTS (
+               SELECT 1 FROM unnest($2::text[]) AS pattern
+                WHERE coalesce(note, '') LIKE pattern
+           )
         """,
         work_session_id,
         list(uncapped_notes),

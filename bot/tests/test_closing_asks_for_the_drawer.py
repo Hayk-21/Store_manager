@@ -241,28 +241,21 @@ async def test_a_negative_drawer_is_asked_for_again():
     assert server.calls == []
 
 
-async def test_more_than_the_drawer_holds_comes_back_as_the_question_again():
-    """The refusal a cashier actually meets. They cannot leave 12,000 in a drawer with
-    9,000 in it — what they leave becomes the shop's float, so the claim would open
-    tomorrow on money that is not there. The server says how much is in the till and
-    the bot puts that in front of them, still at the same question, with the day's
-    write-up untouched."""
+async def test_the_number_they_retype_finishes_the_same_close_out():
+    """Whatever the server refused the figure for, the worker is put back at the same
+    question with the day's write-up in hand — and the number they type next carries the
+    original key, so the retry resolves to one close-out rather than making a second."""
     context = _Context(closeout_basket=_basket(), co_key="keykeykey")
-    ceiling = ApiError(
-        "validation_error",
-        "Այդքան կանխիկ դրամարկղում չկա։ Ըստ գրքերի դրամարկղում կա 9,000 ֏։",
-        status=422,
-    )
+    refusal = ApiError("validation_error", "Սխալ գումար։", status=422)
 
     state, sent, server = await _run(
-        closeout.type_till, _typed("12000"), context, _Server(ceiling, _closed())
+        closeout.type_till, _typed("99999999999"), context, _Server(refusal, _closed())
     )
 
     assert state == closeout.ASK_TILL
-    assert "9,000" in "\n".join(text for text, _ in sent), "how much is in there"
+    assert "Սխալ գումար։" in "\n".join(text for text, _ in sent)
     assert context.user_data["closeout_basket"] == _basket()
 
-    # And the number they recount to finishes the same close-out, not a second one.
     state, _, _ = await _run(closeout.type_till, _typed("9000"), context, server)
     assert state == ConversationHandler.END
     assert server.calls[1]["key"] == server.calls[0]["key"]

@@ -416,15 +416,18 @@ DEFECT_DONE_PLAINLY = "🗑 Խոտանը գրանցվեց և հանվեց պահ
 
 # -- taking money out of the till --------------------------------------------
 
-# The reason comes first, and it is picked rather than typed. Two things follow
-# from that: the ceiling is known before the number is asked for, so the question
-# can say what it is; and the report reads back one spelling of «Ճաշ» instead of
-# nine. What is written on the row is chosen by the server — these are the same
-# strings, and a test holds them to it.
+# The category comes first, and it is picked rather than typed: the allowance is
+# known before the number is asked for, so the question can say what it is, and
+# the report reads back one spelling of «Ճաշ» instead of nine.
+#
+# «Այլ» is the way out of a closed list. Money leaves a till for things nobody can
+# enumerate in advance — a courier, a plumber, a taxi with stock in it — and the
+# category that used to sit here named exactly one of them. So it asks what the
+# money is for, in the cashier's own words, and answers to no allowance.
 CASH_PURPOSE_LUNCH = "Ճաշ"
-CASH_PURPOSE_DELIVERY = "Հայփոստ (առաքման վճար)"
+CASH_PURPOSE_OTHER = "Այլ"
 BTN_CASH_LUNCH = f"🍽 {CASH_PURPOSE_LUNCH}"
-BTN_CASH_DELIVERY = f"📦 {CASH_PURPOSE_DELIVERY}"
+BTN_CASH_OTHER = f"✍️ {CASH_PURPOSE_OTHER}"
 CASH_ASK_REASON = (
     "💸 <b>Վերցնել դրամարկղից</b>\n\n"
     "Ինչի՞ համար եք վերցնում։"
@@ -436,12 +439,20 @@ CASH_ASK_AMOUNT_LUNCH = (
     "Որքա՞ն եք վերցնում։ Գրեք գումարը թվով, օրինակ՝ 500։\n"
     "Մեկ հերթափոխի ընթացքում՝ առավելագույնը 1,000 ֏։"
 )
-# No ceiling named here, because there is none. The parcel costs what the post
-# office charges; the only thing that can refuse it is an empty drawer.
-CASH_ASK_AMOUNT_DELIVERY = (
-    "📦 <b>Հայփոստ (առաքման վճար)</b>\n\n"
+# Asked before the amount, like every other reason — the row must say what the
+# money went on, and a cashier who has already typed the number is a cashier
+# answering "what for" about money that has effectively gone.
+CASH_ASK_PURPOSE = (
+    "✍️ <b>Այլ</b>\n\n"
+    "Գրեք, թե ինչի համար եք վերցնում։ Օրինակ՝ «տաքսի», «ջուր», «առաքիչին»։"
+)
+CASH_BAD_PURPOSE = "Գրեք մի քանի բառով, թե ինչի համար է գումարը։"
+# No allowance named here, because there is none. The only thing that can refuse
+# it is an empty drawer.
+CASH_ASK_AMOUNT_OTHER = (
+    "✍️ <b>{purpose}</b>\n\n"
     "Որքա՞ն եք վերցնում։ Գրեք գումարը թվով, օրինակ՝ 2500։\n"
-    "Սահմանաչափ չկա՝ որքան որ վճարել եք։"
+    "Սահմանաչափ չկա՝ որքան որ ծախսել եք։"
 )
 CASH_BAD_AMOUNT = "Գրեք գումարը թվով, օրինակ՝ 500։"
 CASH_OVER_LIMIT = (
@@ -455,6 +466,60 @@ CASH_DONE = (
     "Դրամարկղում մնաց՝ {cash}"
 )
 CASH_DONE_PLAINLY = "💸 Գումարի վերցնումը գրանցվեց։"
+
+# -- sending cash to another shop --------------------------------------------
+#
+# Offered under the same button as taking money out, because from the cashier's
+# side it is the same act: cash leaves this drawer. What is different is that it
+# arrives somewhere — so the shop is picked first, and the amount is asked with
+# the drawer's own figure in front of it.
+CASH_PURPOSE_TO_STORE = "Փոխանցել այլ խանութ"
+BTN_CASH_TO_STORE = f"🏪 {CASH_PURPOSE_TO_STORE}"
+MONEY_TRANSFER_PICK_STORE = (
+    "🏪 <b>Փոխանցել այլ խանութ</b>\n\n"
+    "Ո՞ր խանութին եք ուղարկում։"
+)
+# Only open shops are listed, so an owner with two shops and one of them shut sees
+# nothing — which needs saying, or the empty list reads as a broken bot.
+MONEY_TRANSFER_NO_STORES = (
+    "Հիմա այլ բաց խանութ չկա։ Գումար կարելի է ուղարկել միայն այն խանութին, "
+    "որտեղ այս պահին որևէ մեկը հերթափոխի վրա է։"
+)
+MONEY_TRANSFER_ASK_AMOUNT = (
+    "🏪 <b>{store}</b>\n\n"
+    "Որքա՞ն եք ուղարկում։ Գրեք գումարը թվով։\n"
+    "Ձեր դրամարկղում կա {available}։"
+)
+MONEY_TRANSFER_TOO_MUCH = (
+    "❌ Դրամարկղում կա ընդամենը <b>{available}</b>։ Ավելին ուղարկել հնարավոր չէ։"
+)
+MONEY_TRANSFER_SENT = (
+    "🏪 Ուղարկվեց՝ <b>{amount}</b> → «{store}»\n\n"
+    "Գումարը հանվեց ձեր դրամարկղից։ Երբ այնտեղ հաստատեն, որ ստացել են, "
+    "դուք ծանուցում կստանաք։"
+)
+MONEY_TRANSFER_SENT_PLAINLY = "🏪 Փոխանցումը գրանցվեց։"
+
+# The two answers at the receiving end. These labels are also minted by the web
+# service, which puts them on the message it pushes to the receiving shop, so the
+# same two words appear whichever route the worker answers by. A test holds the
+# two copies together.
+BTN_MONEY_GOT_IT = "✅ Ստացա"
+BTN_MONEY_MISSING = "❌ Չեմ ստացել"
+MONEY_TRANSFER_CONFIRMED = (
+    "✅ Ստացվեց՝ <b>{amount}</b> «{store}» խանութից։\n\n"
+    "Գումարն ավելացավ ձեր դրամարկղին։"
+)
+MONEY_TRANSFER_DENIED = (
+    "↩️ Նշվեց, որ <b>{amount}</b>-ը չի ստացվել։\n\n"
+    "Գումարը վերադարձվեց «{store}» խանութի դրամարկղ։"
+)
+MONEY_TRANSFER_DECIDED_PLAINLY = "Փոխանցման պատասխանը գրանցվեց։"
+MONEY_TRANSFER_WAITING = (
+    "💵 <b>Ստացվելիք գումար</b>\n\n{rows}\n\n"
+    "Հաստատեք ստացումը՝ գումարը կավելանա ձեր դրամարկղին։"
+)
+MONEY_TRANSFER_WAITING_ROW = "• {amount} — «{store}»-ից, {worker}"
 
 # -- counting the drawer -----------------------------------------------------
 

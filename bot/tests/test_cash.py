@@ -1,9 +1,13 @@
-"""Taking money out of the till, from the counter.
+"""Cash leaving the drawer, from the counter.
 
-The reason is picked first and the amount second, because the reason is what
-decides the ceiling: lunch answers to the shift allowance, a courier's fee does
-not. Asking it the other way round meant refusing a number and only then
-explaining why.
+The category is picked first and the amount second, because the category is what
+decides the ceiling: lunch answers to the shift allowance, «Այլ» does not. Asking
+it the other way round meant refusing a number and only then explaining why.
+
+Three answers. «Ճաշ» is the one thing anybody can put a figure on in advance, so
+it is the one thing with a ceiling; «Այլ» is everything else and collects the
+reason in the cashier's own words; «Փոխանցել այլ խանութ» is not spending at all —
+the money is moving to another of the owner's tills.
 
 The interesting part is still what happens when the server says no. A refusal
 here is almost always a number problem — more than the allowance, or more than is
@@ -69,8 +73,9 @@ def _lunch() -> _Context:
     return _Context(cash_reason="lunch")
 
 
-def _delivery() -> _Context:
-    return _Context(cash_reason="delivery")
+def _other(purpose: str = "տաքսի") -> _Context:
+    """«Այլ», with the reason already typed — the step before the amount."""
+    return _Context(cash_reason="other", cash_purpose=purpose)
 
 
 # -- the reason ---------------------------------------------------------------
@@ -91,14 +96,19 @@ async def test_the_flow_opens_by_asking_what_the_money_is_for():
     assert "cash_reason" not in context.user_data
 
 
-async def test_both_reasons_are_offered_and_nothing_else():
+async def test_every_way_money_leaves_the_drawer_is_offered_and_nothing_else():
     labels = [
         button.text
         for row in keyboards.cash_reasons().inline_keyboard
         for button in row
     ]
 
-    assert labels == [texts.BTN_CASH_LUNCH, texts.BTN_CASH_DELIVERY, texts.BTN_CANCEL]
+    assert labels == [
+        texts.BTN_CASH_LUNCH,
+        texts.BTN_CASH_OTHER,
+        texts.BTN_CASH_TO_STORE,
+        texts.BTN_CANCEL,
+    ]
 
 
 async def test_choosing_lunch_asks_for_the_amount_and_names_the_limit():
@@ -122,9 +132,10 @@ async def test_choosing_lunch_asks_for_the_amount_and_names_the_limit():
     assert "1,000" in replies[0], "the cashier is told the ceiling before typing"
 
 
-async def test_choosing_the_delivery_fee_names_no_limit_because_there_is_none():
-    """The parcel costs what the post office charges. Naming a ceiling that does
-    not exist would be worse than naming none."""
+async def test_choosing_other_asks_what_the_money_is_for_first():
+    """Nobody can list in advance what money leaves a till for, so «Այլ» collects it
+    in the cashier's own words — and before the amount, because a cashier who has
+    already typed the number is explaining money that has effectively gone."""
     replies = []
 
     async def fake_reply(self, text, *args, **kwargs):
@@ -138,11 +149,46 @@ async def test_choosing_the_delivery_fee_names_no_limit_because_there_is_none():
         mock.patch.object(CallbackQuery, "answer", fake_answer),
         mock.patch.object(Message, "reply_text", fake_reply),
     ):
-        state = await cash.choose_reason(_tapped(f"{keyboards.CB_REASON}:delivery"), context)
+        state = await cash.choose_reason(_tapped(f"{keyboards.CB_REASON}:other"), context)
+
+    assert state == cash.ASK_PURPOSE
+    assert context.user_data["cash_reason"] == "other"
+    assert replies[0] == texts.CASH_ASK_PURPOSE
+
+
+async def test_the_typed_reason_leads_to_an_amount_with_no_ceiling_named():
+    """There is no allowance on «Այլ», and naming a ceiling that does not exist
+    would be worse than naming none. The reason is quoted back so the cashier can
+    see what they are about to file the number under."""
+    replies = []
+
+    async def fake_reply(self, text, *args, **kwargs):
+        replies.append(text)
+
+    context = _Context(cash_reason="other")
+    with mock.patch.object(Message, "reply_text", fake_reply):
+        state = await cash.type_purpose(_typed("տաքսի՝ ապրանքով"), context)
 
     assert state == cash.ASK_AMOUNT
-    assert context.user_data["cash_reason"] == "delivery"
+    assert context.user_data["cash_purpose"] == "տաքսի՝ ապրանքով"
+    assert "տաքսի՝ ապրանքով" in replies[0]
     assert "1,000" not in replies[0]
+
+
+async def test_a_reason_of_one_character_is_not_a_reason():
+    """The row has to be readable by somebody who was not there."""
+    replies = []
+
+    async def fake_reply(self, text, *args, **kwargs):
+        replies.append(text)
+
+    context = _Context(cash_reason="other")
+    with mock.patch.object(Message, "reply_text", fake_reply):
+        state = await cash.type_purpose(_typed("ա"), context)
+
+    assert state == cash.ASK_PURPOSE
+    assert replies == [texts.CASH_BAD_PURPOSE]
+    assert "cash_purpose" not in context.user_data
 
 
 async def test_changing_your_mind_drops_the_key_with_the_reason():
@@ -160,9 +206,9 @@ async def test_changing_your_mind_drops_the_key_with_the_reason():
         mock.patch.object(CallbackQuery, "answer", fake_answer),
         mock.patch.object(Message, "reply_text", fake_reply),
     ):
-        await cash.choose_reason(_tapped(f"{keyboards.CB_REASON}:delivery"), context)
+        await cash.choose_reason(_tapped(f"{keyboards.CB_REASON}:other"), context)
 
-    assert context.user_data["cash_reason"] == "delivery"
+    assert context.user_data["cash_reason"] == "other"
     assert "cash_key" not in context.user_data
 
 
@@ -260,10 +306,10 @@ async def test_exactly_the_lunch_limit_is_accepted():
     assert sent["amount"] == "1000.00"
 
 
-async def test_the_delivery_fee_has_no_ceiling_at_all():
-    """6,000 for a parcel is not a cashier dipping into the drawer, it is the
-    shop paying a bill. Only an empty till can refuse it, and that is the
-    server's call."""
+async def test_other_has_no_ceiling_at_all():
+    """6,000 for a courier is not a cashier dipping into the drawer, it is the shop
+    settling a bill. Only an empty till can refuse it, and that is the server's
+    call."""
     sent = {}
 
     async def fake_withdraw(**kwargs):
@@ -277,7 +323,7 @@ async def test_the_delivery_fee_has_no_ceiling_at_all():
         mock.patch.object(cash.api, "withdraw", fake_withdraw),
         mock.patch.object(Message, "reply_text", fake_reply),
     ):
-        state = await cash.type_amount(_typed("6000"), _delivery())
+        state = await cash.type_amount(_typed("6000"), _other("առաքիչին"))
 
     assert state == ConversationHandler.END
     assert sent["amount"] == "6000.00"
@@ -292,16 +338,16 @@ def test_the_bots_limit_matches_the_servers():
 
     assert on_the_server == cash.LIMIT
     assert cash.REASONS["lunch"].limit == on_the_server
-    assert cash.REASONS["delivery"].limit is None
+    assert cash.REASONS["other"].limit is None
 
 
 def test_the_reason_codes_and_their_wording_match_the_servers():
     """The code decides the ceiling and the text is written on the row. Both are
-    agreed with WITHDRAWAL_REASONS in web/app/services/money.py, and a drift in
-    either would file a courier's fee as lunch."""
+    agreed with WITHDRAWAL_REASONS and REASON_OTHER in web/app/services/money.py,
+    and a drift in either would file a courier's fee as lunch."""
     on_the_server = {
         "lunch": "Ճաշ",
-        "delivery": "Հայփոստ (առաքման վճար)",
+        "other": "Այլ",
     }
 
     assert {code: reason.purpose for code, reason in cash.REASONS.items()} == on_the_server
@@ -336,7 +382,10 @@ async def test_the_amount_and_the_chosen_reason_reach_the_server():
     assert context.user_data == {}
 
 
-async def test_the_delivery_fee_travels_under_its_own_code():
+async def test_what_the_cashier_typed_is_what_reaches_the_row():
+    """«Այլ» is the one category whose purpose is not a constant. The code still
+    travels — it is what tells the server no allowance applies — and the words
+    travel with it, because they are the whole reason the category exists."""
     sent = {}
 
     async def fake_withdraw(**kwargs):
@@ -350,10 +399,10 @@ async def test_the_delivery_fee_travels_under_its_own_code():
         mock.patch.object(cash.api, "withdraw", fake_withdraw),
         mock.patch.object(Message, "reply_text", fake_reply),
     ):
-        await cash.type_amount(_typed("2500"), _delivery())
+        await cash.type_amount(_typed("2500"), _other("ջուր և բաժակներ"))
 
-    assert sent["reason"] == "delivery"
-    assert sent["purpose"] == texts.CASH_PURPOSE_DELIVERY
+    assert sent["reason"] == "other"
+    assert sent["purpose"] == "ջուր և բաժակներ"
 
 
 async def test_a_refusal_leaves_the_cashier_able_to_correct_the_number():
@@ -379,7 +428,9 @@ async def test_a_refusal_leaves_the_cashier_able_to_correct_the_number():
     assert "cash_key" not in context.user_data, "a fresh key for the corrected amount"
 
 
-async def test_a_refusal_asks_again_under_the_reason_already_chosen():
+async def test_a_refusal_asks_for_the_number_again_and_not_for_the_reason():
+    """The category and the words behind it have already been given. Asking for
+    them a second time to correct a number would be the bot forgetting."""
     replies = []
 
     async def fake_withdraw(**kwargs):
@@ -388,13 +439,17 @@ async def test_a_refusal_asks_again_under_the_reason_already_chosen():
     async def fake_reply(self, text, *args, **kwargs):
         replies.append(text)
 
+    context = _other("առաքիչին")
     with (
         mock.patch.object(cash.api, "withdraw", fake_withdraw),
         mock.patch.object(Message, "reply_text", fake_reply),
     ):
-        await cash.type_amount(_typed("6000"), _delivery())
+        state = await cash.type_amount(_typed("6000"), context)
 
-    assert replies[-1] == texts.CASH_ASK_AMOUNT_DELIVERY
+    assert state == cash.ASK_AMOUNT
+    assert replies[-1] != texts.CASH_ASK_PURPOSE
+    assert "առաքիչին" in replies[-1], "the reason they already gave, quoted back"
+    assert context.user_data["cash_purpose"] == "առաքիչին"
 
 
 async def test_a_network_failure_ends_the_flow_rather_than_looping():
@@ -438,6 +493,262 @@ async def test_money_already_out_of_the_till_is_never_reported_as_a_failure():
     assert state == ConversationHandler.END
     assert replies == [texts.CASH_DONE_PLAINLY]
     assert "սխալ" not in replies[0].lower()
+
+
+# -- sending it to another shop -----------------------------------------------
+
+def _stores() -> dict:
+    return {
+        "ok": True,
+        "available": "9000.00",
+        "stores": [{"id": 4, "name": "Կենտրոն"}, {"id": 7, "name": "Մաշտոց"}],
+    }
+
+
+def _sent_back(status: str = "pending") -> dict:
+    return {
+        "ok": True,
+        "duplicate": False,
+        "transfer": {
+            "id": 3, "amount": "5000.00", "status": status,
+            "from_store": "Աբովյան", "to_store": "Կենտրոն", "sent_by": "Անի",
+        },
+        "store_totals": {"cash": "4000.00"},
+    }
+
+
+async def _pick(context, replies) -> int:
+    async def fake_reply(self, text, *args, **kwargs):
+        replies.append((text, kwargs.get("reply_markup")))
+
+    async def fake_answer(self, *args, **kwargs):
+        return None
+
+    async def fake_stores(telegram_id):
+        return _stores()
+
+    with (
+        mock.patch.object(cash.api, "money_transfer_stores", fake_stores),
+        mock.patch.object(CallbackQuery, "answer", fake_answer),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        return await cash.choose_reason(
+            _tapped(f"{keyboards.CB_REASON}:to_store"), context
+        )
+
+
+async def test_sending_to_another_shop_asks_which_one():
+    replies = []
+    context = _Context()
+
+    state = await _pick(context, replies)
+
+    assert state == cash.PICK_STORE
+    labels = [b.text for row in replies[-1][1].inline_keyboard for b in row]
+    assert labels == ["Կենտրոն", "Մաշտոց", texts.BTN_CANCEL]
+
+
+async def test_the_amount_question_says_what_the_drawer_holds():
+    """The figure is in front of the cashier while they type, rather than arriving
+    as a refusal after they have."""
+    replies = []
+    context = _Context()
+    await _pick(context, replies)
+
+    async def fake_reply(self, text, *args, **kwargs):
+        replies.append((text, kwargs.get("reply_markup")))
+
+    async def fake_answer(self, *args, **kwargs):
+        return None
+
+    async def fake_edit(self, *args, **kwargs):
+        return None
+
+    with (
+        mock.patch.object(CallbackQuery, "answer", fake_answer),
+        mock.patch.object(CallbackQuery, "edit_message_reply_markup", fake_edit),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        state = await cash.choose_store(_tapped(f"{keyboards.CB_MONEY_STORE}:4"), context)
+
+    assert state == cash.ASK_AMOUNT
+    assert context.user_data["cash_store"] == 4
+    assert "Կենտրոն" in replies[-1][0]
+    assert "9,000" in replies[-1][0]
+
+
+async def test_more_than_the_drawer_holds_is_refused_before_the_server_sees_it():
+    replies = []
+    calls = []
+
+    async def fake_send(**kwargs):  # pragma: no cover - must not be reached
+        calls.append(kwargs)
+        return _sent_back()
+
+    async def fake_reply(self, text, *args, **kwargs):
+        replies.append(text)
+
+    context = _Context(cash_store=4, cash_store_name="Կենտրոն", cash_available="9000.00")
+    with (
+        mock.patch.object(cash.api, "send_money", fake_send),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        state = await cash.amount_step(_typed("12000"), context)
+
+    assert state == cash.ASK_AMOUNT
+    assert calls == []
+    assert "9,000" in replies[-1]
+
+
+async def test_the_amount_reaches_the_server_with_the_shop_it_is_going_to():
+    sent = {}
+
+    async def fake_send(**kwargs):
+        sent.update(kwargs)
+        return _sent_back()
+
+    async def fake_reply(self, *args, **kwargs):
+        return None
+
+    context = _Context(cash_store=4, cash_store_name="Կենտրոն", cash_available="9000.00")
+    with (
+        mock.patch.object(cash.api, "send_money", fake_send),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        state = await cash.amount_step(_typed("5 000"), context)
+
+    assert state == ConversationHandler.END
+    assert sent["to_store_id"] == 4
+    assert sent["amount"] == "5000.00", "money travels as a string, never a float"
+    assert context.user_data == {}
+
+
+async def test_the_amount_step_still_serves_a_plain_withdrawal():
+    """One state, two questions. Nothing was picked, so it is money being spent."""
+    sent = {}
+
+    async def fake_withdraw(**kwargs):
+        sent.update(kwargs)
+        return _server_answer()
+
+    async def fake_reply(self, *args, **kwargs):
+        return None
+
+    with (
+        mock.patch.object(cash.api, "withdraw", fake_withdraw),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await cash.amount_step(_typed("800"), _lunch())
+
+    assert sent["reason"] == "lunch"
+
+
+async def test_confirming_an_envelope_sends_the_verdict_and_says_so():
+    """The buttons arrive on a message pushed by the web service, so this runs
+    outside any conversation — an hour after the money was sent, if that is when
+    somebody finally has it in hand."""
+    replies = []
+    calls = []
+
+    async def fake_decide(telegram_id, transfer_id, accept):
+        calls.append((transfer_id, accept))
+        return _sent_back("received")
+
+    async def fake_reply(self, text, *args, **kwargs):
+        replies.append(text)
+
+    async def fake_answer(self, *args, **kwargs):
+        return None
+
+    async def fake_edit(self, *args, **kwargs):
+        return None
+
+    with (
+        mock.patch.object(cash.api, "decide_money_transfer", fake_decide),
+        mock.patch.object(CallbackQuery, "answer", fake_answer),
+        mock.patch.object(CallbackQuery, "edit_message_reply_markup", fake_edit),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await cash.decide(_tapped(f"{keyboards.CB_MONEY_TRANSFER}:3:y"), _Context())
+
+    assert calls == [(3, True)]
+    assert "5,000" in replies[-1]
+    assert "Աբովյան" in replies[-1], "the shop it came from"
+
+
+async def test_denying_an_envelope_travels_as_a_refusal():
+    calls = []
+
+    async def fake_decide(telegram_id, transfer_id, accept):
+        calls.append((transfer_id, accept))
+        return _sent_back("rejected")
+
+    async def fake_reply(self, *args, **kwargs):
+        return None
+
+    async def fake_answer(self, *args, **kwargs):
+        return None
+
+    async def fake_edit(self, *args, **kwargs):
+        return None
+
+    with (
+        mock.patch.object(cash.api, "decide_money_transfer", fake_decide),
+        mock.patch.object(CallbackQuery, "answer", fake_answer),
+        mock.patch.object(CallbackQuery, "edit_message_reply_markup", fake_edit),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await cash.decide(_tapped(f"{keyboards.CB_MONEY_TRANSFER}:3:n"), _Context())
+
+    assert calls == [(3, False)]
+
+
+async def test_nothing_waiting_adds_nothing_to_the_transfers_screen():
+    """An empty section on every visit is noise."""
+    replies = []
+
+    async def fake_pending(telegram_id):
+        return {"ok": True, "incoming": []}
+
+    async def fake_reply(self, text, *args, **kwargs):
+        replies.append(text)
+
+    with (
+        mock.patch.object(cash.api, "pending_money_transfers", fake_pending),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await cash.show_waiting(_typed("x"), _Context())
+
+    assert replies == []
+
+
+async def test_money_waiting_is_listed_with_its_own_buttons():
+    """The way back to an envelope whose pushed message was missed."""
+    replies = []
+
+    async def fake_pending(telegram_id):
+        return {
+            "ok": True,
+            "incoming": [
+                {"id": 3, "amount": "5000.00", "from_store": "Աբովյան", "sent_by": "Անի"}
+            ],
+        }
+
+    async def fake_reply(self, text, *args, **kwargs):
+        replies.append((text, kwargs.get("reply_markup")))
+
+    with (
+        mock.patch.object(cash.api, "pending_money_transfers", fake_pending),
+        mock.patch.object(Message, "reply_text", fake_reply),
+    ):
+        await cash.show_waiting(_typed("x"), _Context())
+
+    text, markup = replies[-1]
+    assert "5,000" in text and "Աբովյան" in text
+    assert [b.callback_data for row in markup.inline_keyboard for b in row] == [
+        f"{keyboards.CB_MONEY_TRANSFER}:3:y",
+        f"{keyboards.CB_MONEY_TRANSFER}:3:n",
+    ]
 
 
 async def test_a_retry_reuses_the_key_rather_than_minting_a_new_one():

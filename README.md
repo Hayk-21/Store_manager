@@ -64,15 +64,12 @@ same rule from the other side: the count is the closing act. A second reading th
 `💰 Դրամարկղի մնացորդ` on the off-shift keyboard replaces the first, for a figure
 noticed to be wrong at the door.
 
-**And the count may not be larger than the drawer.** The ceiling is the books — the
-float carried in, plus the day's cash sales, less the wage just paid and anything taken
-out — and a figure above it is refused with the ceiling in the message, so the worker
-can recount while they are still standing at the till. Workers were writing more than
-they had: what they leave *becomes* the shop's balance, so a drawer holding 29,000
-declared as 31,500 tells the owner they are owed nothing tonight and opens tomorrow
-2,500 above the cash actually on the premises — a hole nobody can find once the person
-who could have recounted it has gone home. The owner is deliberately not capped, on the
-report: they may know of a sale nobody entered.
+**The count is a reading, and nothing caps it.** Whatever is counted goes down, above
+the books as readily as below them — the drawer is sometimes ahead of the ledger, and a
+refusal at that moment leaves somebody locking up unable to shut the shop over a gap
+they cannot fix from the door. The books are kept beside the reading as `expected`, so
+an evening where the two disagree says so on the report, which is where the owner can
+actually look into it.
 
 That ordering is not decoration. The owner's share is the till less the float, so
 anything still to come out of the till — a wage above all — has to come out before it
@@ -665,23 +662,43 @@ credited a second full bonus for one achievement. `bonus_paid` is set the moment
 is credited, whether or not the drawer could cover it, which is the fact the guard
 actually needs.
 
-**The reason a cashier takes cash is picked, not typed, and it sets the ceiling.**
-«Վերցնել դրամարկղից» offers two: «Ճաշ» and «Հայփոստ (առաքման վճար)». Lunch answers to the
-1,000 ֏ shift allowance; the courier's fee has none, because a parcel costs what the post
-office charges and paying it is the shop settling a bill rather than a cashier dipping
-into the drawer for a sandwich. What still bounds both is the drawer itself — you cannot
-hand over notes that are not in it.
+**The category a cashier takes cash under is picked, not typed, and it sets the ceiling.**
+«Վերցնել դրամարկղից» offers three. «Ճաշ» answers to the 1,000 ֏ shift allowance — it is the
+one thing anybody can put a figure on in advance, which is what makes a ceiling possible.
+«Այլ» is everything else: the cashier writes what the money is for, in their own words,
+and no allowance applies. It replaced a category that named one specific errand, which
+meant a taxi, a plumber and a box of bags all had to be filed as a lie or not at all. The
+third is not spending at all — see below. What still bounds all of them is the drawer
+itself: you cannot hand over notes that are not in it.
 
 Two things follow from picking rather than typing. The ceiling is known *before* the
 amount is asked for, so the question states it instead of refusing a number afterwards;
 and «ճաշ», «Ճաշի համար» and «ճաշ 🙂» stop being three different things to a rule that has
-to add them up. The bot sends a code and `WITHDRAWAL_REASONS` in
-`web/app/services/money.py` decides both the note written on the row and the limit, so the
-report reads back one spelling and the owner can see at a glance which of the two it was.
-The shift allowance is summed over the rows that answer to it — a 6,000 parcel at noon
-does not leave the cashier unable to buy lunch. A withdrawal arriving with no code, or one
-this service has not heard of, keeps its typed text and the ordinary allowance: the two
+to add them up. The bot sends a code and `money._reason` in `web/app/services/money.py`
+decides both the note written on the row and the limit. «Այլ» keeps the typed words and
+writes the category in front of them — `Այլ՝ տաքսի` — so the row still says which rule it
+was taken under, which free text alone cannot say about itself. The shift allowance is
+summed over the rows that answer to it, matched by note pattern, so 6,000 to a courier at
+noon does not leave the cashier unable to buy lunch. A withdrawal arriving with no code, or
+one this service has not heard of, keeps its typed text and the ordinary allowance: the two
 services deploy separately, and the safe direction to err in is the one with a limit.
+
+**Cash can also move between shops, and the two ends are booked at different moments.**
+«Փոխանցել այլ խանութ» sends money from this till to another of the owner's — the one that
+has run out of change while this one is sitting on the day's takings. Only shops that are
+*open right now* are offered: money goes to a person, and a shut shop has nobody to hand it
+to and no session to book it into.
+
+The sender's withdrawal is written immediately, because the notes really have left their
+drawer and their own count tonight would otherwise be short. The receiving till does **not**
+rise until somebody there taps «Ստացա» — crediting it earlier would hold whoever counts that
+drawer to money still in a taxi. That confirmation arrives as a message the *web* service
+pushes to whoever is on shift there, with its two buttons on it, because this is the one
+thing in the bot where the people who have to act are not the people who started the
+action; the same envelopes are also listed under «Փոխանցումներ» for a message that was
+missed. «Չեմ ստացել» puts the money back in the drawer it left — nothing was spent, so
+nothing should have left the books — and is refused once that shop has shut, which leaves
+the transfer pending for the owner rather than burying a deposit in a settled till.
 
 **A shared drawer is locked, not just a shared worker.** `withdraw_by_worker` locked the
 calling worker's own shift row, which serialises that worker's own double-taps but not
@@ -766,6 +783,15 @@ and answers to nobody, so `/transfers` on the website applies immediately and re
 itself as decided by them. The quantity is always *added* at the far end: a transfer
 tops a shelf up, it does not replace what is on it, and the cost price travels with
 the box so moving stock cannot revalue it.
+
+**`money_transfers` is the same idea for cash, and it is not the same table.** Stock
+moves off one shelf onto another in a single step, once somebody agrees. Money is
+carried, and the carrying takes time: the sending drawer is short from the moment the
+envelope leaves and the receiving one is not up until it arrives, so the two ends are
+two ledger rows written at two different moments — a `withdrawal` at `pending`, a
+`deposit` at `received`, and on `rejected` a `deposit` back where it came from. Folding
+it into `transfers` would have meant a stock table with a nullable item, and folding it
+into the ledger alone would have left no row to answer «has it got there yet».
 
 Rules worth knowing before changing anything:
 
@@ -871,6 +897,10 @@ services cannot drift apart on what a failure means.
 | POST | `/sale/void` | undo the worker's last receipt in this shift |
 | POST | `/write-off` | stock that broke or expired, off the shelf without a sale → 201 |
 | POST | `/cash/withdraw` | cash out of the till, with the reason code that sets its ceiling → 201 |
+| GET | `/cash/transfers/stores` | the owner's other shops that are open right now, plus what this drawer holds |
+| POST | `/cash/transfers` | send cash to one of them → 201. Leaves this till at once; arrives at the other only when confirmed |
+| GET | `/cash/transfers/pending` | cash this shop has been told to expect and not yet confirmed |
+| POST | `/cash/transfers/{id}/decide` | «Ստացա» credits this till; «Չեմ ստացել» puts it back where it came from |
 | GET | `/shift/review` | the whole open shift: sales, breakage, shelf corrections, cash out, the drawer, the wage due |
 | POST | `/shift/till` | a second reading of the drawer, after closing took the first → 201 |
 | POST | `/shift/close-out` | declare the day's sales, count the drawer and end the shift, in one transaction |

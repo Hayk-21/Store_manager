@@ -79,31 +79,48 @@ TRANSFER_REQUESTED = (
     "Բոտում սեղմեք «🔄 Փոխանցումներ»՝ հաստատելու կամ մերժելու համար։"
 )
 
+# Cash on its way here from another shop. This one *does* carry its buttons,
+# unlike the stock request above: the money is already out of the other drawer and
+# does not enter this one until somebody says it arrived, so the answer is the
+# point of the message rather than a follow-up to it.
+MONEY_TRANSFER_SENT = (
+    "💵 <b>Գումար՝ «{store}» խանութից</b>\n\n"
+    "{worker}-ը ուղարկել է <b>{amount} ֏</b>։\n\n"
+    "Երբ գումարը ձեռքի տակ լինի, սեղմեք «Ստացա»՝ այն կավելանա ձեր դրամարկղին։"
+)
+MONEY_TRANSFER_RECEIVED = (
+    "✅ «{store}» խանութը հաստատեց՝ <b>{amount} ֏</b> ստացվել է։"
+)
+MONEY_TRANSFER_RETURNED = (
+    "↩️ «{store}» խանութը նշեց, որ <b>{amount} ֏</b>-ը չի ստացվել։\n\n"
+    "Գումարը վերադարձվել է ձեր դրամարկղ։"
+)
+
+# The two answers, as Telegram's own inline-keyboard shape. Built here rather than
+# in the bot because this is the service that sends the message — the callback
+# prefix is the bot's «mt», and a test holds the two together.
+MONEY_TRANSFER_CALLBACK = "mt"
+BTN_MONEY_TRANSFER_GOT_IT = "✅ Ստացա"
+BTN_MONEY_TRANSFER_MISSING = "❌ Չեմ ստացել"
+
+
+def money_transfer_buttons(transfer_id: int) -> dict:
+    return {
+        "inline_keyboard": [[
+            {
+                "text": BTN_MONEY_TRANSFER_GOT_IT,
+                "callback_data": f"{MONEY_TRANSFER_CALLBACK}:{transfer_id}:y",
+            },
+            {
+                "text": BTN_MONEY_TRANSFER_MISSING,
+                "callback_data": f"{MONEY_TRANSFER_CALLBACK}:{transfer_id}:n",
+            },
+        ]]
+    }
+
 
 def insufficient_stock_message(name: str, requested: int, available: int) -> str:
     return f"«{name}» — պահեստում կա ընդամենը {available} հատ, խնդրված է {requested}։"
-
-
-def till_over_cash_message(available) -> str:
-    """The drawer cannot be left with more than it holds.
-
-    Sent when a worker's closing count is above the cash the books say is in the
-    till. What they leave becomes the shop's float and the rest is what the owner is
-    owed, so a figure above the till reads as "the owner gets nothing tonight" and
-    quietly carries the difference into tomorrow's opening balance.
-
-    The ceiling is stated as a number, because the answer to "how much may I write"
-    is a number. What it is made of is described in words rather than added up term
-    by term: a wage or a withdrawal can be booked against the card side of the same
-    session, so a printed sum would not always tie out to the ceiling beside it.
-    """
-    return (
-        f"Այդքան կանխիկ դրամարկղում չկա։ Ըստ գրքերի դրամարկղում կա "
-        f"{available:,.0f} ֏՝ նախորդ հերթափոխից մնացածը գումարած օրվա կանխիկ "
-        f"վաճառքը, հանած աշխատավարձը և դրամարկղից վերցվածը։\n\n"
-        f"Գրեք {available:,.0f} ֏ կամ ավելի քիչ։ Եթե դրամարկղում իրականում ավելի "
-        f"շատ կանխիկ կա, զանգահարեք ղեկավարին։"
-    )
 
 
 def no_store_in_range_message(nearest_name: str | None, distance_m: int | None) -> str:

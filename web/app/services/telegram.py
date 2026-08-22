@@ -35,8 +35,17 @@ class Undeliverable(Exception):
         super().__init__(reason)
 
 
-async def send_message(chat_id: int, text: str) -> None:
-    """Deliver one message. Raises Undeliverable if Telegram says no."""
+async def send_message(
+    chat_id: int, text: str, reply_markup: dict | None = None
+) -> None:
+    """Deliver one message. Raises Undeliverable if Telegram says no.
+
+    ``reply_markup`` is Telegram's own inline-keyboard shape, passed straight
+    through. It is here for the messages that ask the reader to *do* something —
+    confirming cash sent from another shop — where making them go and find the
+    right screen is the difference between an answer and a shrug. The callback
+    data is the bot's to interpret; this service only carries it.
+    """
     if not settings.telegram_bot_token:
         log.warning(
             "TELEGRAM_BOT_TOKEN is not set; the message for chat %s was not sent. "
@@ -47,12 +56,12 @@ async def send_message(chat_id: int, text: str) -> None:
         return
 
     url = f"{API}/bot{settings.telegram_bot_token}/sendMessage"
+    payload: dict = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
-            response = await client.post(
-                url,
-                json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
-            )
+            response = await client.post(url, json=payload)
     except httpx.HTTPError as exc:
         log.warning("could not reach Telegram: %s", exc)
         raise Undeliverable("telegram unreachable") from exc

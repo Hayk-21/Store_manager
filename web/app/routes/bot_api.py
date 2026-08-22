@@ -22,6 +22,7 @@ from app.errors import BotError
 from app.repo import adjustments as adjustments_repo
 from app.repo import items as items_repo
 from app.repo import money as money_repo
+from app.repo import money_transfers as money_transfers_repo
 from app.repo import sales as sales_repo
 from app.repo import sessions as sessions_repo
 from app.repo import stores as stores_repo
@@ -36,6 +37,8 @@ from app.schemas import (
     CloseStoreRequest,
     EndShiftRequest,
     LocationPingRequest,
+    MoneyTransferDecision,
+    MoneyTransferRequest,
     NewItemRequest,
     OpenStoreRequest,
     SaleRequest,
@@ -48,6 +51,7 @@ from app.schemas import (
     WriteOffRequest,
 )
 from app.services import money as money_service
+from app.services import money_transfers as money_transfers_service
 from app.services import sales as sales_service
 from app.services import shifts as shifts_service
 from app.services import stock as stock_service
@@ -662,6 +666,86 @@ async def withdraw(body: WithdrawRequest) -> dict:
     worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
     return await money_service.withdraw_by_worker(
         worker, body.amount, body.purpose, body.idempotency_key, body.reason
+    )
+
+
+@router.get("/cash/transfers/stores")
+async def money_transfer_destinations(telegram_id: int = Query(gt=0)) -> dict:
+    """The shops that cash could be sent to right now, and what is in this till.
+
+    Only shops that are *open*: money goes to a person, not to a premises, and a
+    closed shop has nobody to hand it to and no session to book it into. The
+    worker's own shop is left out for the obvious reason.
+
+    ``available`` comes back with the list so the bot can say what the drawer holds
+    while asking for the number, instead of refusing it afterwards.
+    """
+    worker = await _worker(telegram_id)
+    shift = await sessions_repo.open_for_worker(worker.id)
+    if shift is None:
+        raise BotError("no_open_session")
+
+    totals = await money_repo.totals_for_session(shift["store_session_id"])
+    return {
+        "ok": True,
+        "available": f"{Decimal(totals['cash']):.2f}",
+        "stores": [
+            {"id": row["id"], "name": row["name"]}
+            for row in await stores_repo.list_open_for_owner(worker.owner_id)
+            if row["id"] != shift["store_id"]
+        ],
+    }
+
+
+@router.post("/cash/transfers", status_code=201)
+async def send_money(body: MoneyTransferRequest) -> dict:
+    """Send cash from this till to another of the owner's shops.
+
+    The withdrawal is booked here and now — the notes have left the drawer — and
+    the other shop's till only rises when somebody there confirms it arrived.
+    """
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
+    return await money_transfers_service.send_by_worker(
+        worker, body.to_store_id, body.amount, body.idempotency_key
+    )
+
+
+@router.get("/cash/transfers/pending")
+async def pending_money_transfers(telegram_id: int = Query(gt=0)) -> dict:
+    """Cash this shop has been told to expect and has not yet confirmed.
+
+    The notification carries its own buttons, so this is the way back to an
+    envelope whose message was missed, scrolled past, or sent to a colleague who
+    has since gone home.
+    """
+    worker = await _worker(telegram_id)
+    shift = await sessions_repo.open_for_worker(worker.id)
+    if shift is None:
+        raise BotError("no_open_session")
+
+    return {
+        "ok": True,
+        "incoming": [
+            {
+                "id": row["id"],
+                "amount": f"{Decimal(row['amount']):.2f}",
+                "from_store": row["from_store_name"],
+                "sent_by": row["sent_by_name"],
+            }
+            for row in await money_transfers_repo.pending_for_store(
+                worker.owner_id, shift["store_id"]
+            )
+        ],
+    }
+
+
+@router.post("/cash/transfers/{transfer_id}/decide")
+async def decide_money_transfer(transfer_id: int, body: MoneyTransferDecision) -> dict:
+    """Say whether the envelope arrived. Confirming credits this till in the same
+    step; saying it did not puts the money back in the drawer it left."""
+    worker = await _worker(body.telegram_id, body.telegram_name, body.telegram_username)
+    return await money_transfers_service.decide_by_worker(
+        worker, transfer_id, body.accept
     )
 
 

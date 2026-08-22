@@ -372,16 +372,35 @@ async def test_an_absurd_count_is_refused(client):
         )
 
 
-# -- more than is in there ----------------------------------------------------
+# -- more than the books say is in there --------------------------------------
 #
-# It happened, repeatedly, and it is worse than a wrong figure on a report. What the
-# worker says they are leaving *becomes* the shop's balance, so a drawer holding
-# 29,000 declared as 31,500 tells the owner they are owed nothing tonight and opens
-# tomorrow 2,500 above the cash that is actually on the premises — a hole nobody can
-# find afterwards, because the person who could have recounted the drawer went home.
+# A count is a reading of a real drawer, and the drawer is sometimes ahead of the
+# books: a sale entered late, change somebody put back, money returned from an
+# errand. Refusing the reading never made the books right — it left whoever was
+# locking up unable to shut the shop over a discrepancy they could not fix from the
+# door. So the figure is written down as counted, and the gap between it and the
+# books is kept beside it for the owner to settle off the report.
 
-async def test_a_worker_cannot_leave_more_than_the_drawer_holds(client):
-    """2,000 carried in and 7,000 taken is 9,000; 12,000 is not in there to leave."""
+async def test_a_worker_may_leave_more_than_the_books_say(client):
+    """2,000 carried in and 7,000 taken is 9,000 by the books. The drawer says 12,000,
+    and the drawer is the thing being counted."""
+    owner_id, store_id, item_id = await _a_shop(balance="2000.00")
+    worker, _ = await _worker(owner_id)
+    await _open(worker, "idem-open-1")
+    await sales_service.record_sale(
+        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
+    )
+
+    await _lock_up(worker, left="12000")
+
+    assert (await _reading())["counted"] == Decimal("12000.00")
+    assert await _balance(store_id) == Decimal("12000.00")
+
+
+async def test_the_gap_is_kept_beside_the_count(client):
+    """Both readings are stored: what the drawer held and what the books expected. The
+    owner is owed nothing on an evening the drawer came up over, and the difference is
+    on the report rather than argued with at the counter."""
     owner_id, _, item_id = await _a_shop(balance="2000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
@@ -389,49 +408,16 @@ async def test_a_worker_cannot_leave_more_than_the_drawer_holds(client):
         worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
     )
 
-    with pytest.raises(BotError) as raised:
-        await _lock_up(worker, left="12000")
+    await _lock_up(worker, left="12000")
 
-    assert raised.value.code == "validation_error"
-
-
-async def test_the_refusal_says_how_much_is_actually_there(client):
-    """A worker told only "no" recounts the same drawer and types the same number. The
-    ceiling is what they need, so the ceiling is in the sentence."""
-    owner_id, _, item_id = await _a_shop(balance="2000.00")
-    worker, _ = await _worker(owner_id)
-    await _open(worker, "idem-open-1")
-    await sales_service.record_sale(
-        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
-    )
-
-    with pytest.raises(BotError) as raised:
-        await _lock_up(worker, left="12000")
-
-    assert "9,000" in raised.value.message
-
-
-async def test_the_refused_close_leaves_the_shift_open(client):
-    """The refusal is raised inside the close-out's transaction, so the shop is still
-    open, the wage is unpaid and nothing has been written down. Otherwise a mistyped
-    number would end the day in a state nobody could finish."""
-    owner_id, _, _ = await _a_shop(balance="2000.00")
-    worker, _ = await _worker(owner_id)
-    await _open(worker, "idem-open-1")
-    session_id = await _session()
-
-    with pytest.raises(BotError):
-        await _lock_up(worker, left="12000")
-
-    assert await db.fetchval(
-        "SELECT closed_at IS NULL FROM store_sessions WHERE id = $1", session_id
-    ), "the shop is still open"
-    assert await db.fetchval("SELECT count(*) FROM till_counts") == 0
+    reading = await _reading()
+    assert reading["expected"] == Decimal("9000.00")
+    assert reading["handed_over"] == Decimal("0.00")
 
 
 async def test_the_whole_drawer_may_be_left_in_the_shop(client):
-    """The ceiling is the till, not a penny under it: a shop that keeps its whole
-    takings overnight hands the owner nothing and that is a legitimate evening."""
+    """A shop that keeps its whole takings overnight hands the owner nothing, and that
+    is a legitimate evening rather than a mistake."""
     owner_id, store_id, item_id = await _a_shop(balance="2000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
@@ -445,32 +431,10 @@ async def test_the_whole_drawer_may_be_left_in_the_shop(client):
     assert (await _reading())["handed_over"] == Decimal("0.00")
 
 
-async def test_the_ceiling_is_the_drawer_after_the_wage_has_left_it(client):
-    """The reading is taken once the shop is shut and the wage is paid, so the money
-    the worker is holding is not money they can also leave behind."""
-    owner_id, _, item_id = await _a_shop(balance="2000.00")
-    worker_id, _ = await make_worker(owner_id, "Անի", salary_amount="3000.00")
-    worker = shifts_service.Worker(
-        id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("3000.00")
-    )
-    await _open(worker, "idem-open-1")
-    await sales_service.record_sale(
-        worker, [{"item_id": item_id, "quantity": 2}], "cash", "idem-sale-1"
-    )
-
-    # 2,000 + 7,000 = 9,000 in the drawer, less the 3,000 wage they are taking home.
-    with pytest.raises(BotError):
-        await _lock_up(worker, left="9000")
-    await _lock_up(worker, "idem-lockup-2", left="6000")
-
-    assert (await _reading())["counted"] == Decimal("6000.00")
-
-
 async def test_a_drawer_that_reads_below_nothing_can_still_be_shut(client):
     """Nothing stops an owner taking more out of a till than the books say it holds,
     and under the old wage rules a cash salary out of a day taken on card did the same.
-    A ceiling that followed the till below zero would then refuse every figure there
-    is — including the honest zero that shuts the shop."""
+    The honest zero still shuts the shop."""
     owner_id, _, _ = await _a_shop()
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
@@ -486,23 +450,22 @@ async def test_a_drawer_that_reads_below_nothing_can_still_be_shut(client):
     assert (await _reading())["counted"] == Decimal("0.00")
 
 
-async def test_the_second_reading_is_capped_the_same_way(client):
-    """«Դրամարկղի մնացորդ» after the shop has shut is the same claim about the same
-    drawer, so it answers to the same books."""
+async def test_the_second_reading_is_uncapped_too(client):
+    """«Դրամարկղի մնացորդ» after the shop has shut is the same reading of the same
+    drawer, so it is taken on the same terms."""
     owner_id, store_id, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")
     await _lock_up(worker, left="30000")
 
-    with pytest.raises(BotError):
-        await till_service.declare_close(worker, Decimal("45000"), "idem-till-2")
+    await till_service.declare_close(worker, Decimal("45000"), "idem-till-2")
 
-    assert await _balance(store_id) == Decimal("30000.00"), "the first reading stands"
+    assert await _balance(store_id) == Decimal("45000.00"), "the later reading stands"
 
 
-async def test_the_owner_is_not_capped(client):
-    """Deliberately. They may know what the books do not — a sale nobody entered, a
-    drawer topped up in person — and the report is where that gets settled."""
+async def test_the_owner_can_correct_a_count_too(client):
+    """From the report, on a reading somebody else took — a nought too many, a bundle
+    counted twice — and the corrected figure becomes the shop's balance."""
     owner_id, store_id, _ = await _a_shop(balance="40000.00")
     worker, _ = await _worker(owner_id)
     await _open(worker, "idem-open-1")

@@ -540,10 +540,11 @@ async def test_a_replayed_close_out_counts_the_drawer_once(client, bot_headers):
     assert await db.fetchval("SELECT count(*) FROM till_counts") == 1
 
 
-async def test_more_than_the_drawer_holds_is_refused_over_the_wire(client, bot_headers):
-    """The refusal the bot has to be able to act on. It arrives as a 422 the same shape
-    as a mistyped amount, so the bot asks for the number again with the whole write-up
-    still in hand rather than throwing the day away."""
+async def test_more_than_the_drawer_holds_still_goes_through(client, bot_headers):
+    """A count is a reading of a real drawer, and the drawer can be ahead of the books —
+    a sale entered late, change put back. Refusing it left somebody locking up unable to
+    shut the shop over a gap they could not fix from the door, so the figure is taken and
+    the gap is kept beside it."""
     _, _, telegram_id, item_id, _ = await _on_shift(salary="0.00", till="2000.00")
     await _open(client, bot_headers, telegram_id)
 
@@ -553,14 +554,11 @@ async def test_more_than_the_drawer_holds_is_refused_over_the_wire(client, bot_h
         counted="12000",
     )
 
-    assert response.status_code == 422
-    body = response.json()["error"]
-    assert body["code"] == "validation_error"
-    assert "9,000" in body["message"], "2,000 carried in and 7,000 sold"
-    assert await db.fetchval(
-        "SELECT count(*) FROM work_sessions WHERE ended_at IS NULL"
-    ) == 1, "the shift is still open, and the day still there to be written up"
-    assert await db.fetchval("SELECT count(*) FROM sales") == 0
+    assert response.status_code == 200
+    count = response.json()["till_count"]
+    assert count["counted"] == "12000.00"
+    assert count["expected"] == "9000.00", "2,000 carried in and 7,000 sold"
+    assert count["handed_over"] == "0.00", "the owner is owed nothing, never a negative"
 
 
 async def test_a_figure_the_till_could_never_hold_is_refused(client, bot_headers):

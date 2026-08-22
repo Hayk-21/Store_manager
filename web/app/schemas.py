@@ -244,6 +244,30 @@ class WithdrawRequest(IdempotentRequest):
         return value
 
 
+class MoneyTransferRequest(IdempotentRequest):
+    """A cashier sending cash from their own till to another of the owner's shops.
+
+    Only the destination is sent: the source is the shop their shift is open in, so
+    nobody can move money out of a drawer they are not standing at.
+    """
+
+    to_store_id: int = Field(gt=0)
+    amount: Decimal = Field(gt=0)
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _string_money(cls, value):
+        if isinstance(value, float):
+            raise ValueError("send money as a decimal string, not a float")
+        return value
+
+
+class MoneyTransferDecision(BotRequest):
+    """Whether the envelope arrived, from the shop it was sent to."""
+
+    accept: bool
+
+
 class WriteOffRequest(IdempotentRequest):
     """Stock that left without being sold: broken, expired, lost."""
 

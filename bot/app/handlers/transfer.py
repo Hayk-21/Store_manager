@@ -19,6 +19,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from app import format, keyboards, texts
 from app.api import ApiError, ApiUnavailable, api, new_idempotency_key
+from app.handlers import cash
 
 log = logging.getLogger("storemanager.bot.transfer")
 
@@ -79,6 +80,11 @@ async def show(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         body, parse_mode=ParseMode.HTML,
         reply_markup=keyboards.transfer_menu(incoming),
     )
+    # Cash on its way here belongs on the same screen: it is the same question from
+    # the shop's side — what is somebody else sending us, and has it arrived? It
+    # comes with its own buttons and stays silent when there is nothing waiting, so
+    # this screen is unchanged for a shop nobody has sent money to.
+    await cash.show_waiting(update, context)
     return PICK_STORE
 
 

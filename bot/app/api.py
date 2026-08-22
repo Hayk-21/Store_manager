@@ -394,6 +394,48 @@ class Api:
             },
         )
 
+    async def money_transfer_stores(self, telegram_id: int) -> dict:
+        """The owner's other shops that are open right now, and what this till holds.
+
+        Only open ones: money goes to a person. The available figure comes back with
+        them so the question about the amount can say what there is to send.
+        """
+        return await self._call(
+            "GET", "/cash/transfers/stores", params={"telegram_id": telegram_id}
+        )
+
+    async def send_money(
+        self, telegram_id: int, to_store_id: int, amount: str, key: str
+    ) -> dict:
+        """Cash out of this till and on its way to another shop. Amount as a
+        decimal string, never a float."""
+        return await self._call(
+            "POST",
+            "/cash/transfers",
+            json={
+                "telegram_id": telegram_id,
+                "to_store_id": to_store_id,
+                "amount": amount,
+                "idempotency_key": key,
+            },
+        )
+
+    async def pending_money_transfers(self, telegram_id: int) -> dict:
+        return await self._call(
+            "GET", "/cash/transfers/pending", params={"telegram_id": telegram_id}
+        )
+
+    async def decide_money_transfer(
+        self, telegram_id: int, transfer_id: int, accept: bool
+    ) -> dict:
+        """Confirm or deny an envelope. No idempotency key: the row's own status is
+        the guard — a second tap finds it already answered and is told so."""
+        return await self._call(
+            "POST",
+            f"/cash/transfers/{transfer_id}/decide",
+            json={"telegram_id": telegram_id, "accept": accept},
+        )
+
     async def write_off(
         self,
         telegram_id: int,

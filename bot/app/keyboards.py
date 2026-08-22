@@ -63,6 +63,12 @@ CB_UNDO_STOCK = "us"
 # Why cash is being taken out of the till. A tap rather than typed text, because
 # the answer decides the ceiling and a ceiling cannot hang off free spelling.
 CB_REASON = "cr"
+# Picking the shop cash is being sent to, and answering an envelope that has
+# arrived. The second is **also minted by the web service**, which puts these
+# buttons on the message it pushes to the receiving shop — so the prefix is part
+# of a contract between the two services, and a test holds them together.
+CB_MONEY_STORE = "ms"
+CB_MONEY_TRANSFER = "mt"
 # Dismissing a confirmation, which happens outside any conversation. Nothing
 # builds one any more, but a keyboard already sitting in somebody's chat still
 # can, and a tap that spins forever is worse than one that says "cancelled".
@@ -390,11 +396,16 @@ def restock_empty() -> InlineKeyboardMarkup:
 
 
 def cash_reasons() -> InlineKeyboardMarkup:
-    """The two things a cashier takes money out for, as buttons.
+    """Why money is leaving the drawer, as buttons.
 
     Inline rather than on the reply keyboard: this question belongs to the
     message that asked it, and the codes travel with the tap, so a stray answer
     an hour later cannot be mistaken for the reason of a different withdrawal.
+
+    «Այլ» is last of the two spending reasons because it is the fallback: the one
+    thing anybody can put a figure on in advance is lunch, and everything else gets
+    asked about in words. «Փոխանցել այլ խանութ» is not a reason at all — the money
+    is not being spent, it is moving to another till — so it sits apart.
 
     Its own «Չեղարկել» because the reply keyboard is still the main menu at this
     step — nothing has been half-entered yet, so there is nothing to hide.
@@ -402,12 +413,43 @@ def cash_reasons() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(texts.BTN_CASH_LUNCH, callback_data=f"{CB_REASON}:lunch")],
+            [InlineKeyboardButton(texts.BTN_CASH_OTHER, callback_data=f"{CB_REASON}:other")],
             [InlineKeyboardButton(
-                texts.BTN_CASH_DELIVERY, callback_data=f"{CB_REASON}:delivery"
+                texts.BTN_CASH_TO_STORE, callback_data=f"{CB_REASON}:to_store"
             )],
             [InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)],
         ]
     )
+
+
+def money_transfer_stores(stores: list[dict]) -> InlineKeyboardMarkup:
+    """Which shop the cash is going to. The worker's own is not in the list, and
+    neither is one that is shut — the server leaves both out."""
+    rows = [
+        [InlineKeyboardButton(
+            store["name"][:64], callback_data=f"{CB_MONEY_STORE}:{store['id']}"
+        )]
+        for store in stores
+    ]
+    rows.append([InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)])
+    return InlineKeyboardMarkup(rows)
+
+
+def money_transfers_waiting(incoming: list[dict]) -> InlineKeyboardMarkup:
+    """A ✅ / ❌ pair per envelope, for the screen a worker goes to when the pushed
+    message was missed. The same callback data the web service puts on that
+    message, so both routes end in one handler."""
+    rows = []
+    for row in incoming:
+        rows.append([
+            InlineKeyboardButton(
+                texts.BTN_MONEY_GOT_IT, callback_data=f"{CB_MONEY_TRANSFER}:{row['id']}:y"
+            ),
+            InlineKeyboardButton(
+                texts.BTN_MONEY_MISSING, callback_data=f"{CB_MONEY_TRANSFER}:{row['id']}:n"
+            ),
+        ])
+    return InlineKeyboardMarkup(rows)
 
 
 def count_the_till() -> InlineKeyboardMarkup:

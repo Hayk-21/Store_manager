@@ -374,6 +374,80 @@ async def test_the_delivery_fee_is_still_bounded_by_the_drawer(client):
     ) == 0
 
 
+# -- «Այլ», the way out of a closed list ---------------------------------------
+
+async def test_other_keeps_the_cashiers_own_words_under_its_category(client):
+    """The whole point of it: nobody can list in advance what money leaves a till
+    for. The category is written in front so the row still says which rule it was
+    taken under, and free text alone cannot say that about itself."""
+    _, _, worker, _, _ = await _till_with("20000.00")
+
+    await money_service.withdraw_by_worker(
+        worker, Decimal("6000"), "տաքսի՝ ապրանքով", "idem-key-cash-01",
+        money_service.REASON_OTHER,
+    )
+
+    assert await db.fetchval(
+        "SELECT note FROM cash_movements WHERE kind = 'withdrawal'"
+    ) == "Այլ՝ տաքսի՝ ապրանքով"
+
+
+async def test_other_answers_to_no_allowance(client):
+    """A plumber costs what a plumber costs. The only thing that can refuse it is
+    an empty drawer."""
+    _, _, worker, _, session_id = await _till_with("20000.00")
+
+    await money_service.withdraw_by_worker(
+        worker, Decimal("6000"), "ջրմուղի վարպետ", "idem-key-cash-01",
+        money_service.REASON_OTHER,
+    )
+
+    assert (await money_repo.totals_for_session(session_id))["cash"] == Decimal("14000.00")
+
+
+async def test_other_is_still_bounded_by_the_drawer(client):
+    """No allowance is not no rule."""
+    _, _, worker, _, _ = await _till_with("500.00")
+
+    with pytest.raises(BotError) as caught:
+        await money_service.withdraw_by_worker(
+            worker, Decimal("6000"), "տաքսի", "idem-key-cash-01",
+            money_service.REASON_OTHER,
+        )
+
+    assert "500" in caught.value.message
+
+
+async def test_other_does_not_eat_the_lunch_money(client):
+    """The pattern that matches it carries the cashier's own words after the
+    category, so the sum behind the allowance has to skip it by its opening rather
+    than by the whole note."""
+    _, _, worker, _, session_id = await _till_with("20000.00")
+    await money_service.withdraw_by_worker(
+        worker, Decimal("6000"), "առաքիչին", "idem-key-cash-01",
+        money_service.REASON_OTHER,
+    )
+
+    await money_service.withdraw_by_worker(
+        worker, Decimal("1000"), "Ճաշ", "idem-key-cash-02", money_service.REASON_LUNCH
+    )
+
+    assert (await money_repo.totals_for_session(session_id))["cash"] == Decimal("13000.00")
+
+
+async def test_other_with_nothing_typed_is_refused(client):
+    """An amount with no reason *is* the shortfall this exists to replace, just
+    with a number attached."""
+    _, _, worker, _, _ = await _till_with("20000.00")
+
+    with pytest.raises(BotError):
+        await money_service.withdraw_by_worker(
+            worker, Decimal("600"), "   ", "idem-key-cash-01", money_service.REASON_OTHER
+        )
+
+    assert await db.fetchval("SELECT count(*) FROM cash_movements WHERE kind = 'withdrawal'") == 0
+
+
 async def test_lunch_taken_twice_still_stops_at_the_allowance(client):
     _, _, worker, _, _ = await _till_with("20000.00")
     await money_service.withdraw_by_worker(
