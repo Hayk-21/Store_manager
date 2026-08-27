@@ -218,17 +218,19 @@ async def by_hour(
 
 
 async def top_items(
-    owner_id: int,
-    since: date,
-    until: date,
-    tz: str,
-    store_id: int | None = None,
-    limit: int = 10,
+    owner_id: int, since: date, until: date, tz: str, store_id: int | None = None
 ) -> list[asyncpg.Record]:
-    """What actually earns, biggest first.
+    """What actually earns, biggest first — every item that sold, not a top ten.
 
     Grouped by name rather than id: the same product stocked in two shops is one
     line to the owner, not two.
+
+    The whole list comes back and the page decides how much of it to draw. It used to
+    stop at ten in SQL, which made "and the eleventh?" unanswerable and left the number
+    of products sold unknowable without asking a second time. The aggregate is the same
+    work either way — every sale line of the period is read and grouped whether ten rows
+    come back or three hundred — and three hundred rows of four columns is nothing on
+    the wire beside the page they are drawn on.
     """
     return await db.fetch(
         f"""
@@ -242,9 +244,8 @@ async def top_items(
         {_WHERE}
          GROUP BY i.name
          ORDER BY revenue DESC
-         LIMIT $6
         """,
-        owner_id, since, until, tz, store_id, limit,
+        owner_id, since, until, tz, store_id,
     )
 
 

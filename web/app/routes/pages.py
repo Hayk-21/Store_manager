@@ -725,6 +725,7 @@ async def statistics_page(
     since: str | None = None,
     until: str | None = None,
     category: list[str] = Query(default=[]),
+    items: str | None = None,
     user: CurrentUser = Depends(current_user),
 ):
     """What the business earned, and what that cost.
@@ -734,6 +735,10 @@ async def statistics_page(
 
     ``since``/``until`` are how clicking a bar on the chart works: the link asks for that
     one day, or that one week, by date. They win over ``period`` when present.
+
+    ``items=all`` opens the product table out to everything that sold, rather than the
+    ten that sold best. Anything else — including nothing — is the ten, so an owner who
+    has never asked for the long list is not handed three hundred rows.
     """
     since, until, preset = statistics.range_for(
         period, forms.optional_day(since, "Սկիզբ"), forms.optional_day(until, "Ավարտ")
@@ -741,6 +746,7 @@ async def statistics_page(
     store_id = forms.optional_id(store_id)
     if store_id is not None:
         await _store_or_404(user.id, store_id)
+    here = request.url.path + "?" + str(request.url.query)
     return render(
         request,
         "statistics.html",
@@ -749,11 +755,16 @@ async def statistics_page(
             "active": "statistics",
             "preset": preset,
             "presets": statistics.PRESETS,
-            **await statistics.overview(user.id, since, until, store_id),
+            # Both directions, so the table can be shut again. The anchor keeps the
+            # click where it happened: without it, opening a table two thirds of the
+            # way down the page reloads it at the top.
+            "items_all_href": _with_param(here, "items", "all") + "#items",
+            "items_top_href": _with_param(here, "items", None) + "#items",
+            **await statistics.overview(
+                user.id, since, until, store_id, all_items=items == "all"
+            ),
             **await _spending_context(
-                user.id, since, until,
-                request.url.path + "?" + str(request.url.query),
-                store_id, categories=category,
+                user.id, since, until, here, store_id, categories=category,
             ),
         },
     )
@@ -1172,6 +1183,24 @@ def _the_owners_share(totals, counts) -> dict:
         "count_is_stale": was != till_now,
         "nobody_counted": False,
     }
+
+
+def _with_param(page: str, key: str, value: str | None) -> str:
+    """``page`` with one query parameter set to ``value``, or dropped when it is None.
+
+    Same reasoning as ``_filtered_by``: built from the URL being looked at, so opening
+    the product table keeps the period, the shop and the category filter already
+    chosen instead of quietly resetting the page around it.
+    """
+    parts = urlsplit(page)
+    query = [
+        (k, v)
+        for k, v in parse_qsl(parts.query, keep_blank_values=True)
+        if k != key
+    ]
+    if value is not None:
+        query.append((key, value))
+    return urlunsplit(("", "", parts.path, urlencode(query), ""))
 
 
 def _filtered_by(page: str, labels: Sequence[str]) -> str:

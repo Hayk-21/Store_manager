@@ -122,6 +122,99 @@ async def test_todays_trading_shows_under_today(client):
     assert "10,500.00" in page.text, "three at 3,500, sold today"
 
 
+# -- the product table -------------------------------------------------------
+
+async def _a_shop_selling(how_many: int):
+    """One shift in which ``how_many`` different products each sold once.
+
+    Prices descend with the number, so «Ապրանք-00» is always the best seller and the
+    order the table draws them in is known rather than guessed at.
+    """
+    owner_id = await make_owner("@ownerhandle")
+    store_id = await make_store(owner_id, "Խանութ 1", lat=YEREVAN_LAT, lng=YEREVAN_LNG)
+    lines = []
+    for n in range(how_many):
+        price = f"{1000 * (how_many - n)}.00"
+        item_id = await make_item(
+            owner_id, store_id, f"Ապրանք-{n:02d}", count=10,
+            self_price="100.00", sell_price=price,
+        )
+        lines.append({"item_id": item_id, "quantity": 1,
+                      "unit_price": price, "payment_method": "cash"})
+    worker_id, _ = await make_worker(owner_id, "Անի", salary_amount="0.00")
+    worker = shifts_service.Worker(
+        id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("0.00")
+    )
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-1", 900)
+    await shifts_service.close_out_shift(
+        worker, lines, "idem-close-1", close_store_too=True, counted=Decimal("0"),
+    )
+    return owner_id, store_id
+
+
+async def test_the_product_table_stops_at_ten_but_says_how_many_there_are(client):
+    """Ten answers "what earns". It cannot answer "and the rest", and a table that
+    stops without saying it has stopped answers that question wrong."""
+    await _a_shop_selling(14)
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=7")
+
+    assert "Ապրանք-00" in page.text
+    assert "Ապրանք-09" in page.text
+    assert "Ապրանք-10" not in page.text, "the eleventh is behind the link, not on the page"
+    assert "բոլորը (14)" in page.text, "and the link says how many it would add"
+
+
+async def test_every_product_is_shown_when_the_long_list_is_asked_for(client):
+    await _a_shop_selling(14)
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=7&items=all")
+
+    for n in range(14):
+        assert f"Ապրանք-{n:02d}" in page.text, f"Ապրանք-{n:02d} is missing from the full list"
+
+
+async def test_opening_the_product_table_keeps_the_period_and_the_shop(client):
+    """The link is built from the URL being looked at. Losing the filters would answer
+    a question about one shop's week with the whole business's month."""
+    _, store_id = await _a_shop_selling(12)
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/statistics?period=90&store_id={store_id}")
+
+    assert f"period=90&amp;store_id={store_id}&amp;items=all#items" in page.text
+
+
+async def test_a_shop_with_few_products_is_not_offered_a_longer_list(client):
+    """There is no eleventh to go and look at, and a link to the same page reads as
+    one that is broken."""
+    await _a_shop_selling(3)
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=7")
+
+    assert "Ապրանք-02" in page.text
+    assert "items=all" not in page.text
+
+
+async def test_a_product_that_never_sold_is_not_one_of_the_products_sold(client):
+    """The table is about sales, so the count beside it has to be a count of things
+    that sold — stock sitting on a shelf has no line here to be counted."""
+    owner_id, store_id = await _a_shop_selling(3)
+    # A name of its own, and not one the page could say for its own reasons: the
+    # footnote under the table is about unsold stock and contains the word.
+    await make_item(owner_id, store_id, "Դարակի-վրա-մնացած", count=5,
+                    self_price="100.00", sell_price="900.00")
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=7&items=all")
+
+    assert "Դարակի-վրա-մնացած" not in page.text
+    assert "բոլոր 3 ապրանքը" in page.text
+
+
 # -- the spending breakdown --------------------------------------------------
 
 async def test_the_period_spending_is_listed_item_by_item(client):

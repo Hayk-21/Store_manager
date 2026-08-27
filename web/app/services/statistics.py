@@ -39,6 +39,11 @@ PRESETS = {
 }
 DEFAULT_PRESET = "30"
 
+# How many products the «Ամենավաճառվող ապրանքները» table shows before it has to be
+# asked for the rest. Ten answers "what earns"; it cannot answer "what doesn't", and
+# a shop with sixty lines on the shelf had fifty of them invisible on this page.
+TOP_ITEMS = 10
+
 # What a range asked for by date calls itself. Not in PRESETS: it is not something to
 # pick from a list, it is what you get by clicking a day on the chart.
 CUSTOM = "custom"
@@ -148,9 +153,18 @@ def _bucketed(rows: list) -> tuple[list[dict], bool]:
 
 
 async def overview(
-    owner_id: int, since: date, until: date, store_id: int | None = None
+    owner_id: int,
+    since: date,
+    until: date,
+    store_id: int | None = None,
+    all_items: bool = False,
 ) -> dict:
     """Everything the statistics page shows, for one period and one filter.
+
+    ``all_items`` opens the product table out to everything that sold in the period
+    instead of the ten that sold best. The query returns the whole list either way, so
+    this is a slice rather than a second trip to the database — and it is why
+    ``item_count`` can say how many there are without one.
 
     The thirteen queries behind it are asked **all at once**. Not one of them
     consumes another's result — they are thirteen independent questions about the
@@ -232,7 +246,16 @@ async def overview(
         "bars": bars,
         "weekly": weekly,
         "peak": peak,
-        "top_items": top_items,
+        "top_items": top_items if all_items else top_items[:TOP_ITEMS],
+        # The full count, not the drawn one — the link that opens the table says how
+        # many rows it is about to add, and «Ցույց տալ բոլորը (10)» beside ten rows
+        # would be a link to nothing.
+        "item_count": len(top_items),
+        "items_shown": len(top_items) if all_items else min(len(top_items), TOP_ITEMS),
+        "all_items": all_items,
+        # So the link back can name the number it goes back to without the template
+        # holding a second copy of it.
+        "top_items_limit": TOP_ITEMS,
         "by_store": by_store,
         "by_worker": by_worker,
         "by_category": by_category,

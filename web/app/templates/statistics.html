@@ -338,7 +338,25 @@
 
 {# -- what sells ------------------------------------------------------------ #}
 <div class="card">
-  <h2>Ամենավաճառվող ապրանքները</h2>
+  <div class="status-head">
+    <h2 id="items">
+      {% if all_items %}Բոլոր ապրանքները{% else %}Ամենավաճառվող ապրանքները{% endif %}
+    </h2>
+    {# Only worth offering when there is something behind it: a period in which
+       eight products sold has no eleventh to go and look at, and a link that says
+       «ցույց տալ բոլորը (8)» beside all eight of them is a link to the same page. #}
+    {% if item_count > items_shown or all_items %}
+    <span class="sort-links">
+      <span class="muted small">Ցույց տալ՝</span>
+      <a href="{{ items_top_href }}"
+         class="{% if not all_items %}is-on{% endif %}"
+         {% if not all_items %}aria-current="true"{% endif %}>լավագույն {{ top_items_limit }}-ը</a>
+      <a href="{{ items_all_href }}"
+         class="{% if all_items %}is-on{% endif %}"
+         {% if all_items %}aria-current="true"{% endif %}>բոլորը ({{ item_count }})</a>
+    </span>
+    {% endif %}
+  </div>
   {% if top_items %}
   {# The tallest bar, and never zero. A shelf price of nought is allowed — a
      giveaway, a replacement handed over — so a period whose only sales went out at
@@ -366,6 +384,20 @@
       </tbody>
     </table>
   </div>
+  {# What the rows add up to, and what they leave out. An owner reading a list of
+     products asks "is this all of them?", and a table that stops without saying so
+     answers it wrong. Only what sold is here: a product nobody bought this period has
+     no line, because it has no sale to have a line about. #}
+  <p class="muted small">
+    {# «Ցուցադրված է 3-ը 3-ից» is a truncation notice about a table that was not
+       truncated, and it makes a complete list read as a partial one. #}
+    {% if items_shown == item_count %}
+      Այս ժամանակահատվածում վաճառված բոլոր {{ item_count }} ապրանքը՝ ըստ վաճառքի։
+    {% else %}
+      Ցուցադրված է {{ items_shown }}-ը {{ item_count }}-ից՝ ըստ վաճառքի։
+    {% endif %}
+    Չվաճառված ապրանքները այստեղ չեն երևում։
+  </p>
   {% else %}
   <p class="muted">Դեռ տվյալ չկա։</p>
   {% endif %}
