@@ -626,6 +626,52 @@ async def review_this_shift(telegram_id: int = Query(gt=0)) -> dict:
     }
 
 
+@router.get("/shift/receipts")
+async def receipts_of_this_shift(
+    telegram_id: int = Query(gt=0), limit: int = Query(20, ge=1, le=50)
+) -> dict:
+    """The worker's own receipts from the open shift, so one can be picked and fixed.
+
+    A cashier rings up the wrong quantity, the wrong product or the wrong payment
+    method, and until now the only way back was the undo button under the
+    confirmation — which is gone as soon as the next sale is made, and which they
+    scroll past without seeing more often than not. After that the mistake belonged
+    to the owner. This is the list that gives it back to the person who made it.
+
+    Their shift and nobody else's: ``work_session_id`` is one worker's, so there is
+    no argument by which this returns a colleague's takings. Voided receipts are
+    included and marked rather than dropped — see the repo function.
+    """
+    worker = await _worker(telegram_id)
+    shift = await sessions_repo.open_for_worker(worker.id)
+    if shift is None:
+        raise BotError("no_open_session")
+
+    rows = await sales_repo.receipts_in_work_session(shift["id"], limit)
+    return {
+        "ok": True,
+        "store_name": shift["store_name"],
+        # What the list is a window on. The bot says so when the two differ, because
+        # "the receipt I want is not here" and "there are no receipts" need different
+        # answers.
+        "total_receipts": await sales_repo.count_in_work_session(shift["id"]),
+        "receipts": [
+            {
+                "id": row["id"],
+                "sold_at": row["sold_at"].isoformat(),
+                "total": f"{Decimal(row['total']):.2f}",
+                "payment_method": row["payment_method"],
+                "is_delivery": row["is_delivery"],
+                "voided": row["voided"],
+                # None when a receipt somehow has no lines. The bot prints a dash
+                # rather than the word "None" at a cashier.
+                "lines": row["lines"] or "",
+            }
+            for row in rows
+        ],
+    }
+
+
 @router.post("/items/adjust", status_code=201)
 async def adjust_stock(body: AdjustStockRequest) -> dict:
     """Correct what the shelf says, from the counter.

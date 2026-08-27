@@ -7,6 +7,7 @@ an item or a payment method.
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 
 from telegram import (
@@ -79,6 +80,21 @@ CB_MONEY_REQUEST = "mq"
 # builds one any more, but a keyboard already sitting in somebody's chat still
 # can, and a tap that spins forever is worse than one that says "cancelled".
 CB_DISMISS = "d"
+# Correcting a receipt: opening the list from «Վիճակ», choosing one, and confirming
+# the cancellation. Three prefixes rather than one with a verb inside it, so each
+# gets its own handler and a mis-parse cannot turn "show me this" into "void this".
+# «^fx$» is anchored at both ends and cannot match the other two, which carry a
+# colon and an id.
+CB_FIX = "fx"
+CB_FIX_PICK = "fxp"
+CB_FIX_VOID = "fxv"
+# Its own close rather than CB_DISMISS: that one answers «Չեղարկվեց», which on a
+# screen asking "shall I cancel this receipt?" reads as confirmation that it did.
+CB_FIX_CLOSE = "fxc"
+# The row of a receipt that is already cancelled. Not CB_NOOP: that one is only
+# handled *inside* the restock and transfer conversations, and a tap on it from this
+# list — which lives outside every flow — would spin until Telegram gave up.
+CB_FIX_NOOP = "fxn"
 
 
 def off_shift() -> ReplyKeyboardMarkup:
@@ -288,6 +304,90 @@ def undo_sale(sale_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton(texts.BTN_UNDO_SALE, callback_data=f"{CB_UNDO}:{sale_id}")]]
     )
+
+
+def status_actions() -> InlineKeyboardMarkup:
+    """The way into «Ուղղել գրառումը», hung on the status screen.
+
+    On the status message rather than the main keyboard. The main keyboard is what a
+    cashier taps while serving somebody, and a button that undoes sales does not
+    belong between «Վաճառք» and «Պահեստ»; the moment they want it is the moment they
+    are looking at their own day, which is this screen.
+    """
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(texts.BTN_FIX_RECORDS, callback_data=CB_FIX)]]
+    )
+
+
+# Telegram truncates a long button label, and does it mid-word. The time and the
+# money are what a cashier recognises their own receipt by, so the product names are
+# what gets cut.
+_ROW_LINES = 24
+
+
+def fix_list(receipts: list[dict]) -> InlineKeyboardMarkup:
+    """One row per receipt, newest first, plus a way out.
+
+    Voided ones are drawn too and are not tappable — they carry CB_NOOP, the button
+    that answers and does nothing. Leaving them out entirely would make a cashier
+    who cancelled the wrong thing a minute ago unable to see that they had.
+    """
+    rows = []
+    for receipt in receipts:
+        at = _clock(receipt.get("sold_at"))
+        total = _short_money(receipt.get("total"))
+        if receipt.get("voided"):
+            rows.append([InlineKeyboardButton(
+                texts.FIX_ROW_VOIDED.format(time=at, total=total),
+                callback_data=CB_FIX_NOOP,
+            )])
+            continue
+        lines = (receipt.get("lines") or "—")[:_ROW_LINES]
+        rows.append([InlineKeyboardButton(
+            texts.FIX_ROW.format(time=at, total=total, lines=lines),
+            callback_data=f"{CB_FIX_PICK}:{receipt['id']}",
+        )])
+    rows.append([InlineKeyboardButton(texts.BTN_FIX_CLOSE, callback_data=CB_FIX_CLOSE)])
+    return InlineKeyboardMarkup(rows)
+
+
+def fix_one(sale_id: int) -> InlineKeyboardMarkup:
+    """Cancel this receipt, or go back to the list without touching it.
+
+    Two taps to undo a sale rather than one. The undo button under a fresh
+    confirmation can be a single tap because it is attached to the thing it undoes
+    and there is only one of it; a row chosen off a list of nine is a different
+    risk, and the receipt is read back in full before the second tap.
+    """
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(texts.BTN_FIX_VOID, callback_data=f"{CB_FIX_VOID}:{sale_id}")],
+        [InlineKeyboardButton(texts.BTN_FIX_LIST, callback_data=CB_FIX),
+         InlineKeyboardButton(texts.BTN_FIX_CLOSE, callback_data=CB_FIX_CLOSE)],
+    ])
+
+
+def _clock(iso: str | None) -> str:
+    """The hour and minute off an ISO timestamp, for a button label.
+
+    Kept here rather than taken from ``format`` because a keyboard must never raise:
+    a label that cannot be built takes the whole screen down, and a receipt with an
+    unreadable timestamp is still a receipt that needs cancelling.
+    """
+    if not iso:
+        return "—"
+    try:
+        return datetime.fromisoformat(iso).strftime("%H:%M")
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _short_money(value) -> str:
+    if value is None:
+        return "—"
+    try:
+        return f"{Decimal(str(value)):,.0f} ֏"
+    except (ArithmeticError, TypeError, ValueError):
+        return "—"
 
 
 def undo_stock(key: str) -> InlineKeyboardMarkup:

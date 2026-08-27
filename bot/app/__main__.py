@@ -31,6 +31,7 @@ from app.handlers import (
     defect,
     money_ask,
     newitem,
+    records,
     restock,
     sell,
     shift,
@@ -444,6 +445,25 @@ def build() -> Application:
     # never compete for a tap.
     application.add_handler(
         CallbackQueryHandler(restock.undo, pattern=f"^{keyboards.CB_UNDO_STOCK}:")
+    )
+    # Correcting a receipt already rung up. Outside every flow for the same reason the
+    # undo button is: these sit on a message a cashier comes back to. «^fx$» is
+    # anchored, so it cannot swallow «fxp:», «fxv:» or «fxc» — but it is registered
+    # first anyway, because the ordering is what a reader checks.
+    application.add_handler(
+        CallbackQueryHandler(records.show_list, pattern=f"^{keyboards.CB_FIX}$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(records.pick, pattern=f"^{keyboards.CB_FIX_PICK}:")
+    )
+    application.add_handler(
+        CallbackQueryHandler(records.void, pattern=f"^{keyboards.CB_FIX_VOID}:")
+    )
+    application.add_handler(
+        CallbackQueryHandler(records.close, pattern=f"^{keyboards.CB_FIX_CLOSE}$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(records.already_voided, pattern=f"^{keyboards.CB_FIX_NOOP}$")
     )
     application.add_handler(MessageHandler(_exact(texts.BTN_DEFECT), defect.begin))
     application.add_handler(MessageHandler(_exact(texts.BTN_TAKE_CASH), cash.begin))

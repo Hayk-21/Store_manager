@@ -289,6 +289,19 @@ class Api:
             "GET", "/shift/review", params={"telegram_id": telegram_id}
         )
 
+    async def shift_receipts(self, telegram_id: int, limit: int = 20) -> dict:
+        """This worker's own receipts from the open shift, newest first.
+
+        What «Ուղղել գրառումը» is a list of. Each one carries its id, which is what
+        makes the correction land on the receipt the cashier pointed at rather than
+        on whatever happens to be last.
+        """
+        return await self._call(
+            "GET",
+            "/shift/receipts",
+            params={"telegram_id": telegram_id, "limit": limit},
+        )
+
     async def transfer_sources(self, telegram_id: int) -> dict:
         """The owner's other shops — the ones a box could be asked for from."""
         return await self._call(

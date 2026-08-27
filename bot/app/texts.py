@@ -35,6 +35,16 @@ BTN_UNDO_SALE = "↩️ Չեղարկել վաճառքը"
 BTN_UNDO_STOCK = "↩️ Չեղարկել ուղղումը"
 BTN_OTHER_PRICE = "✏️ Այլ գին"
 BTN_STATUS = "📊 Վիճակ"
+# Correcting a receipt already rung up. Lives on «Վիճակ» rather than on the main
+# keyboard: a cashier looks for their mistake where they look at their day.
+BTN_FIX_RECORDS = "✏️ Ուղղել գրառումը"
+BTN_FIX_VOID = "↩️ Չեղարկել այս չեկը"
+BTN_FIX_LIST = "⬅️ Ցուցակ"
+# «Թաքցնել», not «Փակել». A cashier has no button that closes the shop and must not
+# appear to grow one — test_there_is_no_close_the_store_button holds every BTN_ label
+# to that, and it is right to: the last shift to end closes the shop, and a button
+# that looks like it does the same is how a colleague's day gets ended for them.
+BTN_FIX_CLOSE = "✖️ Թաքցնել"
 BTN_STOCK = "📦 Պահեստ"
 BTN_END_SHIFT = "🚪 Ավարտել իմ հերթափոխը"
 BTN_CANCEL = "✖️ Չեղարկել"
@@ -327,6 +337,52 @@ STATUS_CARRIED = "\n<i>Որից {amount}՝ նախորդ հերթափոխից մ�
 # against; this is the shop's takings through the other door.
 STATUS_DELIVERIES = "Առաքում՝ {receipts} պատվեր\n"
 STATUS_NO_SHIFT = "Դուք հերթափոխի մեջ չեք։ Սեղմեք «{open_button}»։"
+
+# -- correcting a receipt ----------------------------------------------------
+#
+# A cashier rings up two instead of three, cash instead of card, the wrong flavour
+# off a list of forty. The undo button under the confirmation covers the first ten
+# seconds; after the next sale it is scrolled away, and until now everything past
+# that belonged to the owner. This is the way back for the person who made the
+# mistake, and it stays inside their own shift.
+FIX_LIST = (
+    "✏️ <b>Ձեր չեկերը այս հերթափոխին</b>\n\n"
+    "Ընտրեք այն չեկը, որը սխալ եք գրանցել։"
+)
+# Said under the list rather than on the confirmation alone, so a cashier knows what
+# they are about to get before they tap: nothing is deleted, the goods come back on
+# the shelf, and the correct sale is entered afterwards as a new one.
+FIX_HOW = (
+    "\n\n<i>Չեղարկված չեկի ապրանքը վերադառնում է պահեստ, գումարը՝ դուրս է գալիս "
+    "դրամարկղից։ Ճիշտ վաճառքը գրանցեք նորից՝ «{sell_button}» կոճակով։</i>"
+)
+# Only when the list is a window on something longer. «Վերջին 20-ը» under twenty
+# receipts is a sentence about a limit nobody has reached.
+FIX_LIST_TRUNCATED = "\n\n<i>Ցուցադրված են վերջին {shown} չեկերը {total}-ից։</i>"
+FIX_NOTHING = "Այս հերթափոխին դեռ վաճառք չեք գրանցել՝ ուղղելու բան չկա։"
+# One row of the list, as a button. Kept short: Telegram truncates a long button
+# label in the middle of a word and the time is what a cashier recognises.
+FIX_ROW = "{time} · {total} · {lines}"
+FIX_ROW_VOIDED = "✖️ {time} · {total} (չեղարկված)"
+FIX_ONE = (
+    "🧾 <b>Չեկ {time}</b>\n\n"
+    "{lines}\n\n"
+    "Ընդամենը՝ {total} · {method}\n\n"
+    "Չեղարկե՞լ այս չեկը։"
+)
+FIX_ONE_DELIVERY = "\n<i>Սա առաքման պատվեր է։</i>\n"
+FIX_ALREADY_VOIDED = "Այս չեկն արդեն չեղարկված է։"
+# The list is a snapshot: a receipt can be cancelled from another window, or the
+# shift can end, between drawing it and tapping a row.
+FIX_GONE = "Այս չեկը այլևս հասանելի չէ։ Բացեք ցուցակը նորից՝ «{status_button}»։"
+FIX_DONE = (
+    "↩️ Չեկը չեղարկվեց՝ {total}։\n"
+    "Ապրանքը վերադարձվեց պահեստ։\n\n"
+    "Ձեր վաճառքը՝ կանխիկ {cash} · քարտ {card}"
+)
+FIX_CLOSED = "Ցուցակը թաքցվեց։"
+METHOD_CASH = "կանխիկ"
+METHOD_CARD = "քարտ"
 
 SHIFT_ENDED = (
     "🚪 Ձեր հերթափոխն ավարտված է։\n\n"

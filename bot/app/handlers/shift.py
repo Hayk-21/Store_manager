@@ -264,7 +264,14 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             carried=format.carried_line(session["store_totals"]),
         ),
         parse_mode=ParseMode.HTML,
-        reply_markup=keyboards.on_shift(),
+        # «Ուղղել գրառումը» hangs off this screen once there is something to correct,
+        # and a shift with no receipts yet gets the working keyboard back instead.
+        # A message carries one markup or the other, not both — the reply keyboard is
+        # already up from before and Telegram leaves it there.
+        reply_markup=(
+            keyboards.status_actions() if session["sales"]["receipts"]
+            else keyboards.on_shift()
+        ),
     )
 
 

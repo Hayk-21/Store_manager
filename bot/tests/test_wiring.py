@@ -534,6 +534,57 @@ async def test_a_failed_ping_still_stops_and_still_says_nothing():
     assert replies == [], "a worker who gets told off for walking will stop sharing"
 
 
+def _takes(data: str):
+    """The handler that would answer this tap, outside every conversation."""
+    from app.handlers import records  # noqa: F401  (imported for the caller's asserts)
+
+    for handler in build().handlers[0]:
+        if isinstance(handler, ConversationHandler):
+            continue
+        check = handler.check_update(_tap(data))
+        if check is not None and check is not False:
+            return handler
+    return None
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        keyboards.CB_FIX,
+        f"{keyboards.CB_FIX_PICK}:41",
+        f"{keyboards.CB_FIX_VOID}:41",
+        keyboards.CB_FIX_CLOSE,
+        keyboards.CB_FIX_NOOP,
+    ],
+)
+def test_every_correction_button_has_a_handler_outside_the_flows(data):
+    """These sit on a message a cashier comes back to ten minutes later, so none of
+    them may depend on a conversation still being open. An unhandled callback spins
+    on the phone until Telegram gives up, which reads as the bot being broken."""
+    assert _takes(data) is not None, f"{data} goes unanswered"
+
+
+def test_the_correction_prefixes_do_not_swallow_each_other():
+    """«fx», «fxp», «fxv», «fxc» and «fxn» all start with the same two letters, and
+    the list handler matching a tap meant for the cancel would redraw the list
+    instead of cancelling — or worse, the other way round."""
+    from app.handlers import records
+
+    assert _takes(keyboards.CB_FIX).callback is records.show_list
+    assert _takes(f"{keyboards.CB_FIX_PICK}:41").callback is records.pick
+    assert _takes(f"{keyboards.CB_FIX_VOID}:41").callback is records.void
+    assert _takes(keyboards.CB_FIX_CLOSE).callback is records.close
+    assert _takes(keyboards.CB_FIX_NOOP).callback is records.already_voided
+
+
+def test_the_undo_button_still_belongs_to_selling():
+    """«u:41» and «fxv:41» both cancel a receipt and must not compete: the first is
+    the button under a fresh sale, the second the one on the correction screen."""
+    from app.handlers import sell as sell_handlers
+
+    assert _takes(f"{keyboards.CB_UNDO}:41").callback is sell_handlers.undo
+
+
 def test_the_shift_buttons_are_registered_outside_the_flow_too():
     """They have to work when no write-up is running."""
     handlers = build().handlers[0]

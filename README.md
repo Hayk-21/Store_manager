@@ -290,6 +290,21 @@ now and what the shift is about to pay. This is the last moment any of it can be
 fixed without the owner, so showing only the sales — which is what it did — was
 showing one of the things it settles.
 
+A mistake does not have to wait for the write-up either. «📊 Վիճակ» carries
+«✏️ Ուղղել գրառումը», which lists this worker's own receipts from this shift — whole,
+newest first, each one tappable (`GET /shift/receipts`). Choosing one reads it back
+and offers to cancel it; cancelling puts the goods back on the shelf, reverses the
+money and leaves the receipt in place with `voided_at` set, so the owner sees both
+halves. The correct sale is then entered again as a new one.
+
+Nothing here is an *edit*. A receipt is never rewritten and never deleted: an edit
+that quietly turned 3 into 2 would leave no trace of the 3, which is the shape a
+shortfall hides in. The list is one work session's, and a work session belongs to one
+worker, so a cashier cannot reach a colleague's receipt or yesterday's — the server
+refuses it even if the button is forged. Before this existed, a mis-rung receipt was
+reversible only for as long as the undo button under the confirmation stayed on
+screen, which is about one more sale.
+
 Sections with nothing in them are left out; a heading with nothing under it reads as
 something that failed to load. Sections are also cut off past 25 rows, and say so:
 Telegram *rejects* a message over 4096 characters rather than trimming it, so an
@@ -989,6 +1004,7 @@ services cannot drift apart on what a failure means.
 | GET | `/cash/requests/pending` | what this shop is being asked for and has not answered |
 | POST | `/cash/requests/{id}/decide` | yes or no. **The one call that may be an owner answering** — resolved from the Telegram account, not the body |
 | GET | `/shift/review` | the whole open shift: sales, breakage, shelf corrections, cash out, the drawer, the wage due |
+| GET | `/shift/receipts` | this worker's own receipts from this shift, whole and newest first — the list «Ուղղել գրառումը» corrects one from. Cancelled ones come back marked |
 | POST | `/shift/till` | a second reading of the drawer, after closing took the first → 201 |
 | POST | `/shift/close-out` | declare the day's sales, count the drawer and end the shift, in one transaction |
 | POST | `/shift/end` | end the shift, pay the salary, close the store if last out. The bot never calls it |

@@ -185,6 +185,48 @@ async def lines_in_work_session(work_session_id: int) -> list[asyncpg.Record]:
     )
 
 
+async def receipts_in_work_session(
+    work_session_id: int, limit: int = 20
+) -> list[asyncpg.Record]:
+    """This worker's own receipts from this shift, newest first, one row each.
+
+    The other read of a shift, ``lines_in_work_session``, rolls sales up per product,
+    which is the right shape for "what have I sold today" and the wrong one for "which
+    receipt did I get wrong" — a total per product cannot be pointed at and corrected.
+    This one keeps the receipts whole and carries their ids, because the correcting is
+    done by choosing one.
+
+    Voided receipts come back too, marked. Dropping them would leave a cashier unable
+    to tell a receipt they already cancelled from one that was never there, and the
+    next thing they do is cancel something else to find out.
+
+    A shift is one worker's, so scoping to the work session scopes to them; there is
+    no way to reach a colleague's receipt through this.
+    """
+    return await db.fetch(
+        """
+        SELECT sa.id, sa.total, sa.payment_method, sa.sold_at, sa.is_delivery,
+               sa.voided_at IS NOT NULL AS voided,
+               (SELECT string_agg(i.name || ' ×' || si.quantity, ', ' ORDER BY si.id)
+                  FROM sale_items si JOIN items i ON i.id = si.item_id
+                 WHERE si.sale_id = sa.id) AS lines
+          FROM sales sa
+         WHERE sa.work_session_id = $1
+         ORDER BY sa.sold_at DESC, sa.id DESC
+         LIMIT $2
+        """,
+        work_session_id,
+        limit,
+    )
+
+
+async def count_in_work_session(work_session_id: int) -> int:
+    """How many receipts the shift has in total, so a truncated list can say so."""
+    return await db.fetchval(
+        "SELECT count(*) FROM sales WHERE work_session_id = $1", work_session_id
+    )
+
+
 async def summary_for_work_session(work_session_id: int) -> asyncpg.Record:
     """What one worker sold during one shift, voids excluded — over the counter and
     by delivery, kept apart.
