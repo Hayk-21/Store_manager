@@ -338,10 +338,27 @@
 
 {# -- what sells ------------------------------------------------------------ #}
 <div class="card">
-  <div class="status-head">
+  <div class="status-head wrap">
     <h2 id="items">
       {% if all_items %}Բոլոր ապրանքները{% else %}Ամենավաճառվող ապրանքները{% endif %}
+      {% if item_kind %}<span class="badge">{{ price_kinds[item_kind] }}</span>{% endif %}
     </h2>
+    {# Which price list, as its own row of links. Only this table narrows: the tiles
+       and the charts above are the whole period's, and wages and rent belong to no
+       price list at all — so a «Շահույթ» worked out from one list's takings would be
+       an answer to a question nobody asked. #}
+    <span class="sort-links">
+      <span class="muted small">Գնացուցակ՝</span>
+      <a href="{{ kind_hrefs[None] }}"
+         class="{% if not item_kind %}is-on{% endif %}"
+         {% if not item_kind %}aria-current="true"{% endif %}>բոլորը</a>
+      {% for key, label in price_kinds.items() %}
+      <a href="{{ kind_hrefs[key] }}"
+         class="{% if item_kind == key %}is-on{% endif %}"
+         {% if item_kind == key %}aria-current="true"{% endif %}>{{ label | lower }}
+         {%- if kind_revenue.get(key) %} · {{ kind_revenue[key] | short_money }}{% endif %}</a>
+      {% endfor %}
+    </span>
     {# Only worth offering when there is something behind it: a period in which
        eight products sold has no eleventh to go and look at, and a link that says
        «ցույց տալ բոլորը (8)» beside all eight of them is a link to the same page. #}
@@ -392,11 +409,23 @@
     {# «Ցուցադրված է 3-ը 3-ից» is a truncation notice about a table that was not
        truncated, and it makes a complete list read as a partial one. #}
     {% if items_shown == item_count %}
-      Այս ժամանակահատվածում վաճառված բոլոր {{ item_count }} ապրանքը՝ ըստ վաճառքի։
+      {% if item_kind %}«{{ price_kinds[item_kind] }}»՝ բոլոր {{ item_count }} ապրանքը՝
+        ըստ վաճառքի։
+      {% else %}Այս ժամանակահատվածում վաճառված բոլոր {{ item_count }} ապրանքը՝
+        ըստ վաճառքի։{% endif %}
     {% else %}
-      Ցուցադրված է {{ items_shown }}-ը {{ item_count }}-ից՝ ըստ վաճառքի։
+      Ցուցադրված է {{ items_shown }}-ը {{ item_count }}-ից՝ ըստ վաճառքի{% if item_kind %},
+      «{{ price_kinds[item_kind] }}» գնացուցակով{% endif %}։
     {% endif %}
     Չվաճառված ապրանքները այստեղ չեն երևում։
+    {# Money on lines that are neither list. Nothing records these any more — the
+       cashier ticks a price list and «Այլ գին» changes only the amount under it — but
+       older sales carry them, and «մանրածախ + մեծածախ» falling short of the takings
+       with no explanation is worse than the sentence that explains it. #}
+    {% if unlisted_revenue %}
+    <br>Այս ժամանակահատվածում {{ unlisted_revenue | money }}-ը գրանցվել է ձեռքով
+    նշված գնով և չի մտնում ոչ մեկ գնացուցակի մեջ։
+    {% endif %}
   </p>
   {% else %}
   <p class="muted">Դեռ տվյալ չկա։</p>

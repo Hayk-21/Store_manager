@@ -375,6 +375,11 @@ footer {
 
 .status-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .status-head h2 { margin: 0; }
+/* Two rows of links beside a heading do not fit one line on a phone, and without
+   this the second is pushed off the card rather than under it. Opt-in, so no other
+   heading's layout moves. */
+.status-head.wrap { flex-wrap: wrap; }
+.status-head.wrap .sort-links { margin-left: auto; }
 h3 { font-size: 14px; color: var(--muted); margin: 18px 0 8px; font-weight: 600; }
 /* An h3 inside a status-head keeps its own vertical rhythm above and loses the gap
    below, because the table it names follows immediately. */

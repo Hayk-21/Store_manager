@@ -395,19 +395,39 @@ async def choose_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return ASK_QUANTITY
 
     context.user_data["co_qty"] = quantity
-    await update.effective_message.reply_text(
-        texts.CLOSEOUT_ASK_PRICE.format(
-            item=format.esc(item["name"]),
-            quantity=quantity,
-            suggested=format.money(item["sell_price"]),
-        ),
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboards.suggested_prices(item),
-    )
+    context.user_data["co_price_kind"] = "retail"
+    context.user_data.pop("co_typed", None)
+    await _ask_price(update.effective_message, context)
     return ASK_PRICE
 
 
+async def _ask_price(message, context) -> None:
+    """The price step, the same shape the counter uses.
+
+    Both flows write the same rows into the same table, so a line written up at
+    close and a line rung up at the counter must not disagree about what «Մեծածախ»
+    means or how it is chosen.
+    """
+    item = context.user_data["co_item"]
+    await message.reply_text(
+        texts.ASK_PRICE_LIST.format(
+            item=format.esc(item["name"]),
+            quantity=context.user_data["co_qty"],
+            ok=texts.BTN_PRICE_OK,
+            other=texts.BTN_OTHER_PRICE,
+        ),
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboards.suggested_prices(
+            item,
+            context.user_data.get("co_price_kind", "retail"),
+            context.user_data["co_qty"],
+            context.user_data.get("co_typed"),
+        ),
+    )
+
+
 async def choose_suggested_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Tick a price list, or ask for a typed amount. Neither adds the line."""
     query = update.callback_query
     await query.answer()
     kind = query.data.split(":", 1)[1]
@@ -415,49 +435,62 @@ async def choose_suggested_price(update: Update, context: ContextTypes.DEFAULT_T
     if item is None:  # pragma: no cover
         return ConversationHandler.END
 
-    price = item.get("wholesale_price") if kind == "wholesale" else item.get("sell_price")
-
-    # «Այլ գին», or «Մեծածախ» on a product whose wholesale price was never set.
-    # Both wait for a number; which price list it belongs to has to survive the
-    # wait, or a trade price is written up as a haggle.
-    if kind == "other" or price is None:
-        context.user_data["co_kind_pending"] = (
-            "wholesale" if kind == "wholesale" else "custom"
-        )
+    if kind == "other":
+        # The tick stays put; only the number is being replaced.
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
-            texts.ASK_WHOLESALE_PRICE if kind == "wholesale" else texts.ASK_OTHER_PRICE
+            texts.ASK_WHOLESALE_PRICE
+            if context.user_data.get("co_price_kind") == "wholesale"
+            and item.get("wholesale_price") is None
+            else texts.ASK_OTHER_PRICE
         )
         return ASK_PRICE
 
-    context.user_data["co_price"] = Decimal(price)
-    # Which list it came from, kept beside the amount. The server records it, so
-    # "how much do we sell wholesale" stops being a guess about low prices.
-    context.user_data["co_price_kind"] = kind
-    context.user_data.pop("co_kind_pending", None)
+    context.user_data["co_price_kind"] = (
+        kind if kind in ("retail", "wholesale") else "retail"
+    )
+    context.user_data.pop("co_typed", None)
+    await query.edit_message_reply_markup(
+        reply_markup=keyboards.suggested_prices(
+            item, context.user_data["co_price_kind"], context.user_data["co_qty"], None
+        )
+    )
+    return ASK_PRICE
+
+
+async def confirm_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """«Շարունակել» — take the ticked list at the amount on the button."""
+    query = update.callback_query
+    await query.answer()
+    item = context.user_data.get("co_item")
+    if item is None:  # pragma: no cover
+        return ConversationHandler.END
+
+    kind = context.user_data.get("co_price_kind", "retail")
+    price = keyboards.price_for(item, kind, context.user_data.get("co_typed"))
+    if price is None:  # pragma: no cover - the button asks for a number instead
+        await query.message.reply_text(texts.ASK_WHOLESALE_PRICE)
+        return ASK_PRICE
+
+    context.user_data["co_price"] = price
     await query.edit_message_reply_markup(reply_markup=None)
     return await _ask_method(query.message, context)
 
 
 async def type_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """The point of the whole step: whatever the customer actually paid."""
+    """The point of the whole step: whatever the customer actually paid.
+
+    It replaces the number and leaves the price list alone, so a box written up at a
+    negotiated price is still written up as wholesale.
+    """
     price = format.parse_money(update.effective_message.text)
-    if price is None:
-        await update.effective_message.reply_text(texts.CLOSEOUT_BAD_PRICE)
-        return ASK_PRICE
-    if price < 0:
+    if price is None or price < 0:
         await update.effective_message.reply_text(texts.CLOSEOUT_BAD_PRICE)
         return ASK_PRICE
 
-    context.user_data["co_price"] = price
-    # Typed by hand, so 'custom' — unless the cashier got here by asking for a
-    # wholesale price the product does not have. The server downgrades a 'custom'
-    # to the list price's own kind if the number turns out to match it exactly, so
-    # leaving a prefilled wholesale price alone is not filed as a haggle.
-    context.user_data["co_price_kind"] = context.user_data.pop(
-        "co_kind_pending", "custom"
-    )
-    return await _ask_method(update.effective_message, context)
+    context.user_data["co_typed"] = price
+    await _ask_price(update.effective_message, context)
+    return ASK_PRICE
 
 
 async def _ask_method(message, context) -> int:

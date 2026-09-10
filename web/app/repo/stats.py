@@ -50,6 +50,14 @@ _WHERE = f"""
            AND ($5::bigint IS NULL OR sa.store_id = $5)
 """
 
+# The price lists «Ամենավաճառվող ապրանքները» can be narrowed to. None is all of them.
+#
+# 'custom' is not offered. Nothing produces it any more — the cashier ticks a list and
+# «Այլ գին» changes only the amount under the tick, see app/pricing.py — but years of
+# older lines carry it, and those are counted under neither heading. The table says so
+# underneath rather than inventing a home for them.
+PRICE_KINDS = {"retail": "Մանրածախ", "wholesale": "Մեծածախ"}
+
 _REVENUE = "coalesce(sum(si.line_total), 0)"
 _PROFIT = "coalesce(sum((si.unit_price - si.unit_cost) * si.quantity), 0)"
 
@@ -218,7 +226,8 @@ async def by_hour(
 
 
 async def top_items(
-    owner_id: int, since: date, until: date, tz: str, store_id: int | None = None
+    owner_id: int, since: date, until: date, tz: str,
+    store_id: int | None = None, kind: str | None = None
 ) -> list[asyncpg.Record]:
     """What actually earns, biggest first — every item that sold, not a top ten.
 
@@ -231,6 +240,10 @@ async def top_items(
     work either way — every sale line of the period is read and grouped whether ten rows
     come back or three hundred — and three hundred rows of four columns is nothing on
     the wire beside the page they are drawn on.
+
+    ``kind`` narrows to one price list. The predicate is on the *line*, not on the
+    receipt: a receipt holding one wholesale line and two retail ones is an ordinary
+    thing, and it belongs to both views — each for the part of it that is theirs.
     """
     return await db.fetch(
         f"""
@@ -242,8 +255,32 @@ async def top_items(
           JOIN sales sa ON sa.id = si.sale_id
           JOIN items i  ON i.id = si.item_id
         {_WHERE}
+           AND ($6::text IS NULL OR si.price_kind = $6)
          GROUP BY i.name
          ORDER BY revenue DESC
+        """,
+        owner_id, since, until, tz, store_id, kind,
+    )
+
+
+async def price_kind_totals(
+    owner_id: int, since: date, until: date, tz: str, store_id: int | None = None
+) -> list[asyncpg.Record]:
+    """What each price list took in the period, for the filter's own labels.
+
+    So «Մեծածախ» on the filter carries the figure it would show, and so the page can
+    tell whether the period holds any of the old 'custom' lines — money that belongs
+    to neither list and would otherwise go quietly missing between the two.
+    """
+    return await db.fetch(
+        f"""
+        SELECT si.price_kind,
+               {_REVENUE} AS revenue,
+               coalesce(sum(si.quantity), 0) AS units
+          FROM sale_items si
+          JOIN sales sa ON sa.id = si.sale_id
+        {_WHERE}
+         GROUP BY si.price_kind
         """,
         owner_id, since, until, tz, store_id,
     )

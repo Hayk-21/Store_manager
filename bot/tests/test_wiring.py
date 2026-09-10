@@ -644,8 +644,9 @@ def test_wholesale_is_offered_even_when_the_product_has_no_wholesale_price():
     assert len(with_wholesale.inline_keyboard) == len(without.inline_keyboard)
 
 
-def test_the_wholesale_button_says_which_kind_it_is():
-    """With a price it shows the price; without one it says it will ask."""
+def test_the_wholesale_box_carries_its_price_when_there_is_one():
+    """With a price the box shows it; without one it is still offered, because a
+    missing trade price is a reason to ask for a number, not to hide the box."""
     def label(wholesale):
         markup = keyboards.suggested_prices(
             {"sell_price": "4000.00", "wholesale_price": wholesale}
@@ -656,16 +657,49 @@ def test_the_wholesale_button_says_which_kind_it_is():
         )
 
     assert "2,500" in label("2500.00")
-    assert label(None) == texts.BTN_WHOLESALE_NO_PRICE
+    assert "Մեծածախ" in label(None)
 
 
 def test_a_price_can_always_be_typed_instead():
     """It was always possible and only the prose said so, which is not the same
     as being offered."""
-    markup = keyboards.suggested_prices({"sell_price": "4000.00", "wholesale_price": None})
+    markup = keyboards.suggested_prices({"sell_price": "4000.00", "wholesale_price": "2500.00"})
 
     labels = [b.text for row in markup.inline_keyboard for b in row]
     assert texts.BTN_OTHER_PRICE in labels
+
+
+def test_the_price_step_commits_only_through_continue():
+    """Every other button on it redraws. The failure this prevents is a keyboard
+    where a mistap books a sale that then has to be cancelled."""
+    markup = keyboards.suggested_prices(
+        {"sell_price": "4000.00", "wholesale_price": "2500.00"}
+    )
+
+    commits = [
+        b.callback_data for row in markup.inline_keyboard for b in row
+        if b.callback_data == keyboards.CB_PRICE_OK
+    ]
+    assert len(commits) == 1
+
+
+@pytest.mark.parametrize("flow", ["sell", "closeout"])
+def test_both_flows_answer_the_continue_button(flow):
+    """They write the same rows into the same table, so a line rung up at the
+    counter and one written up at close must not disagree about what «Մեծածախ»
+    means — nor leave a dead button on one of the two screens."""
+    import importlib
+
+    module = importlib.import_module(f"app.handlers.{flow}")
+    conversation = next(
+        h for h in build().handlers[0]
+        if isinstance(h, ConversationHandler) and module.ASK_PRICE in h.states
+    )
+
+    assert any(
+        h.check_update(_tap(keyboards.CB_PRICE_OK))
+        for h in conversation.states[module.ASK_PRICE]
+    ), f"{flow} draws «Շարունակել» and nothing answers it"
 
 
 def test_money_renders_the_way_the_website_does():

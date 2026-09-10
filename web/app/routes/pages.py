@@ -726,6 +726,7 @@ async def statistics_page(
     until: str | None = None,
     category: list[str] = Query(default=[]),
     items: str | None = None,
+    item_kind: str | None = None,
     user: CurrentUser = Depends(current_user),
 ):
     """What the business earned, and what that cost.
@@ -739,6 +740,10 @@ async def statistics_page(
     ``items=all`` opens the product table out to everything that sold, rather than the
     ten that sold best. Anything else — including nothing — is the ten, so an owner who
     has never asked for the long list is not handed three hundred rows.
+
+    ``item_kind`` narrows that table to one price list. An unknown value is ignored
+    rather than refused: it is not something anyone types, and answering a 422 to a
+    stale bookmark hides the whole page over a filter.
     """
     since, until, preset = statistics.range_for(
         period, forms.optional_day(since, "Սկիզբ"), forms.optional_day(until, "Ավարտ")
@@ -760,8 +765,17 @@ async def statistics_page(
             # way down the page reloads it at the top.
             "items_all_href": _with_param(here, "items", "all") + "#items",
             "items_top_href": _with_param(here, "items", None) + "#items",
+            # One href per price list, each keeping whatever else the page is showing.
+            # Built here rather than in the template for the same reason the toggle
+            # above is: assembling a URL out of parts loses the filters not named.
+            "kind_hrefs": {
+                key: _with_param(here, "item_kind", key) + "#items"
+                for key in (None, *stats_repo.PRICE_KINDS)
+            },
             **await statistics.overview(
-                user.id, since, until, store_id, all_items=items == "all"
+                user.id, since, until, store_id,
+                all_items=items == "all",
+                item_kind=item_kind if item_kind in stats_repo.PRICE_KINDS else None,
             ),
             **await _spending_context(
                 user.id, since, until, here, store_id, categories=category,

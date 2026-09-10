@@ -134,8 +134,14 @@ def build() -> Application:
                 MessageHandler(_free_text, closeout.choose_quantity),
             ],
             closeout.ASK_PRICE: [
+                # Ticking a price list first, and it stays on this step: it redraws
+                # the keyboard and commits nothing, exactly like the delivery box a
+                # screen later. «Շարունակել» is the commit.
                 CallbackQueryHandler(
                     closeout.choose_suggested_price, pattern=f"^{keyboards.CB_KIND}:"
+                ),
+                CallbackQueryHandler(
+                    closeout.confirm_price, pattern=f"^{keyboards.CB_PRICE_OK}$"
                 ),
                 MessageHandler(_free_text, closeout.type_price),
             ],
@@ -202,8 +208,14 @@ def build() -> Application:
             ],
             sell.ASK_QUANTITY: [MessageHandler(_free_text, sell.choose_quantity)],
             sell.ASK_PRICE: [
+                # Ticking a price list first, and it stays on this step: it redraws
+                # the keyboard and commits nothing, exactly like the delivery box a
+                # screen later. «Շարունակել» is the commit.
                 CallbackQueryHandler(
                     sell.choose_suggested_price, pattern=f"^{keyboards.CB_KIND}:"
+                ),
+                CallbackQueryHandler(
+                    sell.confirm_price, pattern=f"^{keyboards.CB_PRICE_OK}$"
                 ),
                 MessageHandler(_free_text, sell.type_price),
             ],

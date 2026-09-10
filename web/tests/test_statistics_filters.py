@@ -14,6 +14,7 @@ from decimal import Decimal
 import pytest
 
 from app.config import settings
+from app.db import db
 from app.repo import expenses as expenses_repo
 from app.services import shifts as shifts_service
 from app.services import statistics
@@ -276,3 +277,131 @@ async def test_a_period_with_no_spending_says_so(client):
 
     assert page.status_code == 200
     assert "Ծախսերը մանրամասն" in page.text
+
+
+# -- the price list ----------------------------------------------------------
+#
+# «Ամենավաճառվող ապրանքները» narrows to one price list. Only that table: the tiles
+# and the charts stay whole, because wages and rent belong to no price list and a
+# profit worked out from one list's takings would answer no question.
+
+async def _a_shop_selling_both_ways():
+    """One shift: one product over the counter, the same one by the box."""
+    owner_id = await make_owner("@ownerhandle")
+    store_id = await make_store(owner_id, "Խանութ 1", lat=YEREVAN_LAT, lng=YEREVAN_LNG)
+    counter = await make_item(
+        owner_id, store_id, "Մանրով", count=50,
+        self_price="1000.00", sell_price="3000.00",
+    )
+    boxed = await make_item(
+        owner_id, store_id, "Տուփով", count=50,
+        self_price="1000.00", sell_price="3000.00",
+    )
+    worker_id, _ = await make_worker(owner_id, "Անի", salary_amount="0.00")
+    worker = shifts_service.Worker(
+        id=worker_id, owner_id=owner_id, name="Անի", salary_amount=Decimal("0.00")
+    )
+    await shifts_service.open_store(worker, YEREVAN_LAT, YEREVAN_LNG, 20, "idem-open-1", 900)
+    await shifts_service.close_out_shift(
+        worker,
+        [{"item_id": counter, "quantity": 2, "unit_price": "3000.00",
+          "price_kind": "retail", "payment_method": "cash"},
+         {"item_id": boxed, "quantity": 10, "unit_price": "2000.00",
+          "price_kind": "wholesale", "payment_method": "cash"}],
+        "idem-close-1", close_store_too=True, counted=Decimal("0"),
+    )
+    return owner_id, store_id
+
+
+async def test_without_a_filter_both_price_lists_are_in_the_table(client):
+    await _a_shop_selling_both_ways()
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=7")
+
+    assert "Մանրով" in page.text
+    assert "Տուփով" in page.text
+
+
+async def test_the_wholesale_filter_leaves_only_wholesale_lines(client):
+    await _a_shop_selling_both_ways()
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=7&item_kind=wholesale")
+
+    assert "Տուփով" in page.text
+    assert "Մանրով" not in page.text
+
+
+async def test_the_retail_filter_leaves_only_retail_lines(client):
+    await _a_shop_selling_both_ways()
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=7&item_kind=retail")
+
+    assert "Մանրով" in page.text
+    assert "Տուփով" not in page.text
+
+
+async def test_the_two_lists_add_up_to_the_whole(client):
+    """The property the filter is only trustworthy if it has. A haggled box now keeps
+    its price list — see app/pricing.py — so nothing sits outside the two."""
+    owner_id, _ = await _a_shop_selling_both_ways()
+    since, until = settings.local_day(), settings.local_day()
+
+    whole = await statistics.overview(owner_id, since, until)
+    retail = await statistics.overview(owner_id, since, until, item_kind="retail")
+    wholesale = await statistics.overview(owner_id, since, until, item_kind="wholesale")
+
+    def takings(data):
+        return sum((Decimal(row["revenue"]) for row in data["top_items"]), Decimal("0"))
+
+    assert takings(retail) + takings(wholesale) == takings(whole)
+    assert whole["unlisted_revenue"] == Decimal("0")
+
+
+async def test_the_filter_does_not_touch_the_figures_above_it(client):
+    """The tiles are the period's, whatever the table is narrowed to. Rent is not
+    retail or wholesale, so a profit built on one list would be an invented number."""
+    owner_id, _ = await _a_shop_selling_both_ways()
+    since, until = settings.local_day(), settings.local_day()
+
+    whole = await statistics.overview(owner_id, since, until)
+    narrowed = await statistics.overview(owner_id, since, until, item_kind="wholesale")
+
+    assert narrowed["summary"]["revenue"] == whole["summary"]["revenue"]
+    assert narrowed["net_profit"] == whole["net_profit"]
+    assert len(narrowed["by_store"]) == len(whole["by_store"])
+
+
+async def test_the_filter_keeps_the_period_and_the_shop(client):
+    _, store_id = await _a_shop_selling_both_ways()
+    await login(client, "@ownerhandle")
+
+    page = await client.get(f"/statistics?period=90&store_id={store_id}")
+
+    assert f"period=90&amp;store_id={store_id}&amp;item_kind=wholesale#items" in page.text
+
+
+async def test_a_nonsense_price_list_shows_everything_rather_than_failing(client):
+    """Nobody types this. A stale bookmark should not hide the whole page."""
+    await _a_shop_selling_both_ways()
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=7&item_kind=nonsense")
+
+    assert page.status_code == 200
+    assert "Մանրով" in page.text and "Տուփով" in page.text
+
+
+async def test_money_in_neither_list_is_named_rather_than_lost(client):
+    """Older lines carry 'custom', which is neither list. Nothing writes it any more,
+    but «մանրածախ + մեծածախ» quietly falling short of the takings is exactly the gap
+    an owner is right not to trust."""
+    owner_id, _ = await _a_shop_selling_both_ways()
+    await db.execute("UPDATE sale_items SET price_kind = 'custom' WHERE quantity = 2")
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=7")
+
+    assert "ձեռքով" in page.text, "the page says the money is in neither list"

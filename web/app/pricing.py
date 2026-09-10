@@ -14,17 +14,25 @@ from app.errors import AppError
 
 CENT = Decimal("0.01")
 
+# 'custom' is still accepted and still read: years of lines carry it, and the
+# constraint on sale_items allows it. Nothing produces it any more — see below.
 KINDS = ("retail", "wholesale", "custom")
 
 
 def resolve_price(item, typed, kind: str | None) -> tuple[Decimal, str]:
-    """Turn a price list choice, or a typed number, into an amount and a reason.
+    """Turn a price list choice, and possibly a typed number, into an amount and a kind.
 
-    A typed price wins over the kind — somebody who wrote 3200 meant 3200 — but
-    it is only recorded as 'custom' when it actually differs from the listed
-    price it was offered as. Otherwise choosing "wholesale" and leaving the
-    prefilled number untouched would be filed as a haggle, and every wholesale
-    figure in the reports would read zero.
+    **The kind is chosen, not inferred.** The cashier ticks «Մանրածախ» or «Մեծածախ»
+    and that is what the line is; «Այլ գին» changes the number underneath it and
+    nothing else. A box sold wholesale after haggling is a wholesale sale — that is
+    what the shop did — and the amount it went for lives in ``unit_price``, which is
+    where the money has always been.
+
+    It used to work the other way: any typed amount that differed from the list price
+    was filed as 'custom', which took the line out of *both* price lists. So the
+    owner's «Մեծածախ» figure counted only the boxes that went at exactly the listed
+    number, every negotiated one silently became a third category, and a filter with
+    «մանրածախ» and «մեծածախ» on it could not add up to the takings it was split from.
 
     ``item`` needs ``name``, ``sell_price`` and ``wholesale_price``.
     """
@@ -54,5 +62,7 @@ def resolve_price(item, typed, kind: str | None) -> tuple[Decimal, str]:
     if typed_nothing:
         return listed, kind
 
-    price = Decimal(typed)
-    return (price, kind) if price == listed else (price, "custom")
+    # The typed number, under the kind that was ticked. A caller that explicitly
+    # asks for 'custom' still gets it — the owner's amend form on /reports can send
+    # it, and an old line being re-saved should not be re-labelled.
+    return Decimal(typed), kind

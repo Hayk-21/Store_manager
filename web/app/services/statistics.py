@@ -158,6 +158,7 @@ async def overview(
     until: date,
     store_id: int | None = None,
     all_items: bool = False,
+    item_kind: str | None = None,
 ) -> dict:
     """Everything the statistics page shows, for one period and one filter.
 
@@ -165,6 +166,11 @@ async def overview(
     instead of the ten that sold best. The query returns the whole list either way, so
     this is a slice rather than a second trip to the database — and it is why
     ``item_count`` can say how many there are without one.
+
+    ``item_kind`` narrows that same table to one price list. Only that table: the
+    tiles, the charts and the shop and worker comparisons are the whole period's, and
+    they stay so. Wages and rent do not belong to a price list at all, so a «Շահույթ»
+    that subtracted them from one list's takings would be an answer to no question.
 
     The thirteen queries behind it are asked **all at once**. Not one of them
     consumes another's result — they are thirteen independent questions about the
@@ -183,7 +189,7 @@ async def overview(
 
     (
         summary, rows, paid, breakage, stores, top_items, by_store, by_worker,
-        by_category, spending_rows, breakage_rows, hours, stock,
+        by_category, spending_rows, breakage_rows, hours, stock, kind_totals,
     ) = await db.fan_out(
         stats_repo.summary(owner_id, since, until, tz, store_id),
         stats_repo.daily(owner_id, since, until, tz, store_id),
@@ -201,7 +207,7 @@ async def overview(
         # look like a payment. It keeps its own figure and its own list.
         write_offs_repo.cost_between(owner_id, since, until, store_id),
         stores_repo.list_for_owner(owner_id),
-        stats_repo.top_items(owner_id, since, until, tz, store_id),
+        stats_repo.top_items(owner_id, since, until, tz, store_id, item_kind),
         stats_repo.by_store(owner_id, since, until, tz),
         stats_repo.by_worker(owner_id, since, until, tz, store_id),
         expenses_repo.by_category_between(owner_id, since, until),
@@ -216,6 +222,10 @@ async def overview(
         # built from.
         stats_repo.by_hour(owner_id, since, until, tz, store_id),
         stats_repo.stock_value(owner_id, store_id),
+        # What each price list took, whatever the table is currently narrowed to —
+        # so the filter's own buttons can carry their figures, and so the page can
+        # see money sitting in neither list.
+        stats_repo.price_kind_totals(owner_id, since, until, tz, store_id),
     )
 
     bars, weekly = _bucketed(rows)
@@ -256,6 +266,22 @@ async def overview(
         # So the link back can name the number it goes back to without the template
         # holding a second copy of it.
         "top_items_limit": TOP_ITEMS,
+        "item_kind": item_kind,
+        "price_kinds": stats_repo.PRICE_KINDS,
+        # Each list's takings for the whole period, keyed by kind, so the filter can
+        # label its own buttons.
+        "kind_revenue": {
+            row["price_kind"]: Decimal(row["revenue"]) for row in kind_totals
+        },
+        # Money on lines that are neither list: 'custom', from before the price list
+        # became a tick of its own. Zero for every period recorded since, and said out
+        # loud when it is not — «մանրածախ + մեծածախ» quietly failing to reach the
+        # total is exactly the kind of gap an owner is right not to trust.
+        "unlisted_revenue": sum(
+            (Decimal(row["revenue"]) for row in kind_totals
+             if row["price_kind"] not in stats_repo.PRICE_KINDS),
+            ZERO,
+        ),
         "by_store": by_store,
         "by_worker": by_worker,
         "by_category": by_category,

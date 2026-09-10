@@ -22,9 +22,7 @@ BTN_BRAND_NEW_ITEM = "🆕 Բոլորովին նոր ապրանք"
 # keyboards.payment_methods.
 BTN_DELIVERY_OFF = "⬜ Առաքում"
 BTN_DELIVERY_ON = "✅ Առաքում"
-# Offered when the product has no wholesale price on it. Tapping it asks for the
-# number rather than doing nothing — see keyboards.suggested_prices.
-BTN_WHOLESALE_NO_PRICE = "📦 Մեծածախ — գրել գինը"
+# "Not sold wholesale" while adding a product — an answer, so it gets a button.
 BTN_SKIP = "⏭ Բաց թողնել"
 BTN_RESTOCK_SUBMIT = "✅ Հաստատել փոփոխությունները"
 BTN_TRANSFERS = "🔄 Փոխանցումներ"
@@ -52,6 +50,17 @@ BTN_CASH = "💵 Կանխիկ"
 BTN_CARD = "💳 Քարտ"
 BTN_RETAIL = "🏪 Մանրածախ"
 BTN_WHOLESALE = "📦 Մեծածախ"
+# The price list as a tickbox, the same shape «Առաքում» has: tapping it commits
+# nothing, it fills the box and redraws. Which list the line belongs to and what it
+# went for are two different questions, and they used to be asked as one.
+BTN_RETAIL_ON = "✅ Մանրածախ"
+BTN_RETAIL_OFF = "⬜ Մանրածախ"
+BTN_WHOLESALE_ON = "✅ Մեծածախ"
+BTN_WHOLESALE_OFF = "⬜ Մեծածախ"
+BTN_PRICE_OK = "✅ Շարունակել"
+# Ticked «Մեծածախ» on a product whose wholesale price the owner never set. There is
+# no number to continue with, so the same button asks for one instead of continuing.
+BTN_PRICE_WRITE = "✏️ Գրել մեծածախ գինը"
 BTN_CO_ADD = "➕ Ավելացնել ապրանք"
 BTN_CO_REMOVE = "↩️ Ջնջել վերջինը"
 BTN_CO_DONE = "✅ Ավարտել ցուցակը"
@@ -157,6 +166,14 @@ NOT_ENOUGH_STOCK = (
 )
 QUANTITY_TOO_BIG = "Չափազանց մեծ թիվ։ Առավելագույնը {limit} հատ։"
 ASK_PRICE_KIND = "«{item}» ×{quantity}\n\nՈ՞ր գնով եք վաճառում։"
+# The price step. The list is ticked above, the amount is under «Շարունակել», and
+# «Այլ գին» changes the amount without changing the list — so a haggled box still
+# counts as a wholesale sale.
+ASK_PRICE_LIST = (
+    "«{item}» ×{quantity}\n\n"
+    "Նշեք գնացուցակը, ապա սեղմեք «{ok}»։\n"
+    "Այլ գումարով վաճառելու դեպքում սեղմեք «{other}» — գնացուցակը կմնա նույնը։"
+)
 ASK_PAYMENT = "«{item}» ×{quantity} = <b>{total}</b>\n\nԻնչպե՞ս վճարեց հաճախորդը։"
 SALE_DONE = (
     "✅ Գրանցվեց՝ <b>{item}</b> ×{quantity} — {total} ({method})\n"
@@ -188,11 +205,6 @@ CLOSEOUT_START = (
 )
 CLOSEOUT_ASK_ITEM = "Գրեք ապրանքի անունը կամ դրա մի մասը։"
 CLOSEOUT_ASK_QUANTITY = "«{item}» — քանի՞ հատ վաճառեցիք։\nՊահեստում կա {available} հատ։"
-CLOSEOUT_ASK_PRICE = (
-    "«{item}» ×{quantity}\n\n"
-    "Ի՞նչ գնով վաճառեցիք <b>մեկ հատը</b>։\n"
-    "Սեղմեք ներքևի կոճակը կամ գրեք գինը թվով (օրինակ՝ {suggested})։"
-)
 CLOSEOUT_BAD_PRICE = "Գրեք գինը թվով, օրինակ՝ 3500։"
 
 # -- the shift, read back before it ends -------------------------------------

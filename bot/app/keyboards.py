@@ -23,6 +23,10 @@ from app import texts
 CB_ITEM = "i"
 CB_PAY = "p"
 CB_KIND = "k"
+# Going ahead with the price the tickboxes settled on. Its own code rather than
+# CB_SUBMIT, which belongs to the write-up's confirm — two flows sharing a prefix is
+# how a tap lands in the wrong conversation.
+CB_PRICE_OK = "pk"
 CB_SUBMIT = "s"
 # Ticking "delivery". Sends nothing — it flips a flag and redraws the keyboard,
 # and the sale still goes when cash or card is tapped.
@@ -219,38 +223,74 @@ def item_choices(
     return InlineKeyboardMarkup(rows)
 
 
-def suggested_prices(item: dict) -> InlineKeyboardMarkup:
-    """The two price lists as one tap each, with typing always available.
+def suggested_prices(
+    item: dict, kind: str = "retail", quantity: int = 1, typed: Decimal | None = None
+) -> InlineKeyboardMarkup:
+    """The price list as a tickbox, then the amount to go ahead with.
 
-    Most lines go at one of these, so making the cashier type the usual number
-    every time would be the wrong default — but the price is a free field, and
-    that is the point of the step.
+    Shaped like «Առաքում»: the two boxes commit nothing at all, they fill in and
+    redraw. The sale moves on when «Շարունակել» is tapped, whichever box is filled.
 
-    «Մեծածախ» is always offered, even for a product with no wholesale price set.
-    It used to be hidden in that case, which meant a cashier selling a box at a
-    trade price had no way to say so: typing the number filed the line as a
-    haggle, and every wholesale figure in the reports read low. Tapping it with no
-    price set now asks for the number instead of vanishing.
+    That separation is the point. Which price list a line belongs to and what it
+    actually went for are two different facts, and asking them as one question meant
+    a cashier who haggled a box lost the ability to say it was a wholesale box:
+    typing a number filed the line as neither list. Now «Այլ գին» changes the number
+    under the tickbox and leaves the tick where it is.
+
+    «Մանրածախ» starts ticked because nearly every sale is one, so the common case is
+    still «Շարունակել» and nothing else — the same one tap it has always been.
+
+    A product whose wholesale price the owner never set still offers the box; ticking
+    it turns «Շարունակել» into «Գրել մեծածախ գինը», because there is no number to go
+    ahead with. Hiding the box instead — which it used to do — left a cashier selling
+    a box at a trade price with no way to say so at all.
     """
-    rows = [[InlineKeyboardButton(
-        f"{texts.BTN_RETAIL} — {Decimal(item['sell_price']):,.0f} ֏",
-        callback_data=f"{CB_KIND}:retail",
-    )]]
-    if item.get("wholesale_price") is not None:
-        rows.append([InlineKeyboardButton(
-            f"{texts.BTN_WHOLESALE} — {Decimal(item['wholesale_price']):,.0f} ֏",
+    wholesale = item.get("wholesale_price")
+    rows = [
+        [InlineKeyboardButton(
+            f"{texts.BTN_RETAIL_ON if kind == 'retail' else texts.BTN_RETAIL_OFF}"
+            f" — {Decimal(item['sell_price']):,.0f} ֏",
+            callback_data=f"{CB_KIND}:retail",
+        )],
+        [InlineKeyboardButton(
+            (f"{texts.BTN_WHOLESALE_ON if kind == 'wholesale' else texts.BTN_WHOLESALE_OFF}"
+             f" — {Decimal(wholesale):,.0f} ֏") if wholesale is not None
+            else (texts.BTN_WHOLESALE_ON if kind == "wholesale"
+                  else texts.BTN_WHOLESALE_OFF),
             callback_data=f"{CB_KIND}:wholesale",
+        )],
+    ]
+
+    price = price_for(item, kind, typed)
+    if price is None:
+        rows.append([InlineKeyboardButton(
+            texts.BTN_PRICE_WRITE, callback_data=f"{CB_KIND}:other"
         )])
     else:
+        # The line total, not the unit price. It is what the customer hands over,
+        # and it is the number a cashier checks before committing.
         rows.append([InlineKeyboardButton(
-            texts.BTN_WHOLESALE_NO_PRICE, callback_data=f"{CB_KIND}:wholesale"
+            f"{texts.BTN_PRICE_OK} — {price * quantity:,.0f} ֏",
+            callback_data=CB_PRICE_OK,
         )])
-    # Typing a price always worked, but only the prose said so, and a cashier
-    # looking at two buttons does not read the prose. Now it is a button that
-    # asks for the number.
-    rows.append([InlineKeyboardButton(texts.BTN_OTHER_PRICE, callback_data=f"{CB_KIND}:other")])
+        rows.append([InlineKeyboardButton(
+            texts.BTN_OTHER_PRICE, callback_data=f"{CB_KIND}:other"
+        )])
     rows.append([InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)])
     return InlineKeyboardMarkup(rows)
+
+
+def price_for(item: dict, kind: str, typed: Decimal | None) -> Decimal | None:
+    """What «Շարունակել» would charge — or None when there is nothing to charge.
+
+    A typed amount outranks the list, which is what «Այլ գին» is for. None happens
+    in exactly one case: «Մեծածախ» ticked on a product with no wholesale price and
+    nothing typed yet.
+    """
+    if typed is not None:
+        return typed
+    listed = item.get("wholesale_price") if kind == "wholesale" else item.get("sell_price")
+    return None if listed is None else Decimal(listed)
 
 
 def closeout_menu(empty: bool) -> ReplyKeyboardMarkup:

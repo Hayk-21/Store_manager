@@ -63,6 +63,18 @@ class _Context:
         self.user_data = dict(data)
 
 
+def _typed(text: str) -> Update:
+    """A price the cashier wrote out, which arrives as an ordinary message."""
+    user = User(id=1, first_name="Հայկ", is_bot=False)
+    return Update(
+        update_id=1,
+        message=Message(
+            message_id=1, date=None, chat=Chat(id=1, type="private"),
+            from_user=user, text=text,
+        ),
+    )
+
+
 def _tap(data: str) -> Update:
     user = User(id=1, first_name="Հայկ", is_bot=False)
     message = Message(
@@ -114,79 +126,169 @@ def test_a_confirmation_it_cannot_build_still_reads_as_success(broken):
     assert "սխալ" not in body.lower()
 
 
-# -- the wholesale button -----------------------------------------------------
+# -- the price list, as a tickbox ---------------------------------------------
+#
+# The price list and the price used to be one decision: tapping «Մեծածախ» charged
+# the wholesale price and moved straight on, and typing any other number filed the
+# line as 'custom' — out of *both* lists. So a box haggled down was neither a retail
+# sale nor a wholesale one, and «Մեծածախ» in the reports counted only the boxes that
+# went at exactly the listed number.
+#
+# Now the box is ticked first and commits nothing, the way «Առաքում» does a screen
+# later. «Այլ գին» changes the number under the tick and leaves the tick alone.
 
-def test_an_item_with_a_wholesale_price_offers_it():
-    """It went missing once by being absent from the item search payload, so
-    every product looked like one nobody sells wholesale."""
+ITEM = {"id": 3, "name": "HQD Cuvie", "count": 9,
+        "sell_price": "3500.00", "wholesale_price": "3000.00"}
+NO_TRADE_PRICE = {"id": 3, "name": "HQD Cuvie", "count": 9,
+                  "sell_price": "3500.00", "wholesale_price": None}
+
+
+def _price_screen(item=ITEM, kind="retail", quantity=1, typed=None):
     from app import keyboards
 
-    markup = keyboards.suggested_prices(
-        {"sell_price": "3500.00", "wholesale_price": "3000.00"}
+    markup = keyboards.suggested_prices(item, kind, quantity, typed)
+    return [b.text for row in markup.inline_keyboard for b in row], markup
+
+
+def _button(markup, data):
+    return next(
+        (b.text for row in markup.inline_keyboard for b in row if b.callback_data == data),
+        None,
     )
 
-    labels = [b.text for row in markup.inline_keyboard for b in row]
-    assert any(texts.BTN_WHOLESALE in label for label in labels)
-    assert any("3,000" in label for label in labels), "the actual wholesale price"
+
+def test_both_price_lists_are_on_screen_with_their_prices():
+    """The wholesale price went missing once by being absent from the item search
+    payload, so every product looked like one nobody sells wholesale."""
+    labels, _ = _price_screen()
+
+    assert any("Մանրածախ" in label and "3,500" in label for label in labels)
+    assert any("Մեծածախ" in label and "3,000" in label for label in labels)
 
 
-def test_an_item_without_one_still_offers_wholesale_and_asks_the_price():
+def test_retail_is_ticked_to_begin_with():
+    """Nearly every sale is retail, so the common case stays one tap on
+    «Շարունակել» — the same single tap it has always been."""
+    labels, _ = _price_screen()
+
+    assert texts.BTN_RETAIL_ON in "".join(labels), "մանրածախ starts ticked"
+    assert texts.BTN_WHOLESALE_OFF in "".join(labels), "and մեծածախ does not"
+
+
+def test_ticking_wholesale_moves_the_tick_and_the_price():
+    labels, markup = _price_screen(kind="wholesale", quantity=2)
+
+    assert texts.BTN_WHOLESALE_ON in "".join(labels)
+    assert texts.BTN_RETAIL_OFF in "".join(labels)
+    from app import keyboards
+    assert "6,000" in _button(markup, keyboards.CB_PRICE_OK), "2 × the trade price"
+
+
+def test_the_continue_button_shows_what_the_customer_pays():
+    """The line total, not the unit price. It is the number a cashier checks
+    against the money in their hand before committing."""
+    from app import keyboards
+
+    _, markup = _price_screen(quantity=3)
+
+    assert "10,500" in _button(markup, keyboards.CB_PRICE_OK)
+
+
+def test_a_typed_price_replaces_the_number_not_the_tick():
+    """The whole point of the change. A box sold wholesale after haggling is a
+    wholesale sale, and filing it as neither list is what made «Մեծածախ» read low."""
+    from app import keyboards
+
+    labels, markup = _price_screen(kind="wholesale", quantity=2, typed=Decimal("2800.00"))
+
+    assert texts.BTN_WHOLESALE_ON in "".join(labels), "still wholesale"
+    assert "5,600" in _button(markup, keyboards.CB_PRICE_OK), "at the typed price"
+
+
+def test_a_product_with_no_trade_price_still_offers_the_box():
     """A missing wholesale price is not a reason the cashier cannot sell a box at
     a trade price — only a reason nobody wrote the price down yet."""
+    labels, _ = _price_screen(item=NO_TRADE_PRICE)
+
+    assert any("Մեծածախ" in label for label in labels)
+
+
+def test_ticking_it_there_asks_for_the_number_instead_of_continuing():
+    """There is nothing to continue *with*, so the same button asks."""
     from app import keyboards
 
-    markup = keyboards.suggested_prices({"sell_price": "3500.00", "wholesale_price": None})
+    _, markup = _price_screen(item=NO_TRADE_PRICE, kind="wholesale")
 
-    labels = [b.text for row in markup.inline_keyboard for b in row]
-    assert texts.BTN_WHOLESALE_NO_PRICE in labels
+    assert _button(markup, keyboards.CB_PRICE_OK) is None
+    assert _button(markup, f"{keyboards.CB_KIND}:other") == texts.BTN_PRICE_WRITE
 
 
-async def test_tapping_wholesale_takes_the_wholesale_price():
-    async def noop(*args, **kwargs):
-        return None
+class _Quiet:
+    """Nothing on this step reaches Telegram in a test."""
 
-    async def fake_reply(self, *args, **kwargs):
-        return None
+    def __enter__(self):
+        async def noop(*args, **kwargs):
+            return None
 
-    context = _Context(
-        sell_item={"id": 3, "name": "HQD Cuvie", "count": 9,
-                   "sell_price": "3500.00", "wholesale_price": "3000.00"},
-        sell_qty=2,
-    )
+        self._patches = [
+            mock.patch.object(CallbackQuery, "answer", noop),
+            mock.patch.object(CallbackQuery, "edit_message_reply_markup", noop),
+            mock.patch.object(Message, "reply_text", noop),
+        ]
+        for patch in self._patches:
+            patch.start()
+        return self
 
-    with (
-        mock.patch.object(CallbackQuery, "answer", noop),
-        mock.patch.object(CallbackQuery, "edit_message_reply_markup", noop),
-        mock.patch.object(Message, "reply_text", fake_reply),
-    ):
-        await sell.choose_suggested_price(_tap("k:wholesale"), context)
+    def __exit__(self, *exc):
+        for patch in self._patches:
+            patch.stop()
+
+
+async def test_ticking_a_box_commits_nothing():
+    """It redraws and stays put, exactly like the delivery box. A tap that sent the
+    sale would leave a cashier who mistapped with a receipt to cancel."""
+    context = _Context(sell_item=ITEM, sell_qty=2)
+
+    with _Quiet():
+        state = await sell.choose_suggested_price(_tap("k:wholesale"), context)
+
+    assert context.user_data["sell_kind"] == "wholesale"
+    assert "sell_price" not in context.user_data, "nothing is charged yet"
+    assert state == sell.ASK_PRICE, "and the cashier is still on this step"
+
+
+async def test_continue_charges_the_ticked_list():
+    context = _Context(sell_item=ITEM, sell_qty=2, sell_kind="wholesale")
+
+    with _Quiet():
+        await sell.confirm_price(_tap("pk"), context)
 
     assert context.user_data["sell_price"] == Decimal("3000.00")
     assert context.user_data["sell_kind"] == "wholesale"
 
 
-async def test_tapping_retail_takes_the_shelf_price():
-    async def noop(*args, **kwargs):
-        return None
+async def test_continue_after_haggling_keeps_the_ticked_list():
+    """The regression this whole change exists to prevent."""
+    context = _Context(sell_item=ITEM, sell_qty=1, sell_kind="wholesale")
 
-    async def fake_reply(self, *args, **kwargs):
-        return None
+    with _Quiet():
+        await sell.type_price(_typed("2800"), context)
+        await sell.confirm_price(_tap("pk"), context)
 
-    context = _Context(
-        sell_item={"id": 3, "name": "HQD Cuvie", "count": 9,
-                   "sell_price": "3500.00", "wholesale_price": "3000.00"},
-        sell_qty=1,
-    )
+    assert context.user_data["sell_price"] == Decimal("2800.00")
+    assert context.user_data["sell_kind"] == "wholesale", "not 'custom'"
 
-    with (
-        mock.patch.object(CallbackQuery, "answer", noop),
-        mock.patch.object(CallbackQuery, "edit_message_reply_markup", noop),
-        mock.patch.object(Message, "reply_text", fake_reply),
-    ):
-        await sell.choose_suggested_price(_tap("k:retail"), context)
 
-    assert context.user_data["sell_price"] == Decimal("3500.00")
-    assert context.user_data["sell_kind"] == "retail"
+async def test_changing_the_list_drops_a_number_typed_for_the_other_one():
+    """«Մեծածախ» after typing 2,800 means the trade price, not 2,800 relabelled."""
+    context = _Context(sell_item=ITEM, sell_qty=1, sell_kind="retail")
+
+    with _Quiet():
+        await sell.type_price(_typed("2800"), context)
+        await sell.choose_suggested_price(_tap("k:wholesale"), context)
+        await sell.confirm_price(_tap("pk"), context)
+
+    assert context.user_data["sell_price"] == Decimal("3000.00")
 
 
 # -- committing ---------------------------------------------------------------

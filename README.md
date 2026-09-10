@@ -459,6 +459,24 @@ page: an expense filed as «Ամբողջ բիզնեսի համար» — rent, a
 here, once, and belongs to no single shop's report. Breakage is in neither: the money
 left when the goods were bought.
 
+**«Ամենավաճառվող ապրանքները» has two filters of its own**, and they narrow that table
+and nothing else. The first opens it from the ten best sellers to every product that
+sold (`?items=all`); the second picks a price list — `բոլորը · մանրածախ · մեծածախ`
+(`?item_kind=`) — so "which products do we actually move by the box" is a question the
+page can answer. Both links are built from the page's own URL, so the period, the shop
+and the category filter survive a click.
+
+Only that table narrows. The tiles, the charts and the shop and worker comparisons stay
+the whole period's, because wages and rent belong to no price list: a «Շահույթ» that
+subtracted the shop's rent from one list's takings would be an answer to a question
+nobody asked.
+
+The two lists add up to the whole, and that is a property of how a sale is recorded
+rather than a coincidence — see the price-list tickbox in the selling flow above. Sales
+predating that change can carry a third kind, `custom`, belonging to neither list; when
+a period holds any, the table says how much rather than letting the two figures quietly
+fail to reach the total.
+
 Beyond the headline figures, the page answers:
 
 * **when** the shop sells — takings by hour of the trading day, over the whole period.
@@ -641,6 +659,31 @@ global handler matched first, printed the greeting, and left the conversation ex
 where it was — so the one thing everybody tries when the bot seems stuck did nothing,
 while looking like it had. Down at the bottom a flow gets first refusal and clears
 itself; with nothing open, the global one answers. `test_wiring.py` holds both of these.
+
+### Which price list a sale belongs to
+
+A cashier ticks **«Մանրածախ»** or **«Մեծածախ»** — a box that commits nothing and only
+redraws, exactly the shape «Առաքում» has a screen later — and then taps
+**«✅ Շարունակել»** for the amount on the button, or **«✏️ Այլ գին»** to type a
+different one. `Մանրածախ` starts ticked, so an ordinary sale is still one tap.
+
+**Typing a price changes the number, never the tick.** That is the whole point of
+splitting the step in two. It used to be one decision: the price list and the price were
+picked by the same tap, and any amount that differed from the listed one was filed as
+`custom` — a third kind belonging to *neither* list. So a box haggled from 3,000 down to
+2,800 was not a wholesale sale, «Մեծածախ» in the reports counted only the boxes that went
+at exactly the listed number, and the price-list filter on `/statistics` could not add up
+to the takings it was split from. `resolve_price` (`app/pricing.py`) is the single place
+that decides this, shared by the bot and by the owner's amend form so the same choice
+cannot book a different amount depending on who made it.
+
+A product with no wholesale price still shows the box; ticking it turns «Շարունակել»
+into «Գրել մեծածախ գինը», because there is no number to go ahead with. Hiding the box
+instead — which it used to do — left a cashier selling a box at a trade price with no way
+to say so at all.
+
+`custom` is still read and still accepted: years of lines carry it, and the owner's amend
+form can send it. Nothing writes it any more.
 
 ### Typing an amount into the bot
 
