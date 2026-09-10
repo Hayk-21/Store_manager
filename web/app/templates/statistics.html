@@ -312,6 +312,48 @@
     Քարտով վճարվածն արդեն բանկում է, կանխիկը՝ դրամարկղում — դա է տարբերությունը
     ձեր հավաքածի և ինքնըստինքյան եղածի միջև։
   </p>
+
+  {# The same comparison by price list. The margin sits beside the revenue on
+     purpose: wholesale is deliberately thinner per unit, and whether the volume
+     pays for the discount is only visible with the two profits next to each
+     other. Both lists are always rows — «մեծածախ վաճառք չի եղել» is an answer —
+     and the parts sum to the total in the footer, because a split that falls
+     short of the whole with no explanation is a split the owner cannot trust. #}
+  <h3>Ըստ գնացուցակի</h3>
+  <div class="table-wrap">
+    <table class="cards">
+      <thead>
+        <tr>
+          <th></th><th class="num">Վաճառք</th><th class="num">Բաժինը</th>
+          <th class="num">Հատ</th><th class="num">Շահույթ ապրանքի վրա</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in kind_rows %}
+        <tr>
+          <td class="cell-name" data-label="">{{ row.label }}</td>
+          <td class="num" data-label="Վաճառք">{{ row.revenue | money }}</td>
+          <td class="num" data-label="Բաժինը">
+            {% if summary.revenue > 0 %}{{ (row.revenue / summary.revenue * 100) | round(1) }}%
+            {% else %}—{% endif %}
+          </td>
+          <td class="num" data-label="Հատ">{{ row.units }}</td>
+          <td class="num {% if row.profit < 0 %}negative{% else %}positive{% endif %}"
+              data-label="Շահույթ ապրանքի վրա">{{ row.profit | money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th>Ընդամենը</th>
+          <th class="num">{{ summary.revenue | money }}</th>
+          <th class="num">100%</th>
+          <th class="num">{{ summary.units }}</th>
+          <th class="num">{{ gross_profit | money }}</th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
 </div>
 {% endif %}
 

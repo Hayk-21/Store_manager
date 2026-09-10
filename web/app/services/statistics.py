@@ -273,6 +273,12 @@ async def overview(
         "kind_revenue": {
             row["price_kind"]: Decimal(row["revenue"]) for row in kind_totals
         },
+        # The «Ըստ գնացուցակի» comparison, one row per price list. Both lists are
+        # always rows, zeros included — «մեծածախ վաճառք չի եղել» is an answer, and a
+        # comparison with one side missing does not read as one. Old 'custom' lines
+        # get a row only when the period actually holds any; for everyone else it
+        # would be a permanent row of dashes about a kind nothing writes any more.
+        "kind_rows": _kind_rows(kind_totals),
         # Money on lines that are neither list: 'custom', from before the price list
         # became a tick of its own. Zero for every period recorded since, and said out
         # loud when it is not — «մանրածախ + մեծածախ» quietly failing to reach the
@@ -319,6 +325,34 @@ async def overview(
         # owner reads a chart to find out — so they are said rather than eyeballed.
         **_the_shape_of_the_period(bars),
     }
+
+
+def _kind_rows(kind_totals: list) -> list[dict]:
+    """The price lists as comparison rows, in a fixed order.
+
+    Fixed rather than sorted by revenue: «Մանրածախ» above «Մեծածախ» every period, so
+    the owner's eye lands on the same row in March as in April. A 'custom' row is
+    appended only when such lines exist — see the caller.
+    """
+    by_kind = {row["price_kind"]: row for row in kind_totals}
+    rows = []
+    for kind, label in stats_repo.PRICE_KINDS.items():
+        row = by_kind.get(kind)
+        rows.append({
+            "label": label,
+            "revenue": Decimal(row["revenue"]) if row else ZERO,
+            "profit": Decimal(row["profit"]) if row else ZERO,
+            "units": row["units"] if row else 0,
+        })
+    for kind, row in by_kind.items():
+        if kind not in stats_repo.PRICE_KINDS:
+            rows.append({
+                "label": "Փոփոխված գնով",
+                "revenue": Decimal(row["revenue"]),
+                "profit": Decimal(row["profit"]),
+                "units": row["units"],
+            })
+    return rows
 
 
 def _shaped(rows: list) -> list[dict]:

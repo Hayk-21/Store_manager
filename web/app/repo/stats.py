@@ -266,16 +266,22 @@ async def top_items(
 async def price_kind_totals(
     owner_id: int, since: date, until: date, tz: str, store_id: int | None = None
 ) -> list[asyncpg.Record]:
-    """What each price list took in the period, for the filter's own labels.
+    """What each price list took and earned in the period.
 
-    So «Մեծածախ» on the filter carries the figure it would show, and so the page can
-    tell whether the period holds any of the old 'custom' lines — money that belongs
-    to neither list and would otherwise go quietly missing between the two.
+    Feeds two things: the figures on the product table's filter buttons, and the
+    «Ըստ գնացուցակի» comparison — which needs the margin beside the revenue, because
+    wholesale is deliberately thinner and the only way to see whether the volume
+    pays for the discount is to see the two profits next to each other.
+
+    It is also how the page can tell whether the period holds any of the old
+    'custom' lines — money that belongs to neither list and would otherwise go
+    quietly missing between the two.
     """
     return await db.fetch(
         f"""
         SELECT si.price_kind,
                {_REVENUE} AS revenue,
+               {_PROFIT}  AS profit,
                coalesce(sum(si.quantity), 0) AS units
           FROM sale_items si
           JOIN sales sa ON sa.id = si.sale_id

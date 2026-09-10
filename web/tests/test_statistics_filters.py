@@ -405,3 +405,71 @@ async def test_money_in_neither_list_is_named_rather_than_lost(client):
     page = await client.get("/statistics?period=7")
 
     assert "ձեռքով" in page.text, "the page says the money is in neither list"
+
+
+# -- the price-list comparison ------------------------------------------------
+#
+# «Ըստ գնացուցակի» in the «Վաճառքի կտրվածքով» card: both lists side by side, with
+# the margin beside the revenue — wholesale is deliberately thinner per unit, and
+# whether the volume pays for the discount is only visible with the two profits
+# next to each other.
+
+async def test_the_page_compares_the_two_price_lists(client):
+    """Together and separately: each list its own row, the whole in the footer."""
+    owner_id, _ = await _a_shop_selling_both_ways()
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=7")
+
+    assert "Ըստ գնացուցակի" in page.text
+    # 2 retail at 3,000 and 10 wholesale at 2,000, and the two together.
+    assert "6,000.00" in page.text
+    assert "20,000.00" in page.text
+    assert "26,000.00" in page.text
+
+
+async def test_the_comparison_carries_each_lists_own_margin(client):
+    owner_id, _ = await _a_shop_selling_both_ways()
+    since, until = settings.local_day(), settings.local_day()
+
+    rows = {r["label"]: r for r in (await statistics.overview(owner_id, since, until))["kind_rows"]}
+
+    # Retail: 2 × (3,000 − 1,000). Wholesale: 10 × (2,000 − 1,000).
+    assert rows["Մանրածախ"]["profit"] == Decimal("4000.00")
+    assert rows["Մեծածախ"]["profit"] == Decimal("10000.00")
+    assert rows["Մանրածախ"]["units"] == 2
+    assert rows["Մեծածախ"]["units"] == 10
+
+
+async def test_a_list_with_no_sales_is_still_a_row(client):
+    """«Մեծածախ վաճառք չի եղել» is an answer, and a comparison with one side
+    missing does not read as one."""
+    await _a_shop_with_a_days_trading()  # retail only
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=7")
+
+    assert "Ըստ գնացուցակի" in page.text
+    assert "Մեծածախ" in page.text, "the empty side is drawn, at zero"
+
+
+async def test_old_custom_lines_get_their_own_comparison_row(client):
+    """Nothing writes 'custom' any more, but old periods hold it, and rows that sum
+    short of the footer with no explanation are rows the owner cannot trust."""
+    owner_id, _ = await _a_shop_selling_both_ways()
+    await db.execute("UPDATE sale_items SET price_kind = 'custom' WHERE quantity = 2")
+    await login(client, "@ownerhandle")
+
+    page = await client.get("/statistics?period=7")
+
+    assert "Փոփոխված գնով" in page.text
+
+
+async def test_the_comparison_respects_the_store_filter(client):
+    owner_id, store_id = await _a_shop_selling_both_ways()
+    other = await make_store(owner_id, "Խանութ 2", lat=41.0, lng=45.0)
+    since, until = settings.local_day(), settings.local_day()
+
+    rows = (await statistics.overview(owner_id, since, until, other))["kind_rows"]
+
+    assert all(r["revenue"] == Decimal("0") for r in rows), "the other shop sold nothing"
