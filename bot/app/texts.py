@@ -58,9 +58,6 @@ BTN_RETAIL_OFF = "⬜ Մանրածախ"
 BTN_WHOLESALE_ON = "✅ Մեծածախ"
 BTN_WHOLESALE_OFF = "⬜ Մեծածախ"
 BTN_PRICE_OK = "✅ Շարունակել"
-# Ticked «Մեծածախ» on a product whose wholesale price the owner never set. There is
-# no number to continue with, so the same button asks for one instead of continuing.
-BTN_PRICE_WRITE = "✏️ Գրել մեծածախ գինը"
 BTN_CO_ADD = "➕ Ավելացնել ապրանք"
 BTN_CO_REMOVE = "↩️ Ջնջել վերջինը"
 BTN_CO_DONE = "✅ Ավարտել ցուցակը"
@@ -474,12 +471,6 @@ HELP = (
 # -- write-offs --------------------------------------------------------------
 
 ASK_OTHER_PRICE = "Գրեք գինը թվով, օրինակ՝ 3200։"
-# Asked when «Մեծածախ» was tapped on a product with no wholesale price set. The
-# line is still recorded as a wholesale one — that is the point of asking here
-# rather than sending the cashier to «Այլ գին».
-ASK_WHOLESALE_PRICE = (
-    "Այս ապրանքի մեծածախ գինը նշված չէ։\nԳրեք մեծածախ գինը թվով, օրինակ՝ 3000։"
-)
 UNDO_HINT = "Սխա՞լ գրանցեցիք։"
 
 DEFECT_ASK_ITEM = (

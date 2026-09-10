@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.errors import AppError
-
 CENT = Decimal("0.01")
 
 # 'custom' is still accepted and still read: years of lines carry it, and the
@@ -39,24 +37,15 @@ def resolve_price(item, typed, kind: str | None) -> tuple[Decimal, str]:
     kind = kind if kind in KINDS else "retail"
     typed_nothing = typed is None or typed == ""
 
+    # A wholesale tick on a product with no trade price falls back to the shelf
+    # price: with no separate number set, the shelf price *is* the price, and the
+    # tick then says only which list the line is filed under. It used to refuse
+    # instead, which made one tick behave unlike the other on exactly the products
+    # least likely to have their prices filled in — and the bot's «Շարունակել»
+    # button quotes this same fallback, so refusing here would book a different
+    # answer than the button promised.
     listed = Decimal(item["sell_price"])
-    if kind == "wholesale":
-        if item["wholesale_price"] is None:
-            if typed_nothing:
-                # Nothing to charge. Refusing beats quietly charging retail: the
-                # cashier asked for a price the owner never set, and only the
-                # owner can fix that.
-                raise AppError(
-                    "validation_error",
-                    f"«{item['name']}»-ի մեծածախ գինը նշված չէ։ "
-                    f"Նշեք այն ապրանքի էջում կամ գրեք գինը ձեռքով։",
-                )
-            # A typed amount, though, is an answer. "Sold this wholesale for
-            # 3,000" is a fact about the sale whether or not the owner ever wrote
-            # a list price down, and filing it as a haggle instead would leave
-            # every wholesale figure understated — which is exactly what the
-            # message above tells the cashier to do about it.
-            return Decimal(typed), "wholesale"
+    if kind == "wholesale" and item["wholesale_price"] is not None:
         listed = Decimal(item["wholesale_price"])
 
     if typed_nothing:

@@ -205,22 +205,19 @@ def test_a_typed_price_replaces_the_number_not_the_tick():
     assert "5,600" in _button(markup, keyboards.CB_PRICE_OK), "at the typed price"
 
 
-def test_a_product_with_no_trade_price_still_offers_the_box():
-    """A missing wholesale price is not a reason the cashier cannot sell a box at
-    a trade price — only a reason nobody wrote the price down yet."""
-    labels, _ = _price_screen(item=NO_TRADE_PRICE)
-
-    assert any("Մեծածախ" in label for label in labels)
-
-
-def test_ticking_it_there_asks_for_the_number_instead_of_continuing():
-    """There is nothing to continue *with*, so the same button asks."""
+def test_a_product_with_no_trade_price_falls_back_to_the_shelf_price():
+    """With no separate trade price, the shelf price *is* the price, and the two
+    ticks differ only in which list the line is filed under. The screen keeps the
+    same shape either way — «Շարունակել» always goes, «Այլ գին» is always optional.
+    It used to demand a typed number here, which made one tick behave unlike the
+    other on exactly the products least likely to have their prices filled in."""
     from app import keyboards
 
-    _, markup = _price_screen(item=NO_TRADE_PRICE, kind="wholesale")
+    labels, markup = _price_screen(item=NO_TRADE_PRICE, kind="wholesale", quantity=2)
 
-    assert _button(markup, keyboards.CB_PRICE_OK) is None
-    assert _button(markup, f"{keyboards.CB_KIND}:other") == texts.BTN_PRICE_WRITE
+    assert any("Մեծածախ" in label and "3,500" in label for label in labels)
+    assert "7,000" in _button(markup, keyboards.CB_PRICE_OK), "2 × the shelf price"
+    assert _button(markup, f"{keyboards.CB_KIND}:other") == texts.BTN_OTHER_PRICE
 
 
 class _Quiet:

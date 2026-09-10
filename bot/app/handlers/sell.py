@@ -189,12 +189,7 @@ async def choose_suggested_price(update: Update, context: ContextTypes.DEFAULT_T
         # list: a box haggled down is still a box sold wholesale, and filing it as
         # neither list is what made «Մեծածախ» in the reports read low.
         await query.edit_message_reply_markup(reply_markup=None)
-        await query.message.reply_text(
-            texts.ASK_WHOLESALE_PRICE
-            if context.user_data.get("sell_kind") == "wholesale"
-            and item.get("wholesale_price") is None
-            else texts.ASK_OTHER_PRICE
-        )
+        await query.message.reply_text(texts.ASK_OTHER_PRICE)
         return ASK_PRICE
 
     context.user_data["sell_kind"] = kind if kind in ("retail", "wholesale") else "retail"
@@ -217,10 +212,6 @@ async def confirm_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     kind = context.user_data.get("sell_kind", "retail")
     price = keyboards.price_for(item, kind, context.user_data.get("sell_typed"))
-    if price is None:  # pragma: no cover - the button asks for a number instead
-        await query.message.reply_text(texts.ASK_WHOLESALE_PRICE)
-        return ASK_PRICE
-
     context.user_data["sell_price"] = price
     await query.edit_message_reply_markup(reply_markup=None)
     return await _ask_method(query.message, context)

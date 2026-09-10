@@ -18,7 +18,6 @@ from decimal import Decimal
 
 import pytest
 
-from app.errors import AppError
 from app.pricing import resolve_price
 
 ITEM = {"name": "HQD Cuvie", "sell_price": "3500.00", "wholesale_price": "3000.00"}
@@ -76,14 +75,17 @@ def test_an_explicit_custom_is_still_honoured():
 
 # -- a product nobody set a trade price for -----------------------------------
 
-def test_wholesale_without_a_trade_price_refuses_rather_than_charging_retail():
-    """The cashier asked for a price the owner never set. Quietly charging the shelf
-    price would take the customer's money at the wrong number."""
-    with pytest.raises(AppError):
-        resolve_price(NO_TRADE_PRICE, None, "wholesale")
+def test_wholesale_without_a_trade_price_falls_back_to_the_shelf_price():
+    """With no separate number set, the shelf price *is* the price, and the tick
+    says only which list the line is filed under. The bot's «Շարունակել» button
+    quotes this same fallback, so anything else here would book a different amount
+    than the button promised."""
+    assert resolve_price(NO_TRADE_PRICE, None, "wholesale") == (
+        Decimal("3500.00"), "wholesale"
+    )
 
 
-def test_but_a_typed_amount_is_an_answer():
+def test_and_a_typed_amount_still_wins():
     """"Sold this wholesale for 3,000" is a fact about the sale whether or not
     anybody wrote a list price down."""
     assert resolve_price(NO_TRADE_PRICE, "3000.00", "wholesale") == (

@@ -240,57 +240,54 @@ def suggested_prices(
     «Մանրածախ» starts ticked because nearly every sale is one, so the common case is
     still «Շարունակել» and nothing else — the same one tap it has always been.
 
-    A product whose wholesale price the owner never set still offers the box; ticking
-    it turns «Շարունակել» into «Գրել մեծածախ գինը», because there is no number to go
-    ahead with. Hiding the box instead — which it used to do — left a cashier selling
-    a box at a trade price with no way to say so at all.
+    A product whose wholesale price the owner never set shows the shelf price on
+    both rows: with no separate trade price, the shelf price *is* the price, and the
+    two ticks then differ only in which list the line is filed under. The screen
+    keeps the same shape either way — «Շարունակել» always goes, «Այլ գին» is always
+    optional. It used to demand a typed number in that case, which made one tick
+    behave unlike the other on the products least likely to have their prices
+    filled in.
     """
-    wholesale = item.get("wholesale_price")
     rows = [
         [InlineKeyboardButton(
             f"{texts.BTN_RETAIL_ON if kind == 'retail' else texts.BTN_RETAIL_OFF}"
-            f" — {Decimal(item['sell_price']):,.0f} ֏",
+            f" — {price_for(item, 'retail', None):,.0f} ֏",
             callback_data=f"{CB_KIND}:retail",
         )],
         [InlineKeyboardButton(
-            (f"{texts.BTN_WHOLESALE_ON if kind == 'wholesale' else texts.BTN_WHOLESALE_OFF}"
-             f" — {Decimal(wholesale):,.0f} ֏") if wholesale is not None
-            else (texts.BTN_WHOLESALE_ON if kind == "wholesale"
-                  else texts.BTN_WHOLESALE_OFF),
+            f"{texts.BTN_WHOLESALE_ON if kind == 'wholesale' else texts.BTN_WHOLESALE_OFF}"
+            f" — {price_for(item, 'wholesale', None):,.0f} ֏",
             callback_data=f"{CB_KIND}:wholesale",
         )],
     ]
 
     price = price_for(item, kind, typed)
-    if price is None:
-        rows.append([InlineKeyboardButton(
-            texts.BTN_PRICE_WRITE, callback_data=f"{CB_KIND}:other"
-        )])
-    else:
-        # The line total, not the unit price. It is what the customer hands over,
-        # and it is the number a cashier checks before committing.
-        rows.append([InlineKeyboardButton(
-            f"{texts.BTN_PRICE_OK} — {price * quantity:,.0f} ֏",
-            callback_data=CB_PRICE_OK,
-        )])
-        rows.append([InlineKeyboardButton(
-            texts.BTN_OTHER_PRICE, callback_data=f"{CB_KIND}:other"
-        )])
+    # The line total, not the unit price. It is what the customer hands over,
+    # and it is the number a cashier checks before committing.
+    rows.append([InlineKeyboardButton(
+        f"{texts.BTN_PRICE_OK} — {price * quantity:,.0f} ֏",
+        callback_data=CB_PRICE_OK,
+    )])
+    rows.append([InlineKeyboardButton(
+        texts.BTN_OTHER_PRICE, callback_data=f"{CB_KIND}:other"
+    )])
     rows.append([InlineKeyboardButton(texts.BTN_CANCEL, callback_data=CB_CANCEL)])
     return InlineKeyboardMarkup(rows)
 
 
-def price_for(item: dict, kind: str, typed: Decimal | None) -> Decimal | None:
-    """What «Շարունակել» would charge — or None when there is nothing to charge.
+def price_for(item: dict, kind: str, typed: Decimal | None) -> Decimal:
+    """What «Շարունակել» would charge.
 
-    A typed amount outranks the list, which is what «Այլ գին» is for. None happens
-    in exactly one case: «Մեծածախ» ticked on a product with no wholesale price and
-    nothing typed yet.
+    A typed amount outranks the list, which is what «Այլ գին» is for. A wholesale
+    tick on a product with no trade price falls back to the shelf price — the same
+    rule the server's resolve_price applies, and the two must agree or the button
+    would promise one number and book another.
     """
     if typed is not None:
         return typed
-    listed = item.get("wholesale_price") if kind == "wholesale" else item.get("sell_price")
-    return None if listed is None else Decimal(listed)
+    if kind == "wholesale" and item.get("wholesale_price") is not None:
+        return Decimal(item["wholesale_price"])
+    return Decimal(item["sell_price"])
 
 
 def closeout_menu(empty: bool) -> ReplyKeyboardMarkup:

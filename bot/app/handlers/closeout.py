@@ -438,12 +438,7 @@ async def choose_suggested_price(update: Update, context: ContextTypes.DEFAULT_T
     if kind == "other":
         # The tick stays put; only the number is being replaced.
         await query.edit_message_reply_markup(reply_markup=None)
-        await query.message.reply_text(
-            texts.ASK_WHOLESALE_PRICE
-            if context.user_data.get("co_price_kind") == "wholesale"
-            and item.get("wholesale_price") is None
-            else texts.ASK_OTHER_PRICE
-        )
+        await query.message.reply_text(texts.ASK_OTHER_PRICE)
         return ASK_PRICE
 
     context.user_data["co_price_kind"] = (
@@ -468,10 +463,6 @@ async def confirm_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     kind = context.user_data.get("co_price_kind", "retail")
     price = keyboards.price_for(item, kind, context.user_data.get("co_typed"))
-    if price is None:  # pragma: no cover - the button asks for a number instead
-        await query.message.reply_text(texts.ASK_WHOLESALE_PRICE)
-        return ASK_PRICE
-
     context.user_data["co_price"] = price
     await query.edit_message_reply_markup(reply_markup=None)
     return await _ask_method(query.message, context)
