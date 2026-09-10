@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import asyncpg
 
+from app.config import settings
 from app.db import db
 from app.repo.workers import DISPLAY_NAME
 
@@ -142,12 +143,13 @@ async def list_between(
           JOIN stores s ON s.id = wo.store_id
           LEFT JOIN workers w ON w.id = wo.worker_id
          WHERE wo.owner_id = $1
-           AND wo.created_at >= $2 AND wo.created_at < ($3::date + 1)
+           AND wo.created_at >= ($2::date)::timestamp AT TIME ZONE $6
+           AND wo.created_at <  (($3::date + 1))::timestamp AT TIME ZONE $6
            AND ($4::bigint IS NULL OR wo.store_id = $4)
          ORDER BY wo.created_at DESC, wo.id DESC
          LIMIT $5
         """,
-        owner_id, since, until, store_id, limit,
+        owner_id, since, until, store_id, limit, settings.tzname,
     )
 
 
@@ -162,13 +164,23 @@ async def cost_for_session(store_session_id: int) -> Decimal:
 
 
 async def cost_between(owner_id: int, since, until, store_id: int | None = None) -> Decimal:
-    """What breakage cost over a period — a real expense, just not a till one."""
+    """What breakage cost over a period — a real expense, just not a till one.
+
+    The window is the *local* day, converted explicitly. ``created_at`` is a
+    timestamptz and ``since`` a Yerevan date, and comparing them bare lets Postgres
+    cast the date at the server's own midnight — UTC — which starts every day four
+    hours early. A vape written off at half past midnight was filed under yesterday,
+    and «Այսօր»-ի statistics read between midnight and 04:00 missed the evening's
+    breakage entirely. Same predicate shape as spending.py and stats.py, for the
+    same reason.
+    """
     return await db.fetchval(
         """
         SELECT coalesce(sum(total_cost), 0) FROM write_offs
          WHERE owner_id = $1
-           AND created_at >= $2 AND created_at < ($3::date + 1)
+           AND created_at >= ($2::date)::timestamp AT TIME ZONE $5
+           AND created_at <  (($3::date + 1))::timestamp AT TIME ZONE $5
            AND ($4::bigint IS NULL OR store_id = $4)
         """,
-        owner_id, since, until, store_id,
+        owner_id, since, until, store_id, settings.tzname,
     )
